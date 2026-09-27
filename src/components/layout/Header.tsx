@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { FDA_LOGO_URL } from '../../assets/logo';
 import { USER_PERSONAS } from '../../data/initialData';
 import { UserRole } from '../../types';
 import {
-  Shield,
   Bell,
   CheckCircle2,
   ChevronDown,
   Printer,
-  FileCheck,
-  Building2,
   Radio,
-  X
+  X,
+  LogOut,
+  Globe
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -21,7 +21,8 @@ export const Header: React.FC = () => {
     notifications,
     dismissNotification,
     openPrintModal,
-    rtmRequirements
+    rtmRequirements,
+    logoutToPublicPortal
   } = useApp();
 
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -36,9 +37,12 @@ export const Header: React.FC = () => {
           <div className="flex items-center space-x-3.5">
             <div className="bg-white p-1.5 rounded-lg shadow-sm flex items-center justify-center border border-forest-200">
               <img
-                src="/fda-logo.png"
+                src={FDA_LOGO_URL}
                 alt="Forestry Development Authority Logo"
                 className="h-12 w-12 object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
               />
             </div>
             <div>
@@ -80,9 +84,19 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Action Suite: Print Report, Notification Center & Role Switcher */}
+          {/* Right Action Suite: Print Report, Notification Center, Role Switcher & Logout */}
           <div className="flex items-center space-x-3">
             
+            {/* View Public Portal */}
+            <button
+              onClick={logoutToPublicPortal}
+              title="Return to Public Home & Tender Portal"
+              className="hidden sm:inline-flex items-center space-x-1.5 bg-forest-950/70 hover:bg-forest-950 text-forest-200 hover:text-white text-xs px-3 py-2 rounded-md font-medium transition border border-forest-800"
+            >
+              <Globe className="w-3.5 h-3.5 text-gold-400" />
+              <span>Public Portal</span>
+            </button>
+
             {/* Quick Print Official Report Button */}
             <button
               onClick={() => openPrintModal({
@@ -90,7 +104,7 @@ export const Header: React.FC = () => {
                 data: { title: 'FDA Liberia ERP Executive Compliance Dossier', items: rtmRequirements }
               })}
               title="Print Official Document with FDA Letterhead"
-              className="hidden sm:inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-forest-100 text-xs px-3 py-2 rounded-md font-medium transition border border-forest-700"
+              className="hidden md:inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-forest-100 text-xs px-3 py-2 rounded-md font-medium transition border border-forest-700"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print Dossier</span>
@@ -167,10 +181,10 @@ export const Header: React.FC = () => {
                 <div className="absolute right-0 mt-2 w-80 bg-white text-slate-900 rounded-lg shadow-2xl border border-slate-200 py-2 z-50">
                   <div className="px-4 py-2 border-b border-slate-100">
                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Switch Role Persona (Segregation of Duties)
+                      Switch Role Persona (RBAC Enforced)
                     </p>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Verify workflows & permissions under different key officers:
+                      Sidebar menus dynamically adapt to active role permissions:
                     </p>
                   </div>
                   <div className="max-h-88 overflow-y-auto divide-y divide-slate-100">
@@ -198,9 +212,31 @@ export const Header: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  <div className="p-2 border-t border-slate-100 bg-slate-50">
+                    <button
+                      onClick={() => {
+                        setShowRoleMenu(false);
+                        logoutToPublicPortal();
+                      }}
+                      className="w-full text-center py-1.5 text-xs text-red-600 hover:text-red-800 font-semibold flex items-center justify-center space-x-1"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Log Out to Public Portal</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* Direct Logout Button */}
+            <button
+              onClick={logoutToPublicPortal}
+              title="Sign Out"
+              className="p-2 rounded-lg bg-forest-800/80 hover:bg-red-900/60 text-forest-200 hover:text-red-300 transition border border-forest-700"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
 
           </div>
 

@@ -15,7 +15,9 @@ import {
   TimberConcessionPermit,
   FieldRangerIncident,
   AuditLogEntry,
-  UserPersona
+  UserPersona,
+  BidderClarificationQuery,
+  PublicTenderNotice
 } from '../types';
 
 export const USER_PERSONAS: Record<string, UserPersona> = {
@@ -924,3 +926,102 @@ export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [
     hash: '4481902837198203918239018230918230918203918230918230918230918230'
   }
 ];
+
+export const INITIAL_PUBLIC_TENDERS: PublicTenderNotice[] = [
+  {
+    id: 'TND-2026-001',
+    tenderRef: 'FDA/REOI/CONS/2026/001',
+    title: 'Integrated System Development (HR, Financial, Procurement & Asset Management System) — Consulting Services',
+    procurementCategory: 'CONSULTING_SERVICES',
+    publishedDate: 'September 20, 2026',
+    submissionDeadline: 'October 20, 2026 at 1:00 PM Liberia Time',
+    managingDirector: 'Hon. Rudolph J. Merab, Sr.',
+    submissionAddress: 'Forestry Development Authority, Whein Town, Bernard Farm, Montserrado County, Liberia',
+    primaryEmail: 'v.kpaiseh@yahoo.com',
+    clarificationEmail: 'wynnbryant12@gmail.com',
+    telephones: ['0776-063-643', '0886-551-249'],
+    estimatedBudgetUSD: 180000,
+    status: 'OPEN_FOR_EXPRESSIONS',
+    keyRequirements: [
+      'Valid Business Registration & Liberia Tax Clearance',
+      'Articles of Incorporation & Power of Attorney',
+      'Past performance for at least 3 relevant assignments',
+      'Audited Financial Statements for at least 2 years',
+      'Qualified Key Personnel (PM, Functional Lead, CISSP Security Engineer, Enterprise Architect, Data Migration Specialist)'
+    ]
+  },
+  {
+    id: 'TND-2026-002',
+    tenderRef: 'FDA/NCB/GOODS/2026/004',
+    title: 'Procurement of 4 Heavy-Duty 4x4 Field Patrol Pickups for County Depots',
+    procurementCategory: 'GOODS',
+    publishedDate: 'September 15, 2026',
+    submissionDeadline: 'October 25, 2026 at 2:00 PM Liberia Time',
+    managingDirector: 'Hon. Rudolph J. Merab, Sr.',
+    submissionAddress: 'FDA Headquarters, Bernard Farm, Montserrado County, Liberia',
+    primaryEmail: 'wynnbryant12@gmail.com',
+    clarificationEmail: 'v.kpaiseh@yahoo.com',
+    telephones: ['0776-063-643'],
+    estimatedBudgetUSD: 190000,
+    status: 'OPEN_FOR_EXPRESSIONS',
+    keyRequirements: [
+      'Authorized Manufacturer Dealership certificate in Liberia',
+      'Valid LRA Tax Clearance & PPCC Registration',
+      'Provision of manufacturer warranty & local maintenance service center'
+    ]
+  },
+  {
+    id: 'TND-2026-003',
+    tenderRef: 'FDA/RFQ/EQUIP/2026/012',
+    title: 'Supply of High-Resolution GPS Navigation Units & Acoustic Chainsaw Detectors for Forest Rangers',
+    procurementCategory: 'GOODS',
+    publishedDate: 'September 22, 2026',
+    submissionDeadline: 'October 15, 2026 at 12:00 PM Liberia Time',
+    managingDirector: 'Hon. Rudolph J. Merab, Sr.',
+    submissionAddress: 'FDA Headquarters, Bernard Farm, Montserrado County, Liberia',
+    primaryEmail: 'wynnbryant12@gmail.com',
+    clarificationEmail: 'v.kpaiseh@yahoo.com',
+    telephones: ['0886-551-249'],
+    estimatedBudgetUSD: 45000,
+    status: 'OPEN_FOR_EXPRESSIONS',
+    keyRequirements: [
+      'Direct importer or technology partner credentials',
+      'Standardized satellite messaging compatibility (Iridium/InReach)',
+      'Rugged IP67 water/dust resistance rating'
+    ]
+  }
+];
+
+export const INITIAL_BIDDER_QUERIES: BidderClarificationQuery[] = [
+  {
+    id: 'CLAR-01',
+    tenderRef: 'FDA/REOI/CONS/2026/001',
+    tenderTitle: 'Integrated System Development (HR, Financial, Procurement & Asset Management System)',
+    bidderCompanyName: 'Global Sahel IT Solutions & Partners',
+    bidderContactPerson: 'Dr. Alusine Camara',
+    bidderEmail: 'a.camara@saheltech.org',
+    bidderPhone: '+231 770 918 203',
+    question: 'Section 3 mentions integration with IFMIS and CSA HRMIS. Does the FDA intend for the consultant to supply middleware/connectors, or will standard REST API endpoints be exposed by MFDP and CSA?',
+    questionDate: '2026-09-24',
+    status: 'ANSWERED',
+    officialResponse: 'The Consultant shall deliver the integration boundaries and middleware connectors conforming to GoL IFMIS (FreeBalance ISO 20022 XML/JSON batch) and CSA HRMIS biometric standards. All middleware must be included in the core solution.',
+    respondedBy: 'J. Varney Kpaiseh (Finance & Functional Lead)',
+    responseDate: '2026-09-25'
+  },
+  {
+    id: 'CLAR-02',
+    tenderRef: 'FDA/REOI/CONS/2026/001',
+    tenderTitle: 'Integrated System Development (HR, Financial, Procurement & Asset Management System)',
+    bidderCompanyName: 'West African Forestry Systems Consortium',
+    bidderContactPerson: 'Foday Kromah',
+    bidderEmail: 'foday@waf-systems.com',
+    bidderPhone: '+231 886 312 900',
+    question: 'Can foreign firms submit in partnership with qualified Liberian software firms to satisfy local capacity building and knowledge transfer obligations?',
+    questionDate: '2026-09-25',
+    status: 'ANSWERED',
+    officialResponse: 'Yes, in full compliance with PPCC Act regulations, joint ventures and implementation partner consortiums with accredited Liberian entities are strongly encouraged to facilitate continuous post-implementation support.',
+    respondedBy: 'Wynn Bryant (Head of Procurement)',
+    responseDate: '2026-09-26'
+  }
+];
+

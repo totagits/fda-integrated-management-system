@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { FDA_LOGO_URL } from '../../assets/logo';
 import { FixedAsset } from '../../types';
 import {
   Box,
@@ -244,7 +245,7 @@ export const AssetModule: React.FC = () => {
             {selectedAssetForQR ? (
               <div className="bg-slate-50 border-2 border-dashed border-forest-600 rounded-xl p-4 text-center space-y-3">
                 <div className="flex items-center justify-center space-x-2">
-                  <img src="/fda-logo.png" alt="FDA Logo" className="w-8 h-8 object-contain" />
+                  <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-8 h-8 object-contain" />
                   <div className="text-left">
                     <p className="text-[10px] font-extrabold uppercase tracking-wider text-forest-900">
                       Forestry Development Authority
@@ -270,7 +271,7 @@ export const AssetModule: React.FC = () => {
                       ))}
                     </div>
                     <div className="z-10 bg-white p-1 rounded">
-                      <img src="/fda-logo.png" alt="Seal" className="w-6 h-6 object-contain" />
+                      <img src={FDA_LOGO_URL} alt="Seal" className="w-6 h-6 object-contain" />
                     </div>
                   </div>
                 </div>

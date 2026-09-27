@@ -171,6 +171,41 @@ export interface PurchaseOrder {
   };
 }
 
+export interface BidderClarificationQuery {
+  id: string;
+  tenderRef: string;
+  tenderTitle: string;
+  bidderCompanyName: string;
+  bidderContactPerson: string;
+  bidderEmail: string;
+  bidderPhone: string;
+  question: string;
+  questionDate: string;
+  status: 'PENDING_RESPONSE' | 'ANSWERED';
+  officialResponse?: string;
+  respondedBy?: string;
+  responseDate?: string;
+}
+
+export interface PublicTenderNotice {
+  id: string;
+  tenderRef: string;
+  title: string;
+  procurementCategory: 'CONSULTING_SERVICES' | 'GOODS' | 'WORKS' | 'NON_CONSULTING';
+  publishedDate: string;
+  submissionDeadline: string;
+  managingDirector: string;
+  submissionAddress: string;
+  primaryEmail: string;
+  clarificationEmail: string;
+  telephones: string[];
+  estimatedBudgetUSD: number;
+  status: 'OPEN_FOR_EXPRESSIONS' | 'UNDER_EVALUATION' | 'AWARDED';
+  keyRequirements: string[];
+  documentsDownloadUrl?: string;
+}
+
+
 // ==================== 4. ASSET & INVENTORY ====================
 export interface FixedAsset {
   id: string;

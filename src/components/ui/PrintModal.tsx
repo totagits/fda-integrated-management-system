@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
+import { FDA_LOGO_URL } from '../../assets/logo';
 import { Printer, X, Download, ShieldCheck } from 'lucide-react';
 
 export const PrintModal: React.FC = () => {
@@ -45,7 +46,7 @@ export const PrintModal: React.FC = () => {
           <div className="border-b-2 border-forest-900 pb-4 text-center relative">
             <div className="flex items-center justify-center space-x-4">
               <img
-                src="/fda-logo.png"
+                src={FDA_LOGO_URL}
                 alt="FDA Seal"
                 className="w-16 h-16 object-contain"
               />
@@ -64,7 +65,7 @@ export const PrintModal: React.FC = () => {
                 </p>
               </div>
               <img
-                src="/fda-logo.png"
+                src={FDA_LOGO_URL}
                 alt="FDA Seal"
                 className="w-16 h-16 object-contain opacity-0 sm:opacity-100"
               />
@@ -149,7 +150,7 @@ export const PrintModal: React.FC = () => {
           {printPayload.type === 'ASSET_TAG' && (
             <div className="p-6 border-2 border-dashed border-forest-800 rounded-xl space-y-4 text-center max-w-md mx-auto bg-slate-50">
               <div className="flex items-center justify-center space-x-2">
-                <img src="/fda-logo.png" alt="FDA Logo" className="w-10 h-10 object-contain" />
+                <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-10 h-10 object-contain" />
                 <div className="text-left">
                   <h3 className="font-extrabold text-sm text-forest-900 uppercase">
                     Forestry Development Authority

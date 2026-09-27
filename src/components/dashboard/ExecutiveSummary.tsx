@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
+import { FDA_LOGO_URL } from '../../assets/logo';
 import {
   Users,
   DollarSign,
@@ -55,7 +56,7 @@ export const ExecutiveSummary: React.FC = () => {
       {/* Top Banner / Welcome Callout */}
       <div className="bg-gradient-to-r from-forest-900 via-forest-800 to-forest-900 rounded-xl p-6 text-white shadow-lg border border-forest-700/60 relative overflow-hidden">
         <div className="absolute -right-10 -bottom-10 opacity-10 pointer-events-none">
-          <img src="/fda-logo.png" alt="FDA Seal" className="w-80 h-80 object-contain" />
+          <img src={FDA_LOGO_URL} alt="FDA Seal" className="w-80 h-80 object-contain" />
         </div>
 
         <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">

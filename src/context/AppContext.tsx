@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import {
   UserRole,
   UserPersona,
@@ -18,7 +18,9 @@ import {
   TimberConcessionPermit,
   FieldRangerIncident,
   AuditLogEntry,
-  RTMRequirement
+  RTMRequirement,
+  BidderClarificationQuery,
+  PublicTenderNotice
 } from '../types';
 
 import {
@@ -38,7 +40,9 @@ import {
   INITIAL_COUNTY_STATUS,
   INITIAL_TIMBER_CONCESSIONS,
   INITIAL_RANGER_INCIDENTS,
-  INITIAL_AUDIT_LOGS
+  INITIAL_AUDIT_LOGS,
+  INITIAL_PUBLIC_TENDERS,
+  INITIAL_BIDDER_QUERIES
 } from '../data/initialData';
 
 import { INITIAL_RTM_DATA } from '../data/rtmData';
@@ -54,6 +58,16 @@ export type AppModule =
   | 'AUDIT'
   | 'SECURITY';
 
+export const ROLE_ALLOWED_MODULES: Record<UserRole, AppModule[]> = {
+  MANAGING_DIRECTOR: ['DASHBOARD', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'ASSETS', 'OPERATIONS', 'RTM', 'AUDIT', 'SECURITY'],
+  FINANCE_DIRECTOR: ['DASHBOARD', 'FINANCE', 'PROCUREMENT', 'RTM', 'AUDIT'],
+  HR_DIRECTOR: ['DASHBOARD', 'HRMIS', 'RTM', 'AUDIT'],
+  PROCUREMENT_OFFICER: ['DASHBOARD', 'PROCUREMENT', 'RTM', 'AUDIT'],
+  ASSET_OFFICER: ['DASHBOARD', 'ASSETS', 'RTM', 'AUDIT'],
+  COUNTY_OFFICER: ['DASHBOARD', 'OPERATIONS', 'ASSETS', 'RTM'],
+  INTERNAL_AUDITOR: ['DASHBOARD', 'FINANCE', 'PROCUREMENT', 'AUDIT', 'RTM', 'SECURITY']
+};
+
 export interface AppNotification {
   id: string;
   title: string;
@@ -68,10 +82,21 @@ export interface PrintModalPayload {
 }
 
 interface AppContextType {
+  // Navigation & Public Portal
+  isPublicPortal: boolean;
+  setIsPublicPortal: (val: boolean) => void;
   activeModule: AppModule;
   setActiveModule: (mod: AppModule) => void;
   currentPersona: UserPersona;
   setCurrentRole: (role: UserRole) => void;
+  logoutToPublicPortal: () => void;
+  loginToIntranet: (role?: UserRole) => void;
+
+  // Public Tenders & Bidder Portal
+  publicTenders: PublicTenderNotice[];
+  bidderQueries: BidderClarificationQuery[];
+  submitBidderQuery: (query: Omit<BidderClarificationQuery, 'id' | 'questionDate' | 'status'>) => void;
+  respondToBidderQuery: (id: string, response: string) => void;
 
   // HRMIS
   employees: Employee[];
@@ -134,10 +159,13 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isPublicPortal, setIsPublicPortal] = useState<boolean>(true); // Defaults to Home/Landing page for public visitors!
   const [activeModule, setActiveModule] = useState<AppModule>('DASHBOARD');
   const [currentPersona, setCurrentPersona] = useState<UserPersona>(USER_PERSONAS.MANAGING_DIRECTOR);
 
-  // Persistence helpers
+  // Datasets
+  const [publicTenders] = useState<PublicTenderNotice[]>(INITIAL_PUBLIC_TENDERS);
+  const [bidderQueries, setBidderQueries] = useState<BidderClarificationQuery[]>(INITIAL_BIDDER_QUERIES);
   const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(INITIAL_LEAVE_REQUESTS);
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>(INITIAL_PAYROLL_RECORDS);
@@ -215,9 +243,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const persona = USER_PERSONAS[role];
     if (persona) {
       setCurrentPersona(persona);
+      // Enforce RBAC: if activeModule is not allowed for this persona, reset to DASHBOARD
+      const allowed = ROLE_ALLOWED_MODULES[role];
+      if (!allowed.includes(activeModule)) {
+        setActiveModule('DASHBOARD');
+      }
       addAuditEntry('ROLE_SWITCH', 'SECURITY', `User switched persona context to ${persona.name} (${persona.title})`);
-      notify('Persona Context Updated', `Switched active role to: ${persona.title} (${persona.name})`, 'INFO');
+      notify('Persona Context Updated', `Active role switched to: ${persona.title} (${persona.name})`, 'INFO');
     }
+  };
+
+  const logoutToPublicPortal = () => {
+    setIsPublicPortal(true);
+    notify('Signed Out', 'Returned to Forestry Development Authority Public Portal.', 'INFO');
+  };
+
+  const loginToIntranet = (role?: UserRole) => {
+    if (role && USER_PERSONAS[role]) {
+      setCurrentPersona(USER_PERSONAS[role]);
+      const allowed = ROLE_ALLOWED_MODULES[role];
+      if (!allowed.includes(activeModule)) {
+        setActiveModule('DASHBOARD');
+      }
+    }
+    setIsPublicPortal(false);
+    notify('Welcome to Intranet ERP', `Logged in as ${currentPersona.title} (${currentPersona.name})`, 'SUCCESS');
+  };
+
+  // Bidder Portal Queries
+  const submitBidderQuery = (query: Omit<BidderClarificationQuery, 'id' | 'questionDate' | 'status'>) => {
+    const newQ: BidderClarificationQuery = {
+      ...query,
+      id: `CLAR-${(bidderQueries.length + 1).toString().padStart(2, '0')}`,
+      questionDate: new Date().toISOString().substring(0, 10),
+      status: 'PENDING_RESPONSE'
+    };
+    setBidderQueries(prev => [newQ, ...prev]);
+    notify('Clarification Query Submitted', `Query for ${query.tenderRef} logged. FDA Procurement Team notified.`, 'SUCCESS');
+    addAuditEntry('BIDDER_QUERY_LOGGED', 'PROCUREMENT', `Prospective bidder ${query.bidderCompanyName} logged clarification query on ${query.tenderRef}`);
+  };
+
+  const respondToBidderQuery = (id: string, response: string) => {
+    setBidderQueries(prev => prev.map(q => {
+      if (q.id === id) {
+        return {
+          ...q,
+          status: 'ANSWERED',
+          officialResponse: response,
+          respondedBy: `${currentPersona.name} (${currentPersona.title})`,
+          responseDate: new Date().toISOString().substring(0, 10)
+        };
+      }
+      return q;
+    }));
+    notify('Official Response Published', 'Clarification posted on Public Tender Portal for all bidders.', 'SUCCESS');
+    addAuditEntry('BIDDER_QUERY_ANSWERED', 'PROCUREMENT', `Clarification query ${id} answered by ${currentPersona.name}`);
   };
 
   // HRMIS methods
@@ -306,7 +386,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setPaymentVouchers(prev => [newVoucher, ...prev]);
 
-    // Reserve vote commitment
     if (vote) {
       setBudgetVotes(prev => prev.map(v => {
         if (v.id === vote.id) {
@@ -545,7 +624,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notify('County Synchronization Complete', `All field logs from ${county} County merged with HQ database.`, 'SUCCESS');
   };
 
-  // Print modal helpers
   const openPrintModal = (payload: PrintModalPayload) => {
     setPrintPayload(payload);
   };
@@ -557,10 +635,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        isPublicPortal,
+        setIsPublicPortal,
         activeModule,
         setActiveModule,
         currentPersona,
         setCurrentRole,
+        logoutToPublicPortal,
+        loginToIntranet,
+
+        publicTenders,
+        bidderQueries,
+        submitBidderQuery,
+        respondToBidderQuery,
 
         employees,
         leaveRequests,
