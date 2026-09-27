@@ -240,24 +240,19 @@ export const Header: React.FC = () => {
             </button>
 
             {/* Republic of Liberia National Seal (Official Coat of Arms) */}
-            <div className="flex items-center space-x-2.5 pl-3 border-l border-forest-800/80">
-              <div className="bg-forest-950/80 p-1.5 rounded-lg border border-gold-500/40 shadow-sm flex items-center justify-center">
+            <div className="flex items-center pl-3 border-l border-forest-800/80">
+              <div
+                className="bg-white p-1 rounded-lg border border-gold-500/40 shadow-sm flex items-center justify-center"
+                title="Republic of Liberia • The Love of Liberty Brought Us Here"
+              >
                 <img
                   src={LIBERIA_SEAL_URL}
                   alt="Republic of Liberia National Seal"
-                  className="h-10 w-10 object-contain"
+                  className="h-12 w-12 object-contain"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}
                 />
-              </div>
-              <div className="hidden lg:block text-left">
-                <span className="block text-[11px] font-bold text-white uppercase tracking-wider leading-tight">
-                  Republic of Liberia
-                </span>
-                <span className="block text-[10px] text-gold-300/90 italic font-serif leading-tight">
-                  The Love of Liberty Brought Us Here
-                </span>
               </div>
             </div>
 

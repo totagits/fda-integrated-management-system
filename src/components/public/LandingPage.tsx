@@ -150,24 +150,19 @@ export const LandingPage: React.FC = () => {
             </button>
 
             {/* Republic of Liberia National Seal */}
-            <div className="flex items-center space-x-2 pl-3 border-l border-slate-200">
-              <div className="bg-amber-50 p-1.5 rounded-lg border border-amber-200/80 shadow-sm flex items-center justify-center">
+            <div className="flex items-center pl-3 border-l border-slate-200">
+              <div
+                className="bg-amber-50/90 p-1.5 rounded-lg border border-amber-200/90 shadow-sm flex items-center justify-center"
+                title="Republic of Liberia • The Love of Liberty Brought Us Here"
+              >
                 <img
                   src={LIBERIA_SEAL_URL}
                   alt="Republic of Liberia National Seal"
-                  className="h-10 w-10 object-contain"
+                  className="h-12 w-12 object-contain"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}
                 />
-              </div>
-              <div className="hidden xl:block text-left">
-                <span className="block text-[11px] font-extrabold text-slate-800 uppercase tracking-wider leading-none">
-                  Republic of Liberia
-                </span>
-                <span className="text-[10px] text-amber-900/80 italic font-serif">
-                  The Love of Liberty Brought Us Here
-                </span>
               </div>
             </div>
           </div>
@@ -185,7 +180,7 @@ export const LandingPage: React.FC = () => {
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
                 
                 {/* Left Column: Hero Title, Subtitle, CTAs */}
-                <div className="lg:col-span-7 space-y-6">
+                <div className="lg:col-span-6 space-y-6">
                   
                   <div className="inline-flex items-center space-x-2 bg-gold-500/20 text-gold-300 border border-gold-400/30 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider">
                     <span>Liberia Forest Sector Governance</span>
@@ -251,7 +246,7 @@ export const LandingPage: React.FC = () => {
                 </div>
 
                 {/* Right Column: Dynamic Interactive Carousel of Authentic FDA Photos from fda.gov.lr */}
-                <div className="lg:col-span-5">
+                <div className="lg:col-span-6">
                   <FdaPhotoCarousel />
                 </div>
 
