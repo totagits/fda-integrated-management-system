@@ -2,6 +2,7 @@ import {
   Employee,
   LeaveRequest,
   PayrollRecord,
+  FieldAttendanceLog,
   BudgetVoteCode,
   PaymentVoucher,
   BankAccount,
@@ -87,7 +88,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     email: 'r.merab@fda.gov.lr',
     phone: '+231 776 063 643',
     department: 'Executive Office',
-    position: 'Managing Director',
+    position: 'Managing Director & CEO',
     county: 'Montserrado',
     dutyStation: 'Whein Town HQ - Bernard Farm',
     gradeBand: 'Cabinet Executive Level 1',
@@ -95,9 +96,39 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'CIVIL_SERVICE',
     salaryUSD: 4500,
     salaryLRD: 877500,
+    hazardPayUSD: 0,
+    fieldAllowanceUSD: 0,
     dateEmployed: '2024-02-15',
+    dateOfBirth: '1968-05-14',
+    bankName: 'Central Bank of Liberia (CBL)',
+    accountNumber: '001-010-882194',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [
+      {
+        id: 'TRS-01',
+        fromStation: 'Forestry Advisory Directorate',
+        toStation: 'Whein Town HQ - Bernard Farm',
+        fromCounty: 'Montserrado',
+        toCounty: 'Montserrado',
+        transferDate: '2024-02-15',
+        authorizedBy: 'Office of the President (GoL)',
+        reason: 'Executive Presidential Appointment as Managing Director & CEO'
+      }
+    ],
+    promotions: [
+      {
+        id: 'PRM-01',
+        effectiveDate: '2024-02-15',
+        previousPosition: 'Senior Forestry Advisor',
+        newPosition: 'Managing Director & CEO',
+        previousGrade: 'Professional Band P4',
+        newGrade: 'Cabinet Executive Level 1',
+        previousSalaryUSD: 3500,
+        newSalaryUSD: 4500
+      }
+    ],
+    disciplinaryRecords: []
   },
   {
     id: 'EMP-002',
@@ -114,9 +145,28 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'CIVIL_SERVICE',
     salaryUSD: 3200,
     salaryLRD: 624000,
+    hazardPayUSD: 0,
+    fieldAllowanceUSD: 0,
     dateEmployed: '2020-06-10',
+    dateOfBirth: '1975-08-22',
+    bankName: 'Liberian Bank for Development & Investment (LBDI)',
+    accountNumber: '102-441-903210',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [],
+    promotions: [
+      {
+        id: 'PRM-02',
+        effectiveDate: '2022-07-01',
+        previousPosition: 'Chief Accountant',
+        newPosition: 'Director of Finance & Budget',
+        previousGrade: 'Professional Band P3',
+        newGrade: 'Professional Band P4',
+        previousSalaryUSD: 2600,
+        newSalaryUSD: 3200
+      }
+    ],
+    disciplinaryRecords: []
   },
   {
     id: 'EMP-003',
@@ -133,9 +183,17 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'CIVIL_SERVICE',
     salaryUSD: 2400,
     salaryLRD: 468000,
+    hazardPayUSD: 0,
+    fieldAllowanceUSD: 0,
     dateEmployed: '2021-03-01',
+    dateOfBirth: '1982-11-19',
+    bankName: 'Ecobank Liberia Limited',
+    accountNumber: '028-119-440355',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [],
+    promotions: [],
+    disciplinaryRecords: []
   },
   {
     id: 'EMP-004',
@@ -152,9 +210,39 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'FIELD_RANGER',
     salaryUSD: 1400,
     salaryLRD: 273000,
+    hazardPayUSD: 350,
+    fieldAllowanceUSD: 200,
     dateEmployed: '2019-11-12',
+    dateOfBirth: '1979-03-15',
+    bankName: 'Liberian Bank for Development & Investment (LBDI)',
+    accountNumber: '102-772-008129',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [
+      {
+        id: 'TRS-02',
+        fromStation: 'Sapo National Park Sector HQ',
+        toStation: 'East Nimba Nature Reserve Station',
+        fromCounty: 'Sinoe',
+        toCounty: 'Nimba',
+        transferDate: '2022-09-15',
+        authorizedBy: 'Helena S. Gbotoe (HR Director)',
+        reason: 'Rotational deployment for transboundary conservation enforcement & wildlife corridor protection'
+      }
+    ],
+    promotions: [
+      {
+        id: 'PRM-03',
+        effectiveDate: '2023-01-10',
+        previousPosition: 'Senior Ranger Inspector',
+        newPosition: 'Chief Ranger - East Nimba Nature Reserve',
+        previousGrade: 'Technical Cadre T2',
+        newGrade: 'Technical Cadre T3',
+        previousSalaryUSD: 1100,
+        newSalaryUSD: 1400
+      }
+    ],
+    disciplinaryRecords: []
   },
   {
     id: 'EMP-005',
@@ -171,9 +259,39 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'FDA_PERMANENT',
     salaryUSD: 1650,
     salaryLRD: 321750,
+    hazardPayUSD: 200,
+    fieldAllowanceUSD: 150,
     dateEmployed: '2022-04-18',
+    dateOfBirth: '1986-07-29',
+    bankName: 'Ecobank Liberia Limited',
+    accountNumber: '028-554-192384',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [
+      {
+        id: 'TRS-03',
+        fromStation: 'Whein Town HQ Monrovia',
+        toStation: 'Greenville Regional Hub - Sapo Sector',
+        fromCounty: 'Montserrado',
+        toCounty: 'Sinoe',
+        transferDate: '2023-03-01',
+        authorizedBy: 'Helena S. Gbotoe (HR Director)',
+        reason: 'Field deployment for commercial timber concession audit & chain-of-custody oversight'
+      }
+    ],
+    promotions: [
+      {
+        id: 'PRM-04',
+        effectiveDate: '2024-01-15',
+        previousPosition: 'Concession Monitoring Analyst',
+        newPosition: 'Senior Concession Monitoring Officer',
+        previousGrade: 'Professional Band P1',
+        newGrade: 'Professional Band P2',
+        previousSalaryUSD: 1300,
+        newSalaryUSD: 1650
+      }
+    ],
+    disciplinaryRecords: []
   },
   {
     id: 'EMP-006',
@@ -190,9 +308,28 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'CIVIL_SERVICE',
     salaryUSD: 1100,
     salaryLRD: 214500,
+    hazardPayUSD: 150,
+    fieldAllowanceUSD: 150,
     dateEmployed: '2023-01-15',
+    dateOfBirth: '1991-10-04',
+    bankName: 'Guaranty Trust Bank (Liberia) Ltd',
+    accountNumber: '204-883-903118',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [
+      {
+        id: 'TRS-04',
+        fromStation: 'Gbarpolu Forest Station',
+        toStation: 'Voinjama Depot Outpost',
+        fromCounty: 'Gbarpolu',
+        toCounty: 'Lofa',
+        transferDate: '2023-08-01',
+        authorizedBy: 'Helena S. Gbotoe (HR Director)',
+        reason: 'Community forestry extension and customary rights stakeholder reinforcement'
+      }
+    ],
+    promotions: [],
+    disciplinaryRecords: []
   },
   {
     id: 'EMP-007',
@@ -209,9 +346,37 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     cadre: 'FDA_PERMANENT',
     salaryUSD: 1350,
     salaryLRD: 263250,
+    hazardPayUSD: 250,
+    fieldAllowanceUSD: 100,
     dateEmployed: '2018-09-01',
+    dateOfBirth: '1963-04-18', // Age 63: 2 years remaining to statutory retirement threshold of 65
+    bankName: 'Liberian Bank for Development & Investment (LBDI)',
+    accountNumber: '102-339-449812',
     csaSyncStatus: 'SYNCED',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stationHistory: [
+      {
+        id: 'TRS-05',
+        fromStation: 'Freeport of Monrovia FDA Post',
+        toStation: 'Port of Buchanan FDA Control Point',
+        fromCounty: 'Montserrado',
+        toCounty: 'Grand Bassa',
+        transferDate: '2020-05-10',
+        authorizedBy: 'Helena S. Gbotoe (HR Director)',
+        reason: 'Port timber export chain-of-custody oversight & log container barcode verification'
+      }
+    ],
+    promotions: [],
+    disciplinaryRecords: [
+      {
+        id: 'DISC-01',
+        date: '2021-08-14',
+        incidentType: 'Delayed Export Log Tagging',
+        description: 'Administrative query issued for late log reconciliation during bulk vessel loading.',
+        actionTaken: 'Written Warning & Compliance Counseling (Resolved)',
+        resolved: true
+      }
+    ]
   }
 ];
 
@@ -245,18 +410,104 @@ export const INITIAL_LEAVE_REQUESTS: LeaveRequest[] = [
   }
 ];
 
+export const INITIAL_FIELD_ATTENDANCE_LOGS: FieldAttendanceLog[] = [
+  {
+    id: 'ATT-2026-09-001',
+    employeeId: 'EMP-004',
+    employeeName: 'Capt. Emmanuel D. Toe',
+    position: 'Chief Ranger - East Nimba Nature Reserve',
+    county: 'Nimba',
+    dutyStation: 'Sanniquellie Field Station / Mount Nimba',
+    timestamp: '2026-09-27T06:14:22Z',
+    type: 'GPS_MOBILE_CHECKIN',
+    gpsCoordinates: {
+      latitude: 7.5321,
+      longitude: -8.5302,
+      accuracyMeters: 4.2
+    },
+    geoFenceStatus: 'INSIDE_PROTECTED_AREA',
+    status: 'PRESENT'
+  },
+  {
+    id: 'ATT-2026-09-002',
+    employeeId: 'EMP-005',
+    employeeName: 'Grace Nyenpan',
+    position: 'Senior Concession Monitoring Officer',
+    county: 'Sinoe',
+    dutyStation: 'Greenville Regional Hub - Sapo Sector',
+    timestamp: '2026-09-27T06:45:11Z',
+    type: 'GPS_MOBILE_CHECKIN',
+    gpsCoordinates: {
+      latitude: 5.3421,
+      longitude: -8.6214,
+      accuracyMeters: 5.8
+    },
+    geoFenceStatus: 'INSIDE_PROTECTED_AREA',
+    status: 'PRESENT'
+  },
+  {
+    id: 'ATT-2026-09-003',
+    employeeId: 'EMP-007',
+    employeeName: 'Darius B. Wheagar',
+    position: 'Timber Export Port Inspector',
+    county: 'Grand Bassa',
+    dutyStation: 'Port of Buchanan FDA Control Point',
+    timestamp: '2026-09-27T07:02:45Z',
+    type: 'BIOMETRIC_TERMINAL',
+    terminalId: 'ZKT-BAS-PORT-02',
+    geoFenceStatus: 'VERIFIED',
+    status: 'PRESENT'
+  },
+  {
+    id: 'ATT-2026-09-004',
+    employeeId: 'EMP-001',
+    employeeName: 'Hon. Rudolph J. Merab, Sr.',
+    position: 'Managing Director & CEO',
+    county: 'Montserrado',
+    dutyStation: 'Whein Town HQ - Bernard Farm',
+    timestamp: '2026-09-27T07:28:10Z',
+    type: 'BIOMETRIC_TERMINAL',
+    terminalId: 'ZKT-MON-HQ-MAIN-01',
+    geoFenceStatus: 'VERIFIED',
+    status: 'PRESENT'
+  },
+  {
+    id: 'ATT-2026-09-005',
+    employeeId: 'EMP-006',
+    employeeName: 'Korpo Kollie',
+    position: 'Community Forestry Extension Agent',
+    county: 'Lofa',
+    dutyStation: 'Voinjama Depot Outpost',
+    timestamp: '2026-09-27T07:35:00Z',
+    type: 'GPS_MOBILE_CHECKIN',
+    gpsCoordinates: {
+      latitude: 8.4219,
+      longitude: -9.7483,
+      accuracyMeters: 6.1
+    },
+    geoFenceStatus: 'INSIDE_PROTECTED_AREA',
+    status: 'PRESENT'
+  }
+];
+
 export const INITIAL_PAYROLL_RECORDS: PayrollRecord[] = [
   {
     id: 'PAY-2026-09-01',
     period: 'September 2026',
     employeeId: 'EMP-001',
     employeeName: 'Hon. Rudolph J. Merab, Sr.',
+    bankName: 'Central Bank of Liberia (CBL)',
+    accountNumber: '001-010-882194',
+    baseSalaryUSD: 4500,
+    hazardPayUSD: 0,
+    fieldAllowanceUSD: 0,
     grossUSD: 4500,
     grossLRD: 877500,
     taxWithheldUSD: 900,
     nasscorpUSD: 180,
     netPayUSD: 3420,
     netPayLRD: 666900,
+    csaApprovalRef: 'CSA/AUDIT/2026/09-0194',
     status: 'VERIFIED',
     paymentDate: '2026-09-30'
   },
@@ -265,12 +516,18 @@ export const INITIAL_PAYROLL_RECORDS: PayrollRecord[] = [
     period: 'September 2026',
     employeeId: 'EMP-002',
     employeeName: 'J. Varney Kpaiseh',
+    bankName: 'Liberian Bank for Development & Investment (LBDI)',
+    accountNumber: '102-441-903210',
+    baseSalaryUSD: 3200,
+    hazardPayUSD: 0,
+    fieldAllowanceUSD: 0,
     grossUSD: 3200,
     grossLRD: 624000,
     taxWithheldUSD: 640,
     nasscorpUSD: 128,
     netPayUSD: 2432,
     netPayLRD: 474240,
+    csaApprovalRef: 'CSA/AUDIT/2026/09-0210',
     status: 'VERIFIED',
     paymentDate: '2026-09-30'
   },
@@ -279,12 +536,18 @@ export const INITIAL_PAYROLL_RECORDS: PayrollRecord[] = [
     period: 'September 2026',
     employeeId: 'EMP-003',
     employeeName: 'Wynn Bryant',
+    bankName: 'Ecobank Liberia Limited',
+    accountNumber: '028-119-440355',
+    baseSalaryUSD: 2400,
+    hazardPayUSD: 0,
+    fieldAllowanceUSD: 0,
     grossUSD: 2400,
     grossLRD: 468000,
     taxWithheldUSD: 480,
     nasscorpUSD: 96,
     netPayUSD: 1824,
     netPayLRD: 355680,
+    csaApprovalRef: 'CSA/AUDIT/2026/09-0355',
     status: 'VERIFIED',
     paymentDate: '2026-09-30'
   },
@@ -293,12 +556,38 @@ export const INITIAL_PAYROLL_RECORDS: PayrollRecord[] = [
     period: 'September 2026',
     employeeId: 'EMP-004',
     employeeName: 'Capt. Emmanuel D. Toe',
-    grossUSD: 1400,
-    grossLRD: 273000,
-    taxWithheldUSD: 280,
-    nasscorpUSD: 56,
-    netPayUSD: 1064,
-    netPayLRD: 207480,
+    bankName: 'Liberian Bank for Development & Investment (LBDI)',
+    accountNumber: '102-772-008129',
+    baseSalaryUSD: 1400,
+    hazardPayUSD: 350,
+    fieldAllowanceUSD: 200,
+    grossUSD: 1950,
+    grossLRD: 380250,
+    taxWithheldUSD: 390,
+    nasscorpUSD: 78,
+    netPayUSD: 1482,
+    netPayLRD: 288990,
+    csaApprovalRef: 'CSA/AUDIT/2026/09-0812',
+    status: 'VERIFIED',
+    paymentDate: '2026-09-30'
+  },
+  {
+    id: 'PAY-2026-09-05',
+    period: 'September 2026',
+    employeeId: 'EMP-005',
+    employeeName: 'Grace Nyenpan',
+    bankName: 'Ecobank Liberia Limited',
+    accountNumber: '028-554-192384',
+    baseSalaryUSD: 1650,
+    hazardPayUSD: 200,
+    fieldAllowanceUSD: 150,
+    grossUSD: 2000,
+    grossLRD: 390000,
+    taxWithheldUSD: 400,
+    nasscorpUSD: 80,
+    netPayUSD: 1520,
+    netPayLRD: 296400,
+    csaApprovalRef: 'CSA/AUDIT/2026/09-0412',
     status: 'VERIFIED',
     paymentDate: '2026-09-30'
   }

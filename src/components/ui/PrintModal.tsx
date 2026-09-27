@@ -280,47 +280,85 @@ export const PrintModal: React.FC = () => {
           {/* DOCUMENT BODY: 3. PAYROLL SLIP */}
           {printPayload.type === 'PAYROLL_SLIP' && (
             <div className="space-y-4 text-xs">
-              <div className="bg-slate-50 p-3 rounded border border-slate-200 flex justify-between">
+              <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 flex justify-between items-start">
                 <div>
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Official Pay Advice</span>
-                  <h3 className="text-sm font-bold text-slate-900">{printPayload.data.employeeName}</h3>
-                  <p className="text-[11px] text-slate-600">Period: {printPayload.data.period}</p>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Republic of Liberia • Civil Service & FDA Pay Advice</span>
+                  <h3 className="text-base font-bold text-slate-900 mt-0.5">{printPayload.data.employeeName}</h3>
+                  <p className="text-[11px] text-slate-600">Payroll Cycle: {printPayload.data.period} • Exchange Rate: 1 USD = 195 LRD</p>
                 </div>
                 <div className="text-right font-mono">
                   <span className="text-[10px] text-slate-500 font-bold uppercase">Disbursement Ref</span>
                   <p className="text-xs font-bold text-slate-800">{printPayload.data.id}</p>
-                  <p className="text-[10px] text-emerald-700 font-semibold">CSA Reconciled</p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">{printPayload.data.csaApprovalRef || 'CSA Reconciled & Approved'}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 border border-slate-200 p-4 rounded font-mono">
+              {/* Bank & Remittance Details */}
+              <div className="bg-blue-50/50 p-2.5 rounded-lg border border-blue-100 flex flex-wrap justify-between items-center text-[11px]">
+                <div className="flex items-center space-x-2">
+                  <span className="text-slate-500 font-semibold">Commercial Bank:</span>
+                  <span className="font-bold text-blue-900">{printPayload.data.bankName || 'LBDI (Liberian Bank for Dev & Investment)'}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-slate-500 font-semibold">Account Number:</span>
+                  <span className="font-mono font-bold text-slate-800">{printPayload.data.accountNumber || '102-441-903210'}</span>
+                </div>
+                <div className="flex items-center space-x-1 text-emerald-700 font-bold">
+                  <span>● Direct ACH/EFT Authorized</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border border-slate-200 p-4 rounded-lg font-mono">
                 <div className="space-y-2">
-                  <h4 className="font-sans font-bold text-slate-700 border-b pb-1">Earnings</h4>
+                  <h4 className="font-sans font-bold text-slate-800 border-b pb-1">Earnings & Field Allowances</h4>
                   <div className="flex justify-between">
-                    <span>Base Monthly Gross:</span>
-                    <strong>${printPayload.data.grossUSD.toLocaleString()} USD</strong>
+                    <span className="text-slate-600">Base Monthly Salary:</span>
+                    <strong>${(printPayload.data.baseSalaryUSD || printPayload.data.grossUSD).toLocaleString()} USD</strong>
                   </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>LRD Component:</span>
+                  {printPayload.data.hazardPayUSD ? (
+                    <div className="flex justify-between text-amber-800">
+                      <span>Ranger Hazard Pay:</span>
+                      <span>+${printPayload.data.hazardPayUSD.toLocaleString()} USD</span>
+                    </div>
+                  ) : null}
+                  {printPayload.data.fieldAllowanceUSD ? (
+                    <div className="flex justify-between text-blue-800">
+                      <span>County Duty Allowance:</span>
+                      <span>+${printPayload.data.fieldAllowanceUSD.toLocaleString()} USD</span>
+                    </div>
+                  ) : null}
+                  <div className="border-t pt-1 flex justify-between font-bold text-slate-900">
+                    <span>Total Gross Wages:</span>
+                    <span>${printPayload.data.grossUSD.toLocaleString()} USD</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-500">
+                    <span>LRD Equivalent:</span>
                     <span>{printPayload.data.grossLRD.toLocaleString()} LRD</span>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <h4 className="font-sans font-bold text-slate-700 border-b pb-1">Statutory Deductions</h4>
+                  <h4 className="font-sans font-bold text-slate-800 border-b pb-1">Statutory Deductions (GoL)</h4>
                   <div className="flex justify-between text-red-600">
-                    <span>LRA Personal Income Tax:</span>
+                    <span>LRA Personal Income Tax (20%):</span>
                     <span>-${printPayload.data.taxWithheldUSD.toLocaleString()} USD</span>
                   </div>
                   <div className="flex justify-between text-amber-700">
-                    <span>NASSCORP Social Security:</span>
+                    <span>NASSCORP Pension (4%):</span>
                     <span>-${printPayload.data.nasscorpUSD.toLocaleString()} USD</span>
                   </div>
+                  <div className="border-t pt-1 flex justify-between font-bold text-red-700">
+                    <span>Total Statutory Deductions:</span>
+                    <span>-${(printPayload.data.taxWithheldUSD + printPayload.data.nasscorpUSD).toLocaleString()} USD</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-sans mt-2">
+                    Deductions withheld at source in strict compliance with Liberian Revenue Authority and NASSCORP Acts.
+                  </p>
                 </div>
               </div>
 
-              <div className="bg-forest-50 p-3 rounded border border-forest-200 flex justify-between font-mono font-bold text-forest-900">
-                <span>Net Disbursed Take-Home:</span>
+              <div className="bg-forest-50 p-3.5 rounded-lg border border-forest-200 flex justify-between font-mono font-bold text-forest-900 text-sm">
+                <span>Net Commercial Bank Remittance:</span>
                 <span>${printPayload.data.netPayUSD.toLocaleString()} USD ({printPayload.data.netPayLRD.toLocaleString()} LRD)</span>
               </div>
             </div>

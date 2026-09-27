@@ -34,6 +34,56 @@ export type LiberiaCounty =
   | 'Grand Kru';
 
 // ==================== 1. HRMIS & PAYROLL ====================
+export interface CountyPostingRecord {
+  id: string;
+  fromStation: string;
+  toStation: string;
+  fromCounty: LiberiaCounty;
+  toCounty: LiberiaCounty;
+  transferDate: string;
+  authorizedBy: string;
+  reason: string;
+}
+
+export interface PromotionRecord {
+  id: string;
+  effectiveDate: string;
+  previousPosition: string;
+  newPosition: string;
+  previousGrade: string;
+  newGrade: string;
+  previousSalaryUSD: number;
+  newSalaryUSD: number;
+}
+
+export interface DisciplinaryRecord {
+  id: string;
+  date: string;
+  incidentType: string;
+  description: string;
+  actionTaken: string;
+  resolved: boolean;
+}
+
+export interface FieldAttendanceLog {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  position: string;
+  county: LiberiaCounty;
+  dutyStation: string;
+  timestamp: string;
+  type: 'BIOMETRIC_TERMINAL' | 'GPS_MOBILE_CHECKIN';
+  terminalId?: string;
+  gpsCoordinates?: {
+    latitude: number;
+    longitude: number;
+    accuracyMeters: number;
+  };
+  geoFenceStatus: 'INSIDE_PROTECTED_AREA' | 'OFF_STATION_FLAG' | 'VERIFIED';
+  status: 'PRESENT' | 'LATE' | 'EXCUSED';
+}
+
 export interface Employee {
   id: string;
   empNo: string;
@@ -49,9 +99,17 @@ export interface Employee {
   cadre: 'CIVIL_SERVICE' | 'FDA_PERMANENT' | 'FIELD_RANGER' | 'CONTRACTUAL';
   salaryUSD: number;
   salaryLRD: number;
+  hazardPayUSD?: number;
+  fieldAllowanceUSD?: number;
   dateEmployed: string;
+  dateOfBirth?: string;
+  bankName?: string;
+  accountNumber?: string;
   csaSyncStatus: 'SYNCED' | 'PENDING' | 'RECONCILED';
   status: 'ACTIVE' | 'ON_LEAVE' | 'SUSPENDED';
+  stationHistory?: CountyPostingRecord[];
+  promotions?: PromotionRecord[];
+  disciplinaryRecords?: DisciplinaryRecord[];
 }
 
 export interface LeaveRequest {
@@ -74,12 +132,18 @@ export interface PayrollRecord {
   period: string; // e.g. "September 2026"
   employeeId: string;
   employeeName: string;
+  bankName?: string;
+  accountNumber?: string;
+  baseSalaryUSD?: number;
+  hazardPayUSD?: number;
+  fieldAllowanceUSD?: number;
   grossUSD: number;
   grossLRD: number;
-  taxWithheldUSD: number; // LRA Withholding
-  nasscorpUSD: number;   // Social Security
+  taxWithheldUSD: number; // LRA Withholding (20%)
+  nasscorpUSD: number;   // Social Security (4%)
   netPayUSD: number;
   netPayLRD: number;
+  csaApprovalRef?: string;
   status: 'DRAFT' | 'VERIFIED' | 'DISBURSED';
   paymentDate: string;
 }
