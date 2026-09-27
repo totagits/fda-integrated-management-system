@@ -103,9 +103,10 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'SECURITY',
-      label: 'Security & Handover',
-      subtitle: 'CISSP Controls, Backups & SLA',
-      icon: Server
+      label: 'System Architecture',
+      subtitle: 'Core ERP, Gateways & Tech Specs',
+      icon: Server,
+      highlight: true
     }
   ];
 

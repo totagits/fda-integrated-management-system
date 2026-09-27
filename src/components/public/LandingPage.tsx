@@ -5,6 +5,7 @@ import { LIBERIA_SEAL_URL } from '../../assets/liberiaSeal';
 import { FdaPhotoCarousel } from './FdaPhotoCarousel';
 import { USER_PERSONAS } from '../../data/initialData';
 import { UserRole } from '../../types';
+import { SecurityModule } from '../governance/SecurityModule';
 import {
   TreePine,
   Shield,
@@ -21,7 +22,8 @@ import {
   AlertCircle,
   ExternalLink,
   ChevronRight,
-  LogIn
+  LogIn,
+  Layers
 } from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
@@ -33,7 +35,7 @@ export const LandingPage: React.FC = () => {
     currentPersona
   } = useApp();
 
-  const [activeSection, setActiveSection] = useState<'OVERVIEW' | 'TENDERS' | 'BIDDER_PORTAL'>('OVERVIEW');
+  const [activeSection, setActiveSection] = useState<'OVERVIEW' | 'TENDERS' | 'BIDDER_PORTAL' | 'ARCHITECTURE'>('OVERVIEW');
   const [selectedTenderRef, setSelectedTenderRef] = useState<string>(publicTenders[0]?.tenderRef || '');
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
@@ -137,6 +139,12 @@ export const LandingPage: React.FC = () => {
             >
               Bidder Clarification Portal ({bidderQueries.length})
             </button>
+            <button
+              onClick={() => setActiveSection('ARCHITECTURE')}
+              className={`hover:text-forest-800 transition ${activeSection === 'ARCHITECTURE' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
+            >
+              Enterprise Architecture & Specs
+            </button>
           </nav>
 
           {/* Intranet ERP Login Button & Republic of Liberia Seal */}
@@ -224,6 +232,14 @@ export const LandingPage: React.FC = () => {
                     >
                       <MessageSquare className="w-4 h-4 text-amber-400" />
                       <span>Bidder Clarification Portal</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveSection('ARCHITECTURE')}
+                      className="inline-flex items-center space-x-2 bg-forest-950/80 hover:bg-forest-950 text-emerald-300 border border-emerald-600/50 text-xs sm:text-sm font-medium px-4 py-3 rounded-lg transition"
+                    >
+                      <Layers className="w-4 h-4 text-emerald-400" />
+                      <span>Architecture & API Gateways</span>
                     </button>
                   </div>
 
@@ -564,6 +580,15 @@ export const LandingPage: React.FC = () => {
 
           </div>
         </section>
+
+        {/* 4. SYSTEM ARCHITECTURE & BLUEPRINT SECTION */}
+        {activeSection === 'ARCHITECTURE' && (
+          <section className="py-10 bg-slate-100/60 border-t border-slate-200">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <SecurityModule />
+            </div>
+          </section>
+        )}
 
       </main>
 
