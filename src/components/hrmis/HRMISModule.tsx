@@ -269,6 +269,25 @@ export const HRMISModule: React.FC = () => {
     setShowApplyLeaveModal(false);
   };
 
+  const openApplyLeaveModalForCurrent = () => {
+    const matchingEmp = employees.find(e => 
+      e.fullName.toLowerCase().includes(currentPersona.name.toLowerCase()) || 
+      currentPersona.name.toLowerCase().includes(e.fullName.toLowerCase())
+    ) || employees[3]; // default to Toe (EMP-004)
+
+    setLeaveForm({
+      employeeId: matchingEmp.id,
+      leaveType: matchingEmp.cadre === 'FIELD_RANGER' ? 'PATROL_COMPENSATORY' : 'ANNUAL',
+      startDate: '2026-10-12',
+      endDate: '2026-10-19',
+      days: 7,
+      reason: matchingEmp.cadre === 'FIELD_RANGER'
+        ? 'Compensatory rest and recuperation following 30-day extended border patrol at Mount Nimba strict reserve.'
+        : 'Statutory annual leave entitlement.'
+    });
+    setShowApplyLeaveModal(true);
+  };
+
   const handleRunGhostAudit = () => {
     setIsScanning(true);
     setTimeout(() => {
@@ -873,7 +892,7 @@ export const HRMISModule: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setShowApplyLeaveModal(true)}
+              onClick={() => openApplyLeaveModalForCurrent()}
               className="bg-forest-800 hover:bg-forest-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold shadow-sm transition flex items-center space-x-2 shrink-0"
             >
               <Plus className="w-4 h-4" />

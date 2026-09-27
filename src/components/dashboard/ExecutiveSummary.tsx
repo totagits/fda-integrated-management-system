@@ -15,7 +15,8 @@ import {
   FileCheck2,
   AlertTriangle,
   RefreshCw,
-  Printer
+  Printer,
+  Calendar
 } from 'lucide-react';
 
 export const ExecutiveSummary: React.FC = () => {
@@ -78,20 +79,27 @@ export const ExecutiveSummary: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setActiveModule('HRMIS')}
+              className="inline-flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-3.5 py-2.5 rounded-lg font-bold shadow-sm transition border border-emerald-600"
+            >
+              <Calendar className="w-4 h-4 text-emerald-200" />
+              <span>Request Leave / Rest</span>
+            </button>
             <button
               onClick={() => openPrintModal({
                 type: 'PAYMENT_VOUCHER',
                 data: paymentVouchers[0]
               })}
-              className="inline-flex items-center space-x-2 bg-forest-700 hover:bg-forest-600 text-white text-xs px-3.5 py-2.5 rounded-lg font-medium shadow-sm transition border border-forest-600"
+              className="inline-flex items-center space-x-1.5 bg-forest-700 hover:bg-forest-600 text-white text-xs px-3 py-2.5 rounded-lg font-medium shadow-sm transition border border-forest-600"
             >
               <Printer className="w-4 h-4" />
               <span>Sample Official Voucher</span>
             </button>
             <button
               onClick={() => setActiveModule('RTM')}
-              className="inline-flex items-center space-x-2 bg-gold-600 hover:bg-gold-500 text-slate-950 text-xs px-3.5 py-2.5 rounded-lg font-bold shadow-md transition"
+              className="inline-flex items-center space-x-1.5 bg-gold-600 hover:bg-gold-500 text-slate-950 text-xs px-3 py-2.5 rounded-lg font-bold shadow-md transition"
             >
               <FileCheck2 className="w-4 h-4" />
               <span>Inspect Traceability (RTM)</span>
