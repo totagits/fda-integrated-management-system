@@ -7,6 +7,11 @@
   <p><strong>Forestry Development Authority • Republic of Liberia</strong><br />
   Whein Town, Bernard Farm, Montserrado County, Liberia<br />
   <em>Established under the Act Creating the Forestry Development Authority of 1976 and the National Forestry Reform Law of 2006</em></p>
+  <p>
+    <a href="https://totagits.github.io/fda-integrated-management-system/" target="_blank">
+      <strong>🔗 Live Online Platform & Interactive Demo: https://totagits.github.io/fda-integrated-management-system/</strong>
+    </a>
+  </p>
 </div>
 
 ---
