@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { FDA_LOGO_URL } from '../../assets/logo';
+import { LIBERIA_SEAL_URL } from '../../assets/liberiaSeal';
+import { FdaPhotoCarousel } from './FdaPhotoCarousel';
 import { USER_PERSONAS } from '../../data/initialData';
 import { UserRole } from '../../types';
 import {
@@ -137,7 +139,7 @@ export const LandingPage: React.FC = () => {
             </button>
           </nav>
 
-          {/* Intranet ERP Login Button */}
+          {/* Intranet ERP Login Button & Republic of Liberia Seal */}
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setShowLoginModal(true)}
@@ -146,6 +148,28 @@ export const LandingPage: React.FC = () => {
               <LogIn className="w-4 h-4 text-gold-400" />
               <span>Access Staff Intranet / ERP</span>
             </button>
+
+            {/* Republic of Liberia National Seal */}
+            <div className="flex items-center space-x-2 pl-3 border-l border-slate-200">
+              <div className="bg-amber-50 p-1.5 rounded-lg border border-amber-200/80 shadow-sm flex items-center justify-center">
+                <img
+                  src={LIBERIA_SEAL_URL}
+                  alt="Republic of Liberia National Seal"
+                  className="h-10 w-10 object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              </div>
+              <div className="hidden xl:block text-left">
+                <span className="block text-[11px] font-extrabold text-slate-800 uppercase tracking-wider leading-none">
+                  Republic of Liberia
+                </span>
+                <span className="text-[10px] text-amber-900/80 italic font-serif">
+                  The Love of Liberty Brought Us Here
+                </span>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -226,113 +250,9 @@ export const LandingPage: React.FC = () => {
 
                 </div>
 
-                {/* Right Column: Rich Visual Gallery Showcase of FDA Operations */}
-                <div className="lg:col-span-5 space-y-4">
-                  
-                  {/* Primary Visual Showcase Card */}
-                  <div className="bg-white rounded-2xl p-5 text-slate-900 shadow-2xl border border-forest-800/50 relative overflow-hidden">
-                    <div className="flex items-center space-x-3 mb-4 pb-3 border-b border-slate-100">
-                      <div className="bg-forest-50 p-2 rounded-xl border border-forest-100">
-                        <img
-                          src={FDA_LOGO_URL}
-                          alt="FDA Seal"
-                          className="w-10 h-10 object-contain"
-                        />
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-sm text-forest-950 uppercase">
-                          FDA Operations & Field Mandate
-                        </h3>
-                        <p className="text-[11px] text-slate-500 font-medium">
-                          Headquarters: Whein Town, Bernard Farm
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Operational Cards Grid */}
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      
-                      {/* Photo Card 1: Sapo National Park */}
-                      <div className="group relative rounded-xl overflow-hidden bg-forest-900 h-36 flex flex-col justify-end p-3 shadow border border-slate-200">
-                        <div
-                          className="absolute inset-0 bg-cover bg-center opacity-70 group-hover:scale-105 transition-transform duration-500"
-                          style={{
-                            backgroundImage: `url('https://images.unsplash.com/photo-1516026672322-bc52d61a55d5?auto=format&fit=crop&w=600&q=80')`
-                          }}
-                        ></div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-                        <div className="relative z-10 text-white">
-                          <span className="bg-emerald-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
-                            Conservation
-                          </span>
-                          <p className="font-bold text-xs mt-1">Sapo National Park</p>
-                          <p className="text-[10px] text-slate-300">180,400 Ha Primary Rain Forest</p>
-                        </div>
-                      </div>
-
-                      {/* Photo Card 2: Field Ranger Cadre */}
-                      <div className="group relative rounded-xl overflow-hidden bg-forest-900 h-36 flex flex-col justify-end p-3 shadow border border-slate-200">
-                        <div
-                          className="absolute inset-0 bg-cover bg-center opacity-70 group-hover:scale-105 transition-transform duration-500"
-                          style={{
-                            backgroundImage: `url('https://images.unsplash.com/photo-1544717302-de2939b7ef71?auto=format&fit=crop&w=600&q=80')`
-                          }}
-                        ></div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-                        <div className="relative z-10 text-white">
-                          <span className="bg-amber-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
-                            Law Enforcement
-                          </span>
-                          <p className="font-bold text-xs mt-1">FDA Forest Rangers</p>
-                          <p className="text-[10px] text-slate-300">Patrol Cadre & GPS Surveillance</p>
-                        </div>
-                      </div>
-
-                      {/* Photo Card 3: Timber Legality & CoC */}
-                      <div className="group relative rounded-xl overflow-hidden bg-forest-900 h-36 flex flex-col justify-end p-3 shadow border border-slate-200">
-                        <div
-                          className="absolute inset-0 bg-cover bg-center opacity-70 group-hover:scale-105 transition-transform duration-500"
-                          style={{
-                            backgroundImage: `url('https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&w=600&q=80')`
-                          }}
-                        ></div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-                        <div className="relative z-10 text-white">
-                          <span className="bg-blue-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
-                            Traceability
-                          </span>
-                          <p className="font-bold text-xs mt-1">SGS LiberTrace CoC</p>
-                          <p className="text-[10px] text-slate-300">Buchanan Port Timber Inspection</p>
-                        </div>
-                      </div>
-
-                      {/* Photo Card 4: East Nimba Nature Reserve */}
-                      <div className="group relative rounded-xl overflow-hidden bg-forest-900 h-36 flex flex-col justify-end p-3 shadow border border-slate-200">
-                        <div
-                          className="absolute inset-0 bg-cover bg-center opacity-70 group-hover:scale-105 transition-transform duration-500"
-                          style={{
-                            backgroundImage: `url('https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=600&q=80')`
-                          }}
-                        ></div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-                        <div className="relative z-10 text-white">
-                          <span className="bg-purple-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
-                            Ecosystem
-                          </span>
-                          <p className="font-bold text-xs mt-1">East Nimba Reserve</p>
-                          <p className="text-[10px] text-slate-300">Cross-Border Biodiversity Zone</p>
-                        </div>
-                      </div>
-
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                      <span>Authority: Hon. Rudolph J. Merab, Sr.</span>
-                      <span className="text-forest-800 font-bold">FDA Headquarters</span>
-                    </div>
-
-                  </div>
-
+                {/* Right Column: Dynamic Interactive Carousel of Authentic FDA Photos from fda.gov.lr */}
+                <div className="lg:col-span-5">
+                  <FdaPhotoCarousel />
                 </div>
 
               </div>
