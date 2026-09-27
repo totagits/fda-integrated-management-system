@@ -382,31 +382,76 @@ export const INITIAL_EMPLOYEES: Employee[] = [
 
 export const INITIAL_LEAVE_REQUESTS: LeaveRequest[] = [
   {
+    id: 'LV-2026-082',
+    employeeId: 'EMP-007',
+    employeeName: 'Darius B. Wheagar',
+    department: 'Law Enforcement & Checkpoints',
+    dutyStation: 'Port of Buchanan FDA Control Point',
+    county: 'Grand Bassa',
+    leaveType: 'OFFICIAL_DUTY',
+    startDate: '2026-10-02',
+    endDate: '2026-10-06',
+    days: 4,
+    reason: 'SGS LiberTrace log export barcode scanner calibration and technical port inspector training.',
+    status: 'PENDING_SUPERVISOR',
+    appliedDate: '2026-09-26'
+  },
+  {
     id: 'LV-2026-081',
     employeeId: 'EMP-004',
     employeeName: 'Capt. Emmanuel D. Toe',
     department: 'Conservation & Wildlife',
+    dutyStation: 'Sanniquellie Field Station / Mount Nimba',
+    county: 'Nimba',
     leaveType: 'PATROL_COMPENSATORY',
     startDate: '2026-10-05',
     endDate: '2026-10-12',
     days: 7,
     reason: 'Compensatory rest after 30-day extended border patrol at Mount Nimba strict reserve.',
     status: 'PENDING_HR',
-    appliedDate: '2026-09-24'
+    appliedDate: '2026-09-24',
+    supervisorEndorsedBy: 'Capt. Emmanuel D. Toe (County Forestry Officer)',
+    supervisorEndorsedDate: '2026-09-25'
   },
   {
     id: 'LV-2026-079',
     employeeId: 'EMP-005',
     employeeName: 'Grace Nyenpan',
     department: 'Commercial Forestry',
+    dutyStation: 'Greenville Regional Hub - Sapo Sector',
+    county: 'Sinoe',
     leaveType: 'ANNUAL',
     startDate: '2026-10-15',
     endDate: '2026-10-25',
     days: 10,
-    reason: 'Statutory annual leave entitlement.',
+    reason: 'Statutory annual leave entitlement after 12 months concession monitoring.',
     status: 'APPROVED',
     appliedDate: '2026-09-18',
-    approvedBy: 'Helena S. Gbotoe'
+    supervisorEndorsedBy: 'J. Varney Kpaiseh (Finance & Admin Director)',
+    supervisorEndorsedDate: '2026-09-19',
+    approvedBy: 'Helena S. Gbotoe (Director of Human Resources)',
+    approvedDate: '2026-09-20',
+    certificateNo: 'FDA-CERT-LV-2026-079'
+  },
+  {
+    id: 'LV-2026-080',
+    employeeId: 'EMP-006',
+    employeeName: 'Korpo Kollie',
+    department: 'Community Forestry',
+    dutyStation: 'Voinjama Depot Outpost',
+    county: 'Lofa',
+    leaveType: 'SICK',
+    startDate: '2026-09-21',
+    endDate: '2026-09-24',
+    days: 3,
+    reason: 'Medical recuperation with certified clinical note from Tellewoyan Memorial Hospital.',
+    status: 'APPROVED',
+    appliedDate: '2026-09-20',
+    supervisorEndorsedBy: 'Helena S. Gbotoe (Director of Human Resources)',
+    supervisorEndorsedDate: '2026-09-20',
+    approvedBy: 'Helena S. Gbotoe (Director of Human Resources)',
+    approvedDate: '2026-09-21',
+    certificateNo: 'FDA-CERT-LV-2026-080'
   }
 ];
 

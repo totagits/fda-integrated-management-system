@@ -117,6 +117,8 @@ export interface LeaveRequest {
   employeeId: string;
   employeeName: string;
   department: string;
+  dutyStation?: string;
+  county?: LiberiaCounty;
   leaveType: 'ANNUAL' | 'SICK' | 'MATERNITY' | 'PATROL_COMPENSATORY' | 'OFFICIAL_DUTY';
   startDate: string;
   endDate: string;
@@ -124,7 +126,12 @@ export interface LeaveRequest {
   reason: string;
   status: 'PENDING_SUPERVISOR' | 'PENDING_HR' | 'APPROVED' | 'REJECTED';
   appliedDate: string;
+  supervisorEndorsedBy?: string;
+  supervisorEndorsedDate?: string;
   approvedBy?: string;
+  approvedDate?: string;
+  certificateNo?: string;
+  rejectionReason?: string;
 }
 
 export interface PayrollRecord {

@@ -364,6 +364,88 @@ export const PrintModal: React.FC = () => {
             </div>
           )}
 
+          {/* DOCUMENT BODY: 5. OFFICIAL LEAVE AUTHORIZATION CERTIFICATE */}
+          {printPayload.type === 'LEAVE_CERTIFICATE' && (
+            <div className="space-y-4 text-xs">
+              <div className="bg-forest-900 text-white p-4 rounded-xl flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] text-gold-400 font-bold uppercase tracking-wider">
+                    Republic of Liberia • Forestry Development Authority
+                  </span>
+                  <h3 className="text-base font-bold mt-0.5">Official Leave Authorization Certificate</h3>
+                  <p className="text-[11px] text-slate-300">
+                    Statutory Personnel Absence Pass • CSA HRMIS Form GoL/FDA/LV-04
+                  </p>
+                </div>
+                <div className="text-right font-mono">
+                  <span className="text-[10px] text-gold-400 font-bold uppercase">Pass Reference</span>
+                  <p className="text-xs font-bold text-white">{printPayload.data.certificateNo || printPayload.data.id}</p>
+                  <span className="text-[10px] bg-emerald-700/80 text-white px-2 py-0.5 rounded font-sans font-semibold">
+                    Officially Certified
+                  </span>
+                </div>
+              </div>
+
+              {/* Personnel Details */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Officer Name & ID</span>
+                  <p className="font-bold text-sm text-slate-900 mt-0.5">{printPayload.data.employeeName}</p>
+                  <p className="text-[11px] font-mono text-slate-600">{printPayload.data.employeeId}</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Department & Cadre</span>
+                  <p className="font-semibold text-slate-900 mt-0.5">{printPayload.data.department}</p>
+                  <p className="text-[11px] text-slate-600">{printPayload.data.dutyStation || 'FDA Whein Town HQ'} ({printPayload.data.county || 'Montserrado'} County)</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Leave Category</span>
+                  <p className="font-bold text-forest-800 mt-0.5">{printPayload.data.leaveType.replace(/_/g, ' ')}</p>
+                  <p className="text-[11px] text-slate-500">Duration: <strong>{printPayload.data.days} Authorized Working Days</strong></p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Authorized Leave Period</span>
+                  <p className="font-bold text-slate-900 mt-0.5">{printPayload.data.startDate} to {printPayload.data.endDate}</p>
+                  <p className="text-[10px] text-slate-500">Resumption of Duty: Expected on immediate next working day</p>
+                </div>
+              </div>
+
+              {/* Justification & Operational Details */}
+              <div className="p-3.5 bg-white border border-slate-200 rounded-lg space-y-1">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase">Reason / Justification Recorded</span>
+                <p className="text-slate-800 text-xs italic">{printPayload.data.reason}</p>
+              </div>
+
+              {/* Multi-Tier Certification Signatures */}
+              <div className="border border-slate-200 p-4 rounded-xl space-y-3 bg-slate-50/50">
+                <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                  <span>Multi-Tier Statutory Clearances & Digital Endorsements</span>
+                  <span className="text-[10px] text-emerald-700 font-mono">CSA Validated</span>
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">1. Immediate Supervisor / County Chief</span>
+                    <p className="font-bold text-slate-900 text-xs">{printPayload.data.supervisorEndorsedBy || 'Capt. Emmanuel D. Toe'}</p>
+                    <p className="text-[10px] text-emerald-700 font-semibold">✓ Endorsed on {printPayload.data.supervisorEndorsedDate || printPayload.data.appliedDate}</p>
+                    <p className="text-[9px] text-slate-400">Certified operational handover during duty absence</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">2. Director of Human Resources</span>
+                    <p className="font-bold text-slate-900 text-xs">{printPayload.data.approvedBy || 'Helena S. Gbotoe (Director of HR)'}</p>
+                    <p className="text-[10px] text-emerald-700 font-semibold">✓ Approved on {printPayload.data.approvedDate || '2026-09-20'}</p>
+                    <p className="text-[9px] text-slate-400">Civil Service Agency leave balance verified & debited</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Official Seal Footer */}
+              <div className="bg-forest-50 p-3 rounded-lg border border-forest-200 flex justify-between items-center text-[10px] font-mono text-forest-900">
+                <span>SECURITY CODE: SHA256-LV-{Math.random().toString(36).substring(2, 10).toUpperCase()}-FDA-GOL</span>
+                <span>AUTHENTIC GOVERNMENT ABSENCE PASS</span>
+              </div>
+            </div>
+          )}
+
           {/* DOCUMENT BODY: 4. RTM COMPLIANCE DOSSIER (WITH EXPANDABLE LINE ITEMS) */}
           {printPayload.type === 'RTM_REPORT' && (
             <div className="space-y-4 text-xs">

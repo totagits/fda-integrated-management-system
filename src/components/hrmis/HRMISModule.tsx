@@ -44,6 +44,8 @@ export const HRMISModule: React.FC = () => {
     fieldAttendanceLogs,
     logFieldAttendance,
     leaveRequests,
+    submitLeaveRequest,
+    endorseLeaveSupervisor,
     approveLeave,
     rejectLeave,
     payrollRecords,
@@ -110,6 +112,17 @@ export const HRMISModule: React.FC = () => {
     verifiedClean: number;
     auditTimestamp: string;
   } | null>(null);
+
+  // Leave Application Modal State
+  const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
+  const [leaveForm, setLeaveForm] = useState({
+    employeeId: employees[3]?.id || 'EMP-004',
+    leaveType: 'ANNUAL' as any,
+    startDate: '2026-10-12',
+    endDate: '2026-10-22',
+    days: 8,
+    reason: 'Statutory annual leave entitlement after 12 months field deployment at nature reserve.'
+  });
 
   // New Employee Modal state
   const [showAddEmpModal, setShowAddEmpModal] = useState(false);
@@ -235,6 +248,25 @@ export const HRMISModule: React.FC = () => {
       status: 'PRESENT'
     });
     setShowCheckinModal(false);
+  };
+
+  const handleCreateLeaveRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    const emp = employees.find(x => x.id === leaveForm.employeeId);
+    if (!emp) return;
+    submitLeaveRequest({
+      employeeId: emp.id,
+      employeeName: emp.fullName,
+      department: emp.department,
+      dutyStation: emp.dutyStation,
+      county: emp.county,
+      leaveType: leaveForm.leaveType,
+      startDate: leaveForm.startDate,
+      endDate: leaveForm.endDate,
+      days: Number(leaveForm.days),
+      reason: leaveForm.reason
+    });
+    setShowApplyLeaveModal(false);
   };
 
   const handleRunGhostAudit = () => {
@@ -822,63 +854,268 @@ export const HRMISModule: React.FC = () => {
 
       {/* TAB 4: LEAVE & FIELD REST */}
       {activeTab === 'LEAVE' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <h3 className="text-sm font-bold text-slate-900 mb-1">
-              Leave & Extended Patrol Compensatory Rest Workflow
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Controlled multi-tier digital authorization for FDA Headquarters and County Ranger stations.
-            </p>
+        <div className="space-y-5">
+          {/* Header Banner */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="bg-forest-100 text-forest-800 text-[10px] font-bold px-2.5 py-0.5 rounded uppercase tracking-wider">
+                  Civil Service & Ranger Leave Workflow
+                </span>
+                <span className="text-xs text-slate-500 font-mono">TOR §6 • CSA Standing Orders</span>
+              </div>
+              <h3 className="text-base font-bold text-slate-900 mt-1">
+                Multi-Stage Leave Application, Tracking & Approval Engine
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Transparent 4-stage tracking: Application Lodged ➔ Immediate Supervisor Endorsement ➔ HR Directorate Statutory Clearance ➔ Digital Certificate Issuance.
+              </p>
+            </div>
 
-            <div className="divide-y divide-slate-100">
-              {leaveRequests.map(req => (
-                <div key={req.id} className="py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-xs text-slate-900">{req.employeeName}</span>
-                      <span className="text-[10px] font-bold bg-forest-50 text-forest-800 px-2 py-0.5 rounded border border-forest-200">
-                        {req.leaveType.replace(/_/g, ' ')}
-                      </span>
-                      <span className="text-xs text-slate-500">({req.days} days)</span>
-                    </div>
-                    <p className="text-xs text-slate-600 mt-1">{req.reason}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Period: {req.startDate} to {req.endDate} • Applied on {req.appliedDate}
-                    </p>
-                  </div>
+            <button
+              onClick={() => setShowApplyLeaveModal(true)}
+              className="bg-forest-800 hover:bg-forest-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold shadow-sm transition flex items-center space-x-2 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Apply for Leave / Patrol Rest</span>
+            </button>
+          </div>
 
-                  <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
-                    {req.status === 'APPROVED' ? (
-                      <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                        Approved by {req.approvedBy}
-                      </span>
-                    ) : req.status === 'REJECTED' ? (
-                      <span className="text-xs font-bold text-red-700 bg-red-50 px-2.5 py-1 rounded border border-red-200">
-                        Rejected
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => approveLeave(req.id)}
-                          className="bg-forest-800 hover:bg-forest-700 text-white text-xs px-3 py-1.5 rounded font-bold transition shadow-sm"
-                        >
-                          Approve Leave
-                        </button>
-                        <button
-                          onClick={() => rejectLeave(req.id)}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded font-medium transition"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
+          {/* Workflow Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+              <span className="text-[10px] font-bold uppercase text-amber-700">Stage 1: Supervisor Review</span>
+              <p className="text-xl font-bold text-slate-900 mt-1 font-mono">
+                {leaveRequests.filter(l => l.status === 'PENDING_SUPERVISOR').length}
+              </p>
+              <p className="text-[11px] text-slate-500">Awaiting County / Dept Chief sign-off</p>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+              <span className="text-[10px] font-bold uppercase text-blue-700">Stage 2: HR Certification</span>
+              <p className="text-xl font-bold text-slate-900 mt-1 font-mono">
+                {leaveRequests.filter(l => l.status === 'PENDING_HR').length}
+              </p>
+              <p className="text-[11px] text-slate-500">CSA balance & statutory audit</p>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+              <span className="text-[10px] font-bold uppercase text-emerald-700">Stage 3: Approved & Passes Active</span>
+              <p className="text-xl font-bold text-emerald-800 mt-1 font-mono">
+                {leaveRequests.filter(l => l.status === 'APPROVED').length}
+              </p>
+              <p className="text-[11px] text-slate-500">Certificates issued & debited</p>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+              <span className="text-[10px] font-bold uppercase text-forest-800">Patrol Rest Roster</span>
+              <p className="text-xl font-bold text-forest-900 mt-1 font-mono">
+                {leaveRequests.filter(l => l.leaveType === 'PATROL_COMPENSATORY').length}
+              </p>
+              <p className="text-[11px] text-slate-500">Post-patrol 30-day reliefs</p>
             </div>
           </div>
+
+          {/* Interactive Stepper Cards List */}
+          <div className="space-y-4">
+            {leaveRequests.map(req => {
+              const isSupervisorPending = req.status === 'PENDING_SUPERVISOR';
+              const isHrPending = req.status === 'PENDING_HR';
+              const isApproved = req.status === 'APPROVED';
+              const isRejected = req.status === 'REJECTED';
+
+              return (
+                <div key={req.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-5 space-y-4">
+                  
+                  {/* Top Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-9 h-9 rounded-full bg-forest-100 text-forest-800 font-bold flex items-center justify-center text-xs">
+                        {req.employeeName.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-bold text-sm text-slate-900">{req.employeeName}</h4>
+                          <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {req.id}
+                          </span>
+                          <span className="text-[10px] font-bold bg-forest-50 text-forest-800 px-2 py-0.5 rounded border border-forest-200">
+                            {req.leaveType.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {req.department} • {req.dutyStation || 'County Station'} ({req.county || 'Liberia'})
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      {isApproved && (
+                        <span className="inline-flex items-center text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                          Certificate: {req.certificateNo || 'FDA-CERT-LV-001'}
+                        </span>
+                      )}
+                      {isSupervisorPending && (
+                        <span className="inline-flex items-center text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                          <Clock className="w-3.5 h-3.5 mr-1 text-amber-600 animate-spin" />
+                          Stage 1: Awaiting Supervisor Endorsement
+                        </span>
+                      )}
+                      {isHrPending && (
+                        <span className="inline-flex items-center text-xs font-bold text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                          <Clock className="w-3.5 h-3.5 mr-1 text-blue-600 animate-spin" />
+                          Stage 2: Awaiting HR Directorate Certification
+                        </span>
+                      )}
+                      {isRejected && (
+                        <span className="inline-flex items-center text-xs font-bold text-red-800 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
+                          <AlertCircle className="w-3.5 h-3.5 mr-1 text-red-600" />
+                          Application Declined
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Visual 4-Step Progress Stepper */}
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-3">
+                      Official Clearance Progress Tracker (Civil Service Approval Pipeline)
+                    </span>
+                    <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                      
+                      {/* Step 1: Lodged */}
+                      <div className="flex flex-col items-center space-y-1">
+                        <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                          ✓
+                        </div>
+                        <span className="font-bold text-slate-800 text-[11px]">1. Lodged</span>
+                        <span className="text-[10px] text-slate-500 font-mono">{req.appliedDate}</span>
+                      </div>
+
+                      {/* Step 2: Supervisor Review */}
+                      <div className="flex flex-col items-center space-y-1">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
+                          isSupervisorPending
+                            ? 'bg-amber-500 text-white ring-4 ring-amber-100 animate-pulse'
+                            : isRejected
+                            ? 'bg-red-500 text-white'
+                            : 'bg-emerald-600 text-white'
+                        }`}>
+                          {isSupervisorPending ? '●' : isRejected ? '✕' : '✓'}
+                        </div>
+                        <span className="font-bold text-slate-800 text-[11px]">2. Supervisor Endorsement</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {req.supervisorEndorsedDate || (isSupervisorPending ? 'In Review' : 'Pending')}
+                        </span>
+                      </div>
+
+                      {/* Step 3: HR Certification */}
+                      <div className="flex flex-col items-center space-y-1">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
+                          isHrPending
+                            ? 'bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse'
+                            : isApproved
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-200 text-slate-500'
+                        }`}>
+                          {isHrPending ? '●' : isApproved ? '✓' : '3'}
+                        </div>
+                        <span className="font-bold text-slate-800 text-[11px]">3. HR Directorate Audit</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {req.approvedDate || (isHrPending ? 'In Review' : 'Pending')}
+                        </span>
+                      </div>
+
+                      {/* Step 4: Pass Issued */}
+                      <div className="flex flex-col items-center space-y-1">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
+                          isApproved ? 'bg-forest-800 text-white ring-4 ring-forest-100' : 'bg-slate-200 text-slate-500'
+                        }`}>
+                          {isApproved ? '★' : '4'}
+                        </div>
+                        <span className="font-bold text-slate-800 text-[11px]">4. Official Pass Issued</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {isApproved ? 'Valid & Certified' : 'Pending'}
+                        </span>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Details & Actions Footer */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
+                    <div>
+                      <div className="flex items-center space-x-2 text-slate-700">
+                        <span className="font-semibold">Period:</span>
+                        <strong className="text-slate-900">{req.startDate} to {req.endDate}</strong>
+                        <span className="text-slate-500">({req.days} working days)</span>
+                      </div>
+                      <p className="text-slate-600 italic mt-0.5">"{req.reason}"</p>
+                      {req.supervisorEndorsedBy && (
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Supervisor Endorsement: <strong>{req.supervisorEndorsedBy}</strong> on {req.supervisorEndorsedDate}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+                      {isSupervisorPending && (
+                        <>
+                          <button
+                            onClick={() => endorseLeaveSupervisor(req.id)}
+                            className="bg-amber-600 hover:bg-amber-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-bold shadow-sm transition flex items-center space-x-1"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Endorse (Supervisor)</span>
+                          </button>
+                          <button
+                            onClick={() => rejectLeave(req.id)}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-lg font-semibold transition"
+                          >
+                            Decline
+                          </button>
+                        </>
+                      )}
+
+                      {isHrPending && (
+                        <>
+                          <button
+                            onClick={() => approveLeave(req.id)}
+                            className="bg-forest-800 hover:bg-forest-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-bold shadow-sm transition flex items-center space-x-1"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Authorize & Issue Pass (HR Director)</span>
+                          </button>
+                          <button
+                            onClick={() => rejectLeave(req.id)}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-lg font-semibold transition"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+
+                      {isApproved && (
+                        <button
+                          onClick={() => openPrintModal({
+                            type: 'LEAVE_CERTIFICATE',
+                            data: req
+                          })}
+                          className="bg-forest-800 hover:bg-forest-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-bold shadow-sm transition flex items-center space-x-1.5"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>View Official Leave Pass</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+
         </div>
       )}
 
@@ -1895,6 +2132,127 @@ export const HRMISModule: React.FC = () => {
                   className="px-4 py-1.5 bg-forest-800 hover:bg-forest-700 text-white rounded font-bold transition shadow"
                 >
                   Confirm & Register Personnel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: APPLY FOR LEAVE / PATROL REST */}
+      {showApplyLeaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 bg-forest-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-5 h-5 text-gold-400" />
+                <h3 className="font-bold text-sm">Apply for Leave / Patrol Compensatory Rest</h3>
+              </div>
+              <button
+                onClick={() => setShowApplyLeaveModal(false)}
+                className="text-slate-300 hover:text-white text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateLeaveRequest} className="p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-blue-900">
+                Lodge formal absence request with automatic routing: <strong>Stage 1 (Supervisor Review)</strong> ➔ <strong>Stage 2 (HR Director Certification)</strong> ➔ <strong>Digital Leave Pass Generation</strong>.
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Applying Personnel / Officer</label>
+                <select
+                  value={leaveForm.employeeId}
+                  onChange={e => setLeaveForm({ ...leaveForm, employeeId: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
+                >
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.fullName} ({emp.position}) — {emp.county} County
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Leave Category</label>
+                <select
+                  value={leaveForm.leaveType}
+                  onChange={e => setLeaveForm({ ...leaveForm, leaveType: e.target.value as any })}
+                  className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
+                >
+                  <option value="ANNUAL">Annual Statutory Leave (Accrued GoL Entitlement)</option>
+                  <option value="PATROL_COMPENSATORY">Extended Patrol Compensatory Rest (30-Day Forest Border Relief)</option>
+                  <option value="SICK">Certified Sick Leave (Medical Recuperation)</option>
+                  <option value="OFFICIAL_DUTY">Official External Duty / SGS LiberTrace Calibration</option>
+                  <option value="MATERNITY">Maternity Statutory Leave (90 Days)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Commencement Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={leaveForm.startDate}
+                    onChange={e => setLeaveForm({ ...leaveForm, startDate: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Resumption Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={leaveForm.endDate}
+                    onChange={e => setLeaveForm({ ...leaveForm, endDate: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Working Days</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    max={90}
+                    value={leaveForm.days}
+                    onChange={e => setLeaveForm({ ...leaveForm, days: Number(e.target.value) })}
+                    className="w-full p-2 border border-slate-300 font-mono rounded-md focus:ring-forest-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">
+                  Reason & Operational Handover Plan
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={leaveForm.reason}
+                  onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })}
+                  placeholder="Detail justification and designated relief officer who will cover duty post..."
+                  className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowApplyLeaveModal(false)}
+                  className="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-forest-800 hover:bg-forest-700 text-white rounded font-bold transition shadow"
+                >
+                  Lodge Application (Stage 1)
                 </button>
               </div>
             </form>

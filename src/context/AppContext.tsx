@@ -82,7 +82,7 @@ export interface AppNotification {
 }
 
 export interface PrintModalPayload {
-  type: 'PAYMENT_VOUCHER' | 'ASSET_TAG' | 'PAYROLL_SLIP' | 'RTM_REPORT' | 'INCIDENT_DISPATCH';
+  type: 'PAYMENT_VOUCHER' | 'ASSET_TAG' | 'PAYROLL_SLIP' | 'RTM_REPORT' | 'INCIDENT_DISPATCH' | 'LEAVE_CERTIFICATE';
   data: any;
 }
 
@@ -113,8 +113,10 @@ interface AppContextType {
   promoteEmployee: (employeeId: string, promotion: Omit<PromotionRecord, 'id'>) => void;
   addDisciplinaryAction: (employeeId: string, record: Omit<DisciplinaryRecord, 'id'>) => void;
   logFieldAttendance: (entry: Omit<FieldAttendanceLog, 'id' | 'timestamp'>) => void;
+  submitLeaveRequest: (req: Omit<LeaveRequest, 'id' | 'appliedDate' | 'status'>) => void;
+  endorseLeaveSupervisor: (id: string) => void;
   approveLeave: (id: string) => void;
-  rejectLeave: (id: string) => void;
+  rejectLeave: (id: string, reason?: string) => void;
   processPayrollRun: (period: string) => void;
   syncWithCSA: () => void;
   runAntiGhostWorkerAudit: () => { totalScanned: number; duplicatesFound: number; verifiedClean: number; auditTimestamp: string; };
@@ -386,21 +388,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notify('Attendance Registered', `${entry.employeeName} logged at ${entry.dutyStation} (${entry.type === 'GPS_MOBILE_CHECKIN' ? 'GPS Mobile Stamp' : 'Biometric Terminal'}).`, 'SUCCESS');
   };
 
-  const approveLeave = (id: string) => {
+  const submitLeaveRequest = (req: Omit<LeaveRequest, 'id' | 'appliedDate' | 'status'>) => {
+    const id = `LV-2026-${(leaveRequests.length + 82).toString().padStart(3, '0')}`;
+    const newReq: LeaveRequest = {
+      ...req,
+      id,
+      appliedDate: new Date().toISOString().substring(0, 10),
+      status: 'PENDING_SUPERVISOR'
+    };
+    setLeaveRequests(prev => [newReq, ...prev]);
+    addAuditEntry('LEAVE_APPLICATION_SUBMITTED', 'HRMIS', `Employee ${req.employeeName} submitted ${req.leaveType} leave request for ${req.days} days.`);
+    notify('Leave Application Lodged', `Leave request ${id} submitted. Routing to County/Department Supervisor for Stage 1 endorsement.`, 'SUCCESS');
+  };
+
+  const endorseLeaveSupervisor = (id: string) => {
+    const timestamp = new Date().toISOString().substring(0, 10);
     setLeaveRequests(prev => prev.map(req => {
       if (req.id === id) {
-        return { ...req, status: 'APPROVED', approvedBy: currentPersona.name };
+        return {
+          ...req,
+          status: 'PENDING_HR',
+          supervisorEndorsedBy: `${currentPersona.name} (${currentPersona.title})`,
+          supervisorEndorsedDate: timestamp
+        };
       }
       return req;
     }));
-    addAuditEntry('LEAVE_APPROVED', 'HRMIS', `Leave request ${id} approved by ${currentPersona.name}`);
-    notify('Leave Approved', `Leave request ${id} has been formally approved.`, 'SUCCESS');
+    addAuditEntry('LEAVE_SUPERVISOR_ENDORSED', 'HRMIS', `Supervisor ${currentPersona.name} endorsed leave request ${id}. Routed to HR Director for final certification.`);
+    notify('Supervisor Endorsement Granted', `Request ${id} endorsed and forwarded to HR Director Helena S. Gbotoe for final certification.`, 'SUCCESS');
   };
 
-  const rejectLeave = (id: string) => {
+  const approveLeave = (id: string) => {
+    const timestamp = new Date().toISOString().substring(0, 10);
+    const certNo = `FDA-CERT-LV-2026-${id.split('-').pop() || '001'}`;
     setLeaveRequests(prev => prev.map(req => {
       if (req.id === id) {
-        return { ...req, status: 'REJECTED', approvedBy: currentPersona.name };
+        return {
+          ...req,
+          status: 'APPROVED',
+          approvedBy: `${currentPersona.name} (${currentPersona.title})`,
+          approvedDate: timestamp,
+          certificateNo: certNo
+        };
+      }
+      return req;
+    }));
+    addAuditEntry('LEAVE_APPROVED', 'HRMIS', `Leave request ${id} granted by HR Director ${currentPersona.name}. Certificate issued: ${certNo}`);
+    notify('Official Leave Certificate Issued', `Leave request ${id} approved! Digital Authorization Pass ${certNo} generated.`, 'SUCCESS');
+  };
+
+  const rejectLeave = (id: string, reason?: string) => {
+    setLeaveRequests(prev => prev.map(req => {
+      if (req.id === id) {
+        return {
+          ...req,
+          status: 'REJECTED',
+          approvedBy: `${currentPersona.name} (${currentPersona.title})`,
+          rejectionReason: reason || 'Operational patrol coverage requirements'
+        };
       }
       return req;
     }));
@@ -756,6 +801,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         promoteEmployee,
         addDisciplinaryAction,
         logFieldAttendance,
+        submitLeaveRequest,
+        endorseLeaveSupervisor,
         approveLeave,
         rejectLeave,
         processPayrollRun,
