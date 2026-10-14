@@ -97,12 +97,12 @@ export const LandingPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           
           {/* Logo & Agency Identity */}
-          <div className="flex items-center space-x-3.5">
-            <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex items-center justify-center">
+          <div className="flex items-center space-x-3.5 shrink-0">
+            <div className="flex items-center justify-center shrink-0">
               <img
                 src={FDA_LOGO_URL}
                 alt="Forestry Development Authority Logo"
-                className="h-12 w-12 object-contain"
+                className="h-12 w-auto object-contain drop-shadow-sm"
                 onError={(e) => {
                   // Fallback if image fails to load
                   (e.target as HTMLElement).style.display = 'none';
@@ -110,10 +110,10 @@ export const LandingPage: React.FC = () => {
               />
             </div>
             <div>
-              <h1 className="font-extrabold text-slate-900 text-base sm:text-lg tracking-wide uppercase leading-tight">
+              <h1 className="font-extrabold text-slate-900 text-base sm:text-lg tracking-wide uppercase leading-tight whitespace-nowrap">
                 Forestry Development Authority
               </h1>
-              <p className="text-xs text-forest-800 font-semibold tracking-wide">
+              <p className="text-xs text-forest-800 font-semibold tracking-wide whitespace-nowrap">
                 Republic of Liberia • Integrated Information Platform
               </p>
             </div>
@@ -148,25 +148,25 @@ export const LandingPage: React.FC = () => {
           </nav>
 
           {/* Intranet ERP Login Button & Republic of Liberia Seal */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 shrink-0">
             <button
               onClick={() => setShowLoginModal(true)}
-              className="inline-flex items-center space-x-2 bg-forest-800 hover:bg-forest-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold shadow-md hover:shadow-lg transition"
+              className="inline-flex items-center space-x-2 bg-forest-800 hover:bg-forest-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold shadow-md hover:shadow-lg transition shrink-0 whitespace-nowrap"
             >
               <LogIn className="w-4 h-4 text-gold-400" />
               <span>Access Staff Intranet / ERP</span>
             </button>
 
             {/* Republic of Liberia National Seal */}
-            <div className="flex items-center pl-3 border-l border-slate-200">
+            <div className="hidden sm:flex items-center pl-3 border-l border-slate-200 shrink-0">
               <div
-                className="bg-amber-50/90 p-1.5 rounded-lg border border-amber-200/90 shadow-sm flex items-center justify-center"
+                className="flex items-center justify-center shrink-0"
                 title="Republic of Liberia • The Love of Liberty Brought Us Here"
               >
                 <img
                   src={LIBERIA_SEAL_URL}
                   alt="Republic of Liberia National Seal"
-                  className="h-12 w-12 object-contain"
+                  className="h-11 w-11 object-contain drop-shadow-sm"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}

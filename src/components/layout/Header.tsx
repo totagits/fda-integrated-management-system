@@ -31,68 +31,68 @@ export const Header: React.FC = () => {
 
   return (
     <header className="bg-forest-900 border-b border-forest-800 text-white sticky top-0 z-30 shadow-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+      <div className="w-full px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-20 gap-4">
           
           {/* Logo & Agency Identity */}
-          <div className="flex items-center space-x-3.5">
-            <div className="bg-white p-1.5 rounded-lg shadow-sm flex items-center justify-center border border-forest-200">
+          <div className="flex items-center space-x-3 shrink-0">
+            <div className="flex items-center justify-center shrink-0">
               <img
                 src={FDA_LOGO_URL}
                 alt="Forestry Development Authority Logo"
-                className="h-12 w-12 object-contain"
+                className="h-12 w-auto object-contain drop-shadow"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}
               />
             </div>
-            <div>
+            <div className="shrink-0">
               <div className="flex items-center space-x-2">
-                <span className="font-bold text-lg tracking-wide text-white uppercase">
+                <span className="font-bold text-base sm:text-lg tracking-wide text-white uppercase whitespace-nowrap">
                   Forestry Development Authority
                 </span>
-                <span className="bg-gold-600/30 text-gold-300 text-xs px-2 py-0.5 rounded border border-gold-500/40 font-semibold tracking-wider">
+                <span className="hidden sm:inline-block bg-gold-600/30 text-gold-300 text-[11px] px-2 py-0.5 rounded border border-gold-500/40 font-semibold tracking-wider whitespace-nowrap">
                   FDA • LIBERIA
                 </span>
               </div>
-              <p className="text-xs text-forest-200 font-medium">
-                Integrated MIS/ERP • Whein Town, Bernard Farm, Montserrado County
+              <p className="text-xs text-forest-200/90 font-medium whitespace-nowrap">
+                Integrated MIS/ERP Core Platform • Whein Town HQ
               </p>
             </div>
           </div>
 
           {/* National System Gateways Live Status */}
-          <div className="hidden xl:flex items-center space-x-4 bg-forest-950/60 px-3.5 py-1.5 rounded-lg border border-forest-800/80 text-xs">
+          <div className="hidden 2xl:flex items-center space-x-3 bg-forest-950/70 px-3 py-1.5 rounded-lg border border-forest-800 text-xs">
             <div className="flex items-center space-x-1.5 text-emerald-400">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className="font-medium text-slate-200">IFMIS (MFDP):</span>
+              <span className="font-medium text-slate-200">IFMIS:</span>
               <span className="text-emerald-400 font-semibold">Active</span>
             </div>
             <span className="text-forest-700">|</span>
             <div className="flex items-center space-x-1.5 text-slate-300">
               <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
-              <span>CSA HRMIS:</span>
+              <span>CSA:</span>
               <span className="text-blue-400 font-semibold">Synced</span>
             </div>
             <span className="text-forest-700">|</span>
             <div className="flex items-center space-x-1.5 text-slate-300">
               <Radio className="w-3.5 h-3.5 text-amber-400" />
-              <span>SGS LiberTrace:</span>
+              <span>SGS:</span>
               <span className="text-amber-400 font-semibold">Connected</span>
             </div>
           </div>
 
           {/* Right Action Suite: Print Report, Notification Center, Role Switcher & Logout */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
             
             {/* View Public Portal */}
             <button
               onClick={logoutToPublicPortal}
               title="Return to Public Home & Tender Portal"
-              className="hidden sm:inline-flex items-center space-x-1.5 bg-forest-950/70 hover:bg-forest-950 text-forest-200 hover:text-white text-xs px-3 py-2 rounded-md font-medium transition border border-forest-800"
+              className="hidden xl:inline-flex items-center space-x-1.5 bg-forest-950/70 hover:bg-forest-950 text-forest-200 hover:text-white text-xs px-3 py-2 rounded-md font-medium transition border border-forest-800 shrink-0 whitespace-nowrap"
             >
               <Globe className="w-3.5 h-3.5 text-gold-400" />
               <span>Public Portal</span>
@@ -105,14 +105,14 @@ export const Header: React.FC = () => {
                 data: { title: 'FDA Liberia ERP Executive Compliance Dossier', items: rtmRequirements }
               })}
               title="Print Official Document with FDA Letterhead"
-              className="hidden md:inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-forest-100 text-xs px-3 py-2 rounded-md font-medium transition border border-forest-700"
+              className="hidden lg:inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-forest-100 text-xs px-3 py-2 rounded-md font-medium transition border border-forest-700 shrink-0 whitespace-nowrap"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print Dossier</span>
             </button>
 
             {/* Notification Bell */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setShowNotifMenu(!showNotifMenu)}
                 className="relative p-2 rounded-lg bg-forest-800/80 hover:bg-forest-700 text-forest-200 hover:text-white transition"
@@ -162,19 +162,19 @@ export const Header: React.FC = () => {
             </div>
 
             {/* Role / Persona Switcher (Segregation of Duties Demo) */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setShowRoleMenu(!showRoleMenu)}
-                className="flex items-center space-x-2.5 bg-forest-800 hover:bg-forest-700 border border-forest-700 rounded-lg px-3 py-1.5 text-left transition"
+                className="flex items-center space-x-2.5 bg-forest-800/90 hover:bg-forest-750 border border-forest-700 rounded-lg px-3 py-1.5 text-left transition shadow-sm"
               >
-                <div className="w-8 h-8 rounded-full bg-gold-600 flex items-center justify-center font-bold text-white text-xs border border-gold-400">
+                <div className="w-8 h-8 rounded-full bg-gold-600 flex items-center justify-center font-bold text-white text-xs border border-gold-400 shrink-0">
                   {currentPersona.name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('')}
                 </div>
-                <div className="hidden md:block text-left">
-                  <p className="text-xs font-semibold text-white leading-tight">{currentPersona.name}</p>
-                  <p className="text-[10px] text-forest-300 leading-tight">{currentPersona.title}</p>
+                <div className="hidden sm:block text-left shrink-0">
+                  <p className="text-xs font-bold text-white leading-tight whitespace-nowrap">{currentPersona.name}</p>
+                  <p className="text-[11px] text-forest-300 leading-tight whitespace-nowrap">{currentPersona.title}</p>
                 </div>
-                <ChevronDown className="w-4 h-4 text-forest-300" />
+                <ChevronDown className="w-4 h-4 text-forest-300 shrink-0" />
               </button>
 
               {/* Persona Switcher Dropdown */}
@@ -233,22 +233,22 @@ export const Header: React.FC = () => {
             {/* Direct Logout Button */}
             <button
               onClick={logoutToPublicPortal}
-              title="Sign Out"
-              className="p-2 rounded-lg bg-forest-800/80 hover:bg-red-900/60 text-forest-200 hover:text-red-300 transition border border-forest-700"
+              title="Sign Out to Public Portal"
+              className="p-2 rounded-lg bg-forest-800/80 hover:bg-red-900/60 text-forest-200 hover:text-red-300 transition border border-forest-700 shrink-0"
             >
               <LogOut className="w-4 h-4" />
             </button>
 
             {/* Republic of Liberia National Seal (Official Coat of Arms) */}
-            <div className="flex items-center pl-3 border-l border-forest-800/80">
+            <div className="hidden sm:flex items-center pl-2 shrink-0 border-l border-forest-800/80">
               <div
-                className="bg-white p-1 rounded-lg border border-gold-500/40 shadow-sm flex items-center justify-center"
+                className="flex items-center justify-center shrink-0"
                 title="Republic of Liberia • The Love of Liberty Brought Us Here"
               >
                 <img
                   src={LIBERIA_SEAL_URL}
                   alt="Republic of Liberia National Seal"
-                  className="h-12 w-12 object-contain"
+                  className="h-11 w-11 object-contain drop-shadow"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}
