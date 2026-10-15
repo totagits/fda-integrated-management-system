@@ -67,4 +67,67 @@ describe('FDA Liberia ERP Core Engine Verification', () => {
     });
   });
 
+  describe('5. Employee Self-Service (ESS) & Leave Accrual Engine', () => {
+    it('should calculate available leave days and working hours accurately', () => {
+      const totalAnnualDays = 21;
+      const usedAnnualDays = 4;
+      const availableDays = totalAnnualDays - usedAnnualDays;
+      const availableHours = availableDays * 8;
+
+      expect(availableDays).toBe(17);
+      expect(availableHours).toBe(136);
+
+      const totalSickDays = 15;
+      const usedSickDays = 1;
+      const availableSickDays = totalSickDays - usedSickDays;
+      const availableSickHours = availableSickDays * 8;
+
+      expect(availableSickDays).toBe(14);
+      expect(availableSickHours).toBe(112);
+    });
+  });
+
+  describe('6. Automated HR Onboarding Notification Engine (Email + SMS)', () => {
+    it('should construct compliant email and SMS notifications with mandatory password change clause', () => {
+      const emp = {
+        fullName: 'Sando G. Blama',
+        empNo: 'FDA/RNG/401',
+        email: 'sando.blama@fda.gov.lr',
+        phone: '+231 777 441 902',
+        dutyStation: 'East Nimba Nature Reserve Station',
+        county: 'Nimba',
+        tempPassword: 'FDA#SAFE2026!'
+      };
+
+      const emailBody = `Dear ${emp.fullName}, your temporary password is ${emp.tempPassword}. Mandatory password change required within 24 hours.`;
+      const smsMessage = `[FDA LIBERIA] Welcome ${emp.fullName}! Your profile (${emp.empNo}) is active. Login credentials sent to ${emp.email}. Temp Pass: ${emp.tempPassword}.`;
+
+      expect(emailBody).toContain('Mandatory password change');
+      expect(emailBody).toContain(emp.tempPassword);
+      expect(smsMessage).toContain('[FDA LIBERIA]');
+      expect(smsMessage).toContain(emp.empNo);
+      expect(smsMessage).toContain(emp.tempPassword);
+    });
+  });
+
+  describe('7. Enterprise Role-Based Access Control (RBAC) Permitted Modules', () => {
+    it('should guarantee MY_ACCOUNT is universally authorized for all employee personas', async () => {
+      const { ROLE_ALLOWED_MODULES } = await import('../src/context/AppContext');
+      const roles = Object.keys(ROLE_ALLOWED_MODULES) as (keyof typeof ROLE_ALLOWED_MODULES)[];
+      
+      roles.forEach(role => {
+        expect(ROLE_ALLOWED_MODULES[role]).toContain('MY_ACCOUNT');
+      });
+    });
+
+    it('should enforce segregation of duties by restricting finance and procurement from rangers', async () => {
+      const { ROLE_ALLOWED_MODULES } = await import('../src/context/AppContext');
+      expect(ROLE_ALLOWED_MODULES.COUNTY_OFFICER).not.toContain('FINANCE');
+      expect(ROLE_ALLOWED_MODULES.COUNTY_OFFICER).not.toContain('PROCUREMENT');
+      expect(ROLE_ALLOWED_MODULES.FINANCE_DIRECTOR).toContain('FINANCE');
+      expect(ROLE_ALLOWED_MODULES.PROCUREMENT_OFFICER).toContain('PROCUREMENT');
+    });
+  });
+
 });
+

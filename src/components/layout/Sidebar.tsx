@@ -14,7 +14,8 @@ import {
   Sparkles,
   MapPin,
   LogOut,
-  Shield
+  Shield,
+  UserCheck
 } from 'lucide-react';
 
 interface NavItem {
@@ -52,6 +53,13 @@ export const Sidebar: React.FC = () => {
       label: 'Executive Overview',
       subtitle: 'KPIs, Vote Book & County Map',
       icon: LayoutDashboard
+    },
+    {
+      id: 'MY_ACCOUNT',
+      label: 'My Account & Self-Service',
+      subtitle: 'Profile, Leave, Hours & Paystubs',
+      icon: UserCheck,
+      highlight: true
     },
     {
       id: 'HRMIS',

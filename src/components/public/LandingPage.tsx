@@ -599,9 +599,7 @@ export const LandingPage: React.FC = () => {
             
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
-                <div className="bg-white p-1 rounded">
-                  <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-8 h-8 object-contain" />
-                </div>
+                <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-8 h-auto object-contain drop-shadow" />
                 <div>
                   <h4 className="font-extrabold text-white uppercase text-xs">Forestry Development Authority</h4>
                   <p className="text-[10px] text-forest-300">Republic of Liberia</p>
@@ -656,9 +654,12 @@ export const LandingPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
             <div className="px-5 py-4 bg-forest-900 text-white flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-6 h-6 object-contain bg-white rounded p-0.5" />
-                <h3 className="font-bold text-sm">FDA Staff Intranet Login (RBAC)</h3>
+              <div className="flex items-center space-x-2.5">
+                <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-7 h-auto object-contain drop-shadow" />
+                <div>
+                  <h3 className="font-bold text-sm">FDA Staff Intranet Login (RBAC)</h3>
+                  <p className="text-[10px] text-forest-300">Forestry Development Authority • Republic of Liberia</p>
+                </div>
               </div>
               <button
                 onClick={() => setShowLoginModal(false)}
@@ -669,8 +670,12 @@ export const LandingPage: React.FC = () => {
             </div>
 
             <div className="p-5 space-y-3">
+              <div className="p-2.5 bg-forest-50 border border-forest-200 rounded-lg text-[11px] text-forest-900">
+                <strong>Employee Self-Service Enabled:</strong> All employees have authenticated accounts with role-based access, leave tracking, hours worked, paystubs, and profile management.
+              </div>
+
               <p className="text-xs text-slate-600">
-                Select your designated role persona to authenticate into the Integrated Management Information System:
+                Select your designated personnel account to authenticate into the Integrated Management Information System:
               </p>
 
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">

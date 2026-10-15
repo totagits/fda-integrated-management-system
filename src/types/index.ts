@@ -110,6 +110,37 @@ export interface Employee {
   stationHistory?: CountyPostingRecord[];
   promotions?: PromotionRecord[];
   disciplinaryRecords?: DisciplinaryRecord[];
+  avatarUrl?: string;
+  mustChangePassword?: boolean;
+  address?: string;
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phone: string;
+  };
+  accumulatedAnnualLeaveDays?: number; // Total annual entitlement (e.g. 21 days = 168 hrs)
+  usedAnnualLeaveDays?: number;
+  accumulatedSickLeaveDays?: number;   // Total sick entitlement (e.g. 15 days = 120 hrs)
+  usedSickLeaveDays?: number;
+  compensatoryPatrolDays?: number;    // Field patrol compensatory rest days
+}
+
+export interface OnboardingNotification {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  email: string;
+  phone: string;
+  temporaryPassword: string;
+  emailStatus: 'DELIVERED' | 'QUEUED' | 'FAILED';
+  smsStatus: 'DELIVERED' | 'QUEUED' | 'FAILED';
+  emailContent: {
+    subject: string;
+    body: string;
+  };
+  smsContent: string;
+  dispatchedAt: string;
+  csaBiometricRef: string;
 }
 
 export interface LeaveRequest {

@@ -3,6 +3,7 @@ import { AppProvider, useApp, ROLE_ALLOWED_MODULES } from './context/AppContext'
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { ExecutiveSummary } from './components/dashboard/ExecutiveSummary';
+import { MyAccountModule } from './components/account/MyAccountModule';
 import { HRMISModule } from './components/hrmis/HRMISModule';
 import { FinanceModule } from './components/finance/FinanceModule';
 import { ProcurementModule } from './components/procurement/ProcurementModule';
@@ -52,6 +53,7 @@ const MainLayout: React.FC = () => {
             ) : (
               <>
                 {activeModule === 'DASHBOARD' && <ExecutiveSummary />}
+                {activeModule === 'MY_ACCOUNT' && <MyAccountModule />}
                 {activeModule === 'HRMIS' && <HRMISModule />}
                 {activeModule === 'FINANCE' && <FinanceModule />}
                 {activeModule === 'PROCUREMENT' && <ProcurementModule />}

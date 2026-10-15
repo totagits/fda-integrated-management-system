@@ -12,7 +12,8 @@ import {
   Radio,
   X,
   LogOut,
-  Globe
+  Globe,
+  User
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -23,7 +24,8 @@ export const Header: React.FC = () => {
     dismissNotification,
     openPrintModal,
     rtmRequirements,
-    logoutToPublicPortal
+    logoutToPublicPortal,
+    setActiveModule
   } = useApp();
 
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -214,7 +216,17 @@ export const Header: React.FC = () => {
                     ))}
                   </div>
 
-                  <div className="p-2 border-t border-slate-100 bg-slate-50">
+                  <div className="p-2 border-t border-slate-100 bg-slate-50 space-y-1">
+                    <button
+                      onClick={() => {
+                        setShowRoleMenu(false);
+                        setActiveModule('MY_ACCOUNT');
+                      }}
+                      className="w-full text-center py-1.5 text-xs text-forest-800 hover:text-forest-900 bg-white hover:bg-forest-50 border border-slate-200 rounded-md font-bold flex items-center justify-center space-x-1.5 shadow-sm transition"
+                    >
+                      <User className="w-3.5 h-3.5 text-gold-500" />
+                      <span>My Account & Self-Service</span>
+                    </button>
                     <button
                       onClick={() => {
                         setShowRoleMenu(false);

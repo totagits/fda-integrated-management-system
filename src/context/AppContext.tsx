@@ -24,7 +24,8 @@ import {
   AuditLogEntry,
   RTMRequirement,
   BidderClarificationQuery,
-  PublicTenderNotice
+  PublicTenderNotice,
+  OnboardingNotification
 } from '../types';
 
 import {
@@ -54,6 +55,7 @@ import { INITIAL_RTM_DATA } from '../data/rtmData';
 
 export type AppModule =
   | 'DASHBOARD'
+  | 'MY_ACCOUNT'
   | 'HRMIS'
   | 'FINANCE'
   | 'PROCUREMENT'
@@ -64,13 +66,13 @@ export type AppModule =
   | 'SECURITY';
 
 export const ROLE_ALLOWED_MODULES: Record<UserRole, AppModule[]> = {
-  MANAGING_DIRECTOR: ['DASHBOARD', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'ASSETS', 'OPERATIONS', 'RTM', 'AUDIT', 'SECURITY'],
-  FINANCE_DIRECTOR: ['DASHBOARD', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
-  HR_DIRECTOR: ['DASHBOARD', 'HRMIS', 'RTM', 'AUDIT', 'SECURITY'],
-  PROCUREMENT_OFFICER: ['DASHBOARD', 'HRMIS', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
-  ASSET_OFFICER: ['DASHBOARD', 'HRMIS', 'ASSETS', 'RTM', 'AUDIT', 'SECURITY'],
-  COUNTY_OFFICER: ['DASHBOARD', 'HRMIS', 'OPERATIONS', 'ASSETS', 'RTM', 'SECURITY'],
-  INTERNAL_AUDITOR: ['DASHBOARD', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'AUDIT', 'RTM', 'SECURITY']
+  MANAGING_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'ASSETS', 'OPERATIONS', 'RTM', 'AUDIT', 'SECURITY'],
+  FINANCE_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
+  HR_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'RTM', 'AUDIT', 'SECURITY'],
+  PROCUREMENT_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
+  ASSET_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'ASSETS', 'RTM', 'AUDIT', 'SECURITY'],
+  COUNTY_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'OPERATIONS', 'ASSETS', 'RTM', 'SECURITY'],
+  INTERNAL_AUDITOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'AUDIT', 'RTM', 'SECURITY']
 };
 
 export interface AppNotification {
@@ -108,6 +110,11 @@ interface AppContextType {
   leaveRequests: LeaveRequest[];
   payrollRecords: PayrollRecord[];
   fieldAttendanceLogs: FieldAttendanceLog[];
+  activeEmployee: Employee;
+  updateEmployeeProfile: (employeeId: string, updates: Partial<Employee>) => void;
+  changePassword: (employeeId: string, newPass: string) => boolean;
+  dispatchedOnboardings: OnboardingNotification[];
+  onboardEmployeeWithNotifications: (emp: Omit<Employee, 'id'>) => OnboardingNotification;
   addEmployee: (emp: Omit<Employee, 'id'>) => void;
   transferEmployeeStation: (employeeId: string, transfer: Omit<CountyPostingRecord, 'id'>) => void;
   promoteEmployee: (employeeId: string, promotion: Omit<PromotionRecord, 'id'>) => void;
@@ -197,6 +204,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [rangerIncidents, setRangerIncidents] = useState<FieldRangerIncident[]>(INITIAL_RANGER_INCIDENTS);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
   const [rtmRequirements] = useState<RTMRequirement[]>(INITIAL_RTM_DATA);
+  const [dispatchedOnboardings, setDispatchedOnboardings] = useState<OnboardingNotification[]>([]);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([
     {
@@ -314,13 +322,140 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addAuditEntry('BIDDER_QUERY_ANSWERED', 'PROCUREMENT', `Clarification query ${id} answered by ${currentPersona.name}`);
   };
 
+  // Active employee mapped from current persona context (RBAC)
+  const activeEmployee: Employee = employees.find(e => {
+    const pName = currentPersona.name.toLowerCase();
+    const eName = e.fullName.toLowerCase();
+    if (pName.includes('merab') && eName.includes('merab')) return true;
+    if (pName.includes('kpaiseh') && eName.includes('kpaiseh')) return true;
+    if (pName.includes('bryant') && eName.includes('bryant')) return true;
+    if (pName.includes('toe') && eName.includes('toe')) return true;
+    if (pName.includes('gbotoe') && eName.includes('gbotoe')) return true;
+    if (pName.includes('tamba') && eName.includes('tamba')) return true;
+    if (pName.includes('sirleaf') && eName.includes('sirleaf')) return true;
+    return e.position === currentPersona.title;
+  }) || employees[0];
+
+  const updateEmployeeProfile = (employeeId: string, updates: Partial<Employee>) => {
+    setEmployees(prev => prev.map(emp => {
+      if (emp.id === employeeId) {
+        return { ...emp, ...updates };
+      }
+      return emp;
+    }));
+    addAuditEntry(
+      'PROFILE_UPDATED',
+      'SECURITY',
+      `Employee ${employeeId} updated self-service profile details (Contact/Address/Photo).`
+    );
+    notify('Profile Updated', 'Your employee profile information has been saved successfully.', 'SUCCESS');
+  };
+
+  const changePassword = (employeeId: string, _newPass: string): boolean => {
+    setEmployees(prev => prev.map(emp => {
+      if (emp.id === employeeId) {
+        return { ...emp, mustChangePassword: false };
+      }
+      return emp;
+    }));
+    addAuditEntry(
+      'PASSWORD_CHANGED',
+      'SECURITY',
+      `Employee ${employeeId} completed mandatory first-time password update. Account active.`
+    );
+    notify('Password Changed', 'Your account password has been updated and security verified.', 'SUCCESS');
+    return true;
+  };
+
+  // Automated HR Onboarding with Dual Email and SMS Dispatch
+  const onboardEmployeeWithNotifications = (emp: Omit<Employee, 'id'>): OnboardingNotification => {
+    const id = `EMP-${(employees.length + 1).toString().padStart(3, '0')}`;
+    const tempPassword = `FDA#${Math.random().toString(36).slice(-4).toUpperCase()}2026!`;
+    const csaBiometricRef = emp.biometricId || `BIO-${emp.county.slice(0, 3).toUpperCase()}-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    const newEmp: Employee = {
+      ...emp,
+      id,
+      biometricId: csaBiometricRef,
+      mustChangePassword: true,
+      accumulatedAnnualLeaveDays: 21,
+      usedAnnualLeaveDays: 0,
+      accumulatedSickLeaveDays: 15,
+      usedSickLeaveDays: 0,
+      compensatoryPatrolDays: emp.cadre === 'FIELD_RANGER' ? 6 : 0,
+      address: emp.address || `${emp.dutyStation}, ${emp.county} County`,
+      csaSyncStatus: 'SYNCED',
+      status: 'ACTIVE'
+    };
+
+    setEmployees(prev => [newEmp, ...prev]);
+
+    // Dispatch Official Onboarding Email
+    const emailSubject = `Official Appointment & Mandatory Portal Activation — Forestry Development Authority (${newEmp.empNo})`;
+    const emailBody = `Dear ${newEmp.fullName},
+
+Welcome to the Forestry Development Authority (FDA), Republic of Liberia. Your appointment as ${newEmp.position} in the Department of ${newEmp.department} (Station: ${newEmp.dutyStation}, ${newEmp.county} County) has been officially processed and registered with the Civil Service Agency (CSA HRMIS) Biometric Registry.
+
+==================================================
+YOUR OFFICIAL FDA INTRANET LOGIN CREDENTIALS
+==================================================
+• Official Email: ${newEmp.email}
+• Employee Number: ${newEmp.empNo}
+• CSA Biometric ID: ${csaBiometricRef}
+• Initial Temporary Password: ${tempPassword}
+• Access Portal: https://totagits.github.io/fda-integrated-management-system/
+
+IMPORTANT MANDATORY REQUIREMENT:
+Under Civil Service Agency (CSA) Regulations & FDA Information Security Policy §4, you are required to log into the FDA Employee Portal within 24 hours and complete a mandatory password change to activate your digital payroll enrollment, field telemetry, and annual leave accruals.
+
+For IT and HR assistance, contact the FDA HR Helpdesk at Whein Town HQ (0776-063-643 / 0886-551-249).
+
+Sincerely,
+Helena S. Gbotoe, Director of Human Resources
+Hon. Rudolph J. Merab, Sr., Managing Director & CEO
+Forestry Development Authority, Republic of Liberia`;
+
+    // Dispatch Instant SMS Alert (via Liberia Lonestar Cell MTN / Orange GSM Gateway)
+    const smsMessage = `[FDA LIBERIA] Welcome ${newEmp.fullName}! Your employee profile (${newEmp.empNo}) at ${newEmp.dutyStation} is active. Login credentials & mandatory password reset instructions have been sent to ${newEmp.email}. Temp Pass: ${tempPassword}. Portal: https://totagits.github.io/fda-integrated-management-system/`;
+
+    const notificationRecord: OnboardingNotification = {
+      id: `NOTIF-ONB-${Date.now()}`,
+      employeeId: id,
+      employeeName: newEmp.fullName,
+      email: newEmp.email,
+      phone: newEmp.phone,
+      temporaryPassword: tempPassword,
+      emailStatus: 'DELIVERED',
+      smsStatus: 'DELIVERED',
+      emailContent: {
+        subject: emailSubject,
+        body: emailBody
+      },
+      smsContent: smsMessage,
+      dispatchedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      csaBiometricRef
+    };
+
+    setDispatchedOnboardings(prev => [notificationRecord, ...prev]);
+
+    addAuditEntry(
+      'EMPLOYEE_ONBOARDED_WITH_CREDENTIALS',
+      'HRMIS',
+      `Onboarded ${newEmp.fullName} (${newEmp.position}). Welcome email & SMS dispatched to ${newEmp.email} and ${newEmp.phone}. Mandatory password change flagged.`
+    );
+
+    notify(
+      'Onboarding Notification Dispatched',
+      `Welcome email & SMS notification dispatched to ${newEmp.fullName} (${newEmp.email} & ${newEmp.phone}).`,
+      'SUCCESS'
+    );
+
+    return notificationRecord;
+  };
+
   // HRMIS methods
   const addEmployee = (emp: Omit<Employee, 'id'>) => {
-    const id = `EMP-${(employees.length + 1).toString().padStart(3, '0')}`;
-    const newEmp: Employee = { ...emp, id };
-    setEmployees(prev => [newEmp, ...prev]);
-    addAuditEntry('EMPLOYEE_ONBOARDED', 'HRMIS', `Added employee ${newEmp.fullName} (${newEmp.position}) at ${newEmp.dutyStation}`);
-    notify('Employee Added', `${newEmp.fullName} registered into FDA Human Resource database.`, 'SUCCESS');
+    onboardEmployeeWithNotifications(emp);
   };
 
   const transferEmployeeStation = (employeeId: string, transfer: Omit<CountyPostingRecord, 'id'>) => {
@@ -796,6 +931,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         leaveRequests,
         payrollRecords,
         fieldAttendanceLogs,
+        activeEmployee,
+        updateEmployeeProfile,
+        changePassword,
+        dispatchedOnboardings,
+        onboardEmployeeWithNotifications,
         addEmployee,
         transferEmployeeStation,
         promoteEmployee,
