@@ -69,8 +69,9 @@ export const PrintModal: React.FC = () => {
     setActiveModule(target as any);
   };
 
-  // Filter items if it's RTM report
-  const rawItems = printPayload.type === 'RTM_REPORT' ? printPayload.data.items || [] : [];
+
+  // Filter items — RTM_REPORT type removed; RTM navigated to directly
+  const rawItems: any[] = [];
   const filteredItems = rawItems.filter((item: any) => {
     if (!searchTerm) return true;
     return (
@@ -277,8 +278,8 @@ export const PrintModal: React.FC = () => {
             </div>
           )}
 
-          {/* DOCUMENT BODY: 3. PAYROLL SLIP */}
-          {printPayload.type === 'PAYROLL_SLIP' && (
+          {/* DOCUMENT BODY: 3. PAY SLIP */}
+          {printPayload.type === 'PAY_SLIP' && (
             <div className="space-y-4 text-xs">
               <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 flex justify-between items-start">
                 <div>
@@ -530,9 +531,9 @@ export const PrintModal: React.FC = () => {
             </div>
           )}
 
-          {/* DOCUMENT BODY: 4. RTM COMPLIANCE DOSSIER (WITH EXPANDABLE LINE ITEMS) */}
-          {printPayload.type === 'RTM_REPORT' && (
-            <div className="space-y-4 text-xs">
+
+          {/* Document Security Footnote */}
+
               
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -660,10 +661,8 @@ export const PrintModal: React.FC = () => {
                 })}
               </div>
 
-            </div>
-          )}
-
           {/* Document Security Footnote */}
+
           <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-[10px] text-slate-400 font-mono gap-2">
             <span>FDA Integrated MIS Platform • Whein Town, Bernard Farm HQ</span>
             <span>Digitally Authenticated Government Document</span>

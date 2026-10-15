@@ -817,7 +817,7 @@ export const HRMISModule: React.FC = () => {
                 </button>
                 <button
                   onClick={() => openPrintModal({
-                    type: 'PAYROLL_SLIP',
+                    type: 'PAY_SLIP',
                     data: payrollRecords[3] || payrollRecords[0]
                   })}
                   className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs px-3 py-2 rounded-lg font-bold border border-slate-300 transition flex items-center space-x-1"
@@ -914,7 +914,7 @@ export const HRMISModule: React.FC = () => {
                       <td className="px-4 py-2.5 text-center font-sans">
                         <button
                           onClick={() => openPrintModal({
-                            type: 'PAYROLL_SLIP',
+                            type: 'PAY_SLIP',
                             data: r
                           })}
                           className="inline-flex items-center space-x-1 text-[11px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-300 transition"

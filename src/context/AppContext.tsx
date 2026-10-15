@@ -28,7 +28,18 @@ import {
   OnboardingNotification,
   TrainingProgram,
   EmployeeTrainingEnrollment,
-  TrainingStatus
+  TrainingStatus,
+  RoyaltyInvoice,
+  HarvestLog,
+  LegalCase,
+  CommunityRegistry,
+  CommunityGrievance,
+  ProtectedArea,
+  SpeciesSighting,
+  DonorGrant,
+  GrantDisbursement,
+  AppNotification,
+  PrintModalPayload
 } from '../types';
 
 import {
@@ -53,7 +64,17 @@ import {
   INITIAL_PUBLIC_TENDERS,
   INITIAL_BIDDER_QUERIES,
   INITIAL_TRAINING_PROGRAMS,
-  INITIAL_TRAINING_ENROLLMENTS
+  INITIAL_TRAINING_ENROLLMENTS,
+  INITIAL_ROYALTY_INVOICES,
+  INITIAL_HARVEST_LOGS,
+  INITIAL_LEGAL_CASES,
+  INITIAL_COMMUNITIES,
+  INITIAL_GRIEVANCES,
+  INITIAL_PROTECTED_AREAS,
+  INITIAL_SPECIES_SIGHTINGS,
+  INITIAL_DONOR_GRANTS,
+  INITIAL_GRANT_DISBURSEMENTS,
+  INITIAL_NOTIFICATIONS
 } from '../data/initialData';
 
 import { INITIAL_RTM_DATA } from '../data/rtmData';
@@ -68,30 +89,23 @@ export type AppModule =
   | 'OPERATIONS'
   | 'RTM'
   | 'AUDIT'
-  | 'SECURITY';
+  | 'SECURITY'
+  | 'REVENUE'
+  | 'COMPLIANCE'
+  | 'COMMUNITY'
+  | 'BIODIVERSITY'
+  | 'GRANTS';
 
 export const ROLE_ALLOWED_MODULES: Record<UserRole, AppModule[]> = {
-  MANAGING_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'ASSETS', 'OPERATIONS', 'RTM', 'AUDIT', 'SECURITY'],
-  FINANCE_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
-  HR_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'RTM', 'AUDIT', 'SECURITY'],
+  MANAGING_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'ASSETS', 'OPERATIONS', 'RTM', 'AUDIT', 'SECURITY', 'REVENUE', 'COMPLIANCE', 'COMMUNITY', 'BIODIVERSITY', 'GRANTS'],
+  FINANCE_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY', 'REVENUE', 'GRANTS'],
+  HR_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'RTM', 'AUDIT', 'SECURITY', 'COMMUNITY'],
   PROCUREMENT_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
   ASSET_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'ASSETS', 'RTM', 'AUDIT', 'SECURITY'],
-  COUNTY_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'OPERATIONS', 'ASSETS', 'RTM', 'SECURITY'],
-  INTERNAL_AUDITOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'AUDIT', 'RTM', 'SECURITY']
+  COUNTY_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'OPERATIONS', 'ASSETS', 'RTM', 'SECURITY', 'COMPLIANCE', 'BIODIVERSITY', 'COMMUNITY'],
+  INTERNAL_AUDITOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'AUDIT', 'RTM', 'SECURITY', 'REVENUE', 'COMPLIANCE', 'GRANTS']
 };
 
-export interface AppNotification {
-  id: string;
-  title: string;
-  message: string;
-  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
-  timestamp: string;
-}
-
-export interface PrintModalPayload {
-  type: 'PAYMENT_VOUCHER' | 'ASSET_TAG' | 'PAYROLL_SLIP' | 'RTM_REPORT' | 'INCIDENT_DISPATCH' | 'LEAVE_CERTIFICATE' | 'TRAINING_CERTIFICATE';
-  data: any;
-}
 
 interface AppContextType {
   // Navigation & Public Portal
@@ -191,8 +205,41 @@ interface AppContextType {
   rtmRequirements: RTMRequirement[];
   addAuditEntry: (action: string, module: AuditLogEntry['module'], details: string) => void;
 
-  // Notifications & Print
+  // Revenue & Royalty Management
+  royaltyInvoices: RoyaltyInvoice[];
+  issueRoyaltyInvoice: (inv: Omit<RoyaltyInvoice, 'id'>) => void;
+  recordRoyaltyPayment: (invoiceId: string, amountUSD: number, paymentRef: string) => void;
+
+  // Harvest & AAC Tracking
+  harvestLogs: HarvestLog[];
+  addHarvestLog: (log: Omit<HarvestLog, 'id'>) => void;
+
+  // Legal Case Management
+  legalCases: LegalCase[];
+  createLegalCase: (c: Omit<LegalCase, 'id'>) => void;
+  updateCaseStatus: (caseId: string, status: LegalCase['status'], notes?: string) => void;
+
+  // Community & Social Safeguards
+  communities: CommunityRegistry[];
+  grievances: CommunityGrievance[];
+  addGrievance: (g: Omit<CommunityGrievance, 'id'>) => void;
+  resolveGrievance: (grievanceId: string, notes: string) => void;
+
+  // Biodiversity & Wildlife Monitoring
+  protectedAreas: ProtectedArea[];
+  speciesSightings: SpeciesSighting[];
+  addSpeciesSighting: (s: Omit<SpeciesSighting, 'id'>) => void;
+
+  // Grant & Donor Management
+  donorGrants: DonorGrant[];
+  grantDisbursements: GrantDisbursement[];
+  addGrantDisbursement: (d: Omit<GrantDisbursement, 'id'>) => void;
+
+  // In-App Notifications & Print
   notifications: AppNotification[];
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  addNotification: (n: Omit<AppNotification, 'id' | 'createdAt' | 'isRead'>) => void;
   dismissNotification: (id: string) => void;
   printPayload: PrintModalPayload | null;
   openPrintModal: (payload: PrintModalPayload) => void;
@@ -231,27 +278,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [trainingPrograms, setTrainingPrograms] = useState<TrainingProgram[]>(INITIAL_TRAINING_PROGRAMS);
   const [trainingEnrollments, setTrainingEnrollments] = useState<EmployeeTrainingEnrollment[]>(INITIAL_TRAINING_ENROLLMENTS);
 
-  const [notifications, setNotifications] = useState<AppNotification[]>([
-    {
-      id: 'NOTIF-01',
-      title: 'Fiscal Period 2026 Active',
-      message: 'FDA Vote Book and Budget Controls initialized under GoL MFDP guidelines.',
-      type: 'INFO',
-      timestamp: 'Just now'
-    }
-  ]);
+  // New state datasets for 8 additional modules
+  const [royaltyInvoices, setRoyaltyInvoices] = useState<RoyaltyInvoice[]>(INITIAL_ROYALTY_INVOICES);
+  const [harvestLogs, setHarvestLogs] = useState<HarvestLog[]>(INITIAL_HARVEST_LOGS);
+  const [legalCases, setLegalCases] = useState<LegalCase[]>(INITIAL_LEGAL_CASES);
+  const [communities, setCommunities] = useState<CommunityRegistry[]>(INITIAL_COMMUNITIES);
+  const [grievances, setGrievances] = useState<CommunityGrievance[]>(INITIAL_GRIEVANCES);
+  const [protectedAreas, setProtectedAreas] = useState<ProtectedArea[]>(INITIAL_PROTECTED_AREAS);
+  const [speciesSightings, setSpeciesSightings] = useState<SpeciesSighting[]>(INITIAL_SPECIES_SIGHTINGS);
+  const [donorGrants, setDonorGrants] = useState<DonorGrant[]>(INITIAL_DONOR_GRANTS);
+  const [grantDisbursements, setGrantDisbursements] = useState<GrantDisbursement[]>(INITIAL_GRANT_DISBURSEMENTS);
+  const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
 
   const [printPayload, setPrintPayload] = useState<PrintModalPayload | null>(null);
 
-  const notify = (title: string, message: string, type: AppNotification['type'] = 'INFO') => {
+  /** Internal shortcut used by existing action functions to produce a visible toast-style notification */
+  const notify = (title: string, message: string, _type?: string) => {
     const newNotif: AppNotification = {
       id: `NOTIF-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      type: 'ASSET_TRANSFER', // generic fallback type for system toasts
       title,
       message,
-      type,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      targetRoles: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR', 'HR_DIRECTOR', 'PROCUREMENT_OFFICER', 'ASSET_OFFICER', 'COUNTY_OFFICER', 'INTERNAL_AUDITOR'],
+      isRead: false,
+      priority: 'NORMAL'
     };
-    setNotifications(prev => [newNotif, ...prev.slice(0, 9)]);
+    setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
   };
 
   const dismissNotification = (id: string) => {
@@ -1030,6 +1083,89 @@ Forestry Development Authority, Republic of Liberia`;
     notify('County Synchronization Complete', `All field logs from ${county} County merged with HQ database.`, 'SUCCESS');
   };
 
+
+  // ==================== REVENUE & ROYALTY ====================
+  const issueRoyaltyInvoice = (inv: Omit<RoyaltyInvoice, 'id'>) => {
+    const newInv: RoyaltyInvoice = { ...inv, id: `ROY-${Date.now()}` };
+    setRoyaltyInvoices(prev => [newInv, ...prev]);
+    addAuditEntry('ROYALTY_INVOICE_ISSUED', 'FINANCE', `Royalty invoice ${newInv.invoiceNo} issued for ${newInv.holderName} — $${newInv.amountUSD.toLocaleString()} USD`);
+  };
+
+  const recordRoyaltyPayment = (invoiceId: string, amountUSD: number, paymentRef: string) => {
+    setRoyaltyInvoices(prev => prev.map(inv =>
+      inv.id === invoiceId
+        ? { ...inv, status: (inv.paidAmountUSD || 0) + amountUSD >= inv.amountUSD ? 'PAID' : 'PARTIALLY_PAID', paidAmountUSD: (inv.paidAmountUSD || 0) + amountUSD, paymentRef, paymentDate: new Date().toISOString().split('T')[0] }
+        : inv
+    ));
+    addAuditEntry('ROYALTY_PAYMENT_RECORDED', 'FINANCE', `Royalty payment of $${amountUSD.toLocaleString()} recorded for invoice ${invoiceId} — Ref: ${paymentRef}`);
+  };
+
+  // ==================== HARVEST TRACKING ====================
+  const addHarvestLog = (log: Omit<HarvestLog, 'id'>) => {
+    const newLog: HarvestLog = { ...log, id: `HRV-${Date.now()}` };
+    setHarvestLogs(prev => [newLog, ...prev]);
+    addAuditEntry('HARVEST_LOG_CREATED', 'OPERATIONS', `Harvest log ${newLog.logNo} recorded: ${newLog.volumeHarvestedM3}m³ ${newLog.species} — ${newLog.holderName}`);
+  };
+
+  // ==================== LEGAL CASE MANAGEMENT ====================
+  const createLegalCase = (c: Omit<LegalCase, 'id'>) => {
+    const newCase: LegalCase = { ...c, id: `CASE-${Date.now()}` };
+    setLegalCases(prev => [newCase, ...prev]);
+    addAuditEntry('LEGAL_CASE_FILED', 'OPERATIONS', `Legal case ${newCase.caseNo} filed — ${newCase.caseType} in ${newCase.county} County`);
+  };
+
+  const updateCaseStatus = (caseId: string, status: LegalCase['status'], notes?: string) => {
+    setLegalCases(prev => prev.map(c =>
+      c.id === caseId ? { ...c, status, judgment: notes || c.judgment } : c
+    ));
+    addAuditEntry('LEGAL_CASE_STATUS_UPDATED', 'OPERATIONS', `Legal case ${caseId} status updated to ${status}`);
+  };
+
+  // ==================== COMMUNITY & SOCIAL SAFEGUARDS ====================
+  const addGrievance = (g: Omit<CommunityGrievance, 'id'>) => {
+    const newG: CommunityGrievance = { ...g, id: `GRV-${Date.now()}` };
+    setGrievances(prev => [newG, ...prev]);
+    addAuditEntry('GRIEVANCE_REGISTERED', 'OPERATIONS', `Community grievance ${newG.grievanceNo} registered — ${newG.communityName}, ${newG.county} County`);
+  };
+
+  const resolveGrievance = (grievanceId: string, notes: string) => {
+    setGrievances(prev => prev.map(g =>
+      g.id === grievanceId ? { ...g, status: 'RESOLVED', resolutionNotes: notes, resolvedDate: new Date().toISOString().split('T')[0] } : g
+    ));
+    addAuditEntry('GRIEVANCE_RESOLVED', 'OPERATIONS', `Grievance ${grievanceId} resolved: ${notes}`);
+  };
+
+  // ==================== BIODIVERSITY & WILDLIFE ====================
+  const addSpeciesSighting = (s: Omit<SpeciesSighting, 'id'>) => {
+    const newS: SpeciesSighting = { ...s, id: `SIT-${Date.now()}` };
+    setSpeciesSightings(prev => [newS, ...prev]);
+    addAuditEntry('SPECIES_SIGHTING_RECORDED', 'OPERATIONS', `Species sighting ${newS.sightingNo} recorded: ${newS.species} at ${newS.protectedAreaName}`);
+  };
+
+  // ==================== GRANT & DONOR MANAGEMENT ====================
+  const addGrantDisbursement = (d: Omit<GrantDisbursement, 'id'>) => {
+    const newD: GrantDisbursement = { ...d, id: `DISB-${Date.now()}` };
+    setGrantDisbursements(prev => [newD, ...prev]);
+    setDonorGrants(prev => prev.map(g =>
+      g.id === d.grantId ? { ...g, disbursedToDateUSD: g.disbursedToDateUSD + d.amountUSD } : g
+    ));
+    addAuditEntry('GRANT_DISBURSEMENT_RECORDED', 'FINANCE', `Grant disbursement ${newD.disbursementNo} of $${newD.amountUSD.toLocaleString()} received — ${newD.donorName}`);
+  };
+
+  // ==================== NOTIFICATIONS ====================
+  const markNotificationRead = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  };
+
+  const addNotification = (n: Omit<AppNotification, 'id' | 'createdAt' | 'isRead'>) => {
+    const newN: AppNotification = { ...n, id: `NOTIF-${Date.now()}`, createdAt: new Date().toISOString(), isRead: false };
+    setNotifications(prev => [newN, ...prev.slice(0, 49)]);
+  };
+
   const openPrintModal = (payload: PrintModalPayload) => {
     setPrintPayload(payload);
   };
@@ -1120,6 +1256,34 @@ Forestry Development Authority, Republic of Liberia`;
 
         notifications,
         dismissNotification,
+        markNotificationRead,
+        markAllNotificationsRead,
+        addNotification,
+
+        royaltyInvoices,
+        issueRoyaltyInvoice,
+        recordRoyaltyPayment,
+
+        harvestLogs,
+        addHarvestLog,
+
+        legalCases,
+        createLegalCase,
+        updateCaseStatus,
+
+        communities,
+        grievances,
+        addGrievance,
+        resolveGrievance,
+
+        protectedAreas,
+        speciesSightings,
+        addSpeciesSighting,
+
+        donorGrants,
+        grantDisbursements,
+        addGrantDisbursement,
+
         printPayload,
         openPrintModal,
         closePrintModal

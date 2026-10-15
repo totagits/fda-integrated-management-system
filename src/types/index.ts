@@ -455,3 +455,211 @@ export interface RTMRequirement {
   testCase: string;
   status: 'FULLY_COMPLIANT' | 'CONFIGURED' | 'EVIDENCE_DEMO_READY';
 }
+
+// ==================== 7. REVENUE & ROYALTY MANAGEMENT ====================
+export interface RoyaltyInvoice {
+  id: string;
+  invoiceNo: string;         // e.g. "FDA-ROY-2026-001"
+  concessionId: string;
+  concessionPermitNo: string;
+  holderName: string;
+  county: LiberiaCounty;
+  invoiceType: 'AREA_FEE' | 'STUMPAGE_FEE' | 'NTFP_LEVY' | 'PROCESSING_FEE' | 'CONCESSION_RENEWAL';
+  periodFrom: string;
+  periodTo: string;
+  areaBilled?: number;       // hectares billed
+  volumeM3?: number;         // cubic meters (stumpage)
+  ratePerUnit: number;       // USD per ha or per m3
+  amountUSD: number;
+  amountLRD: number;
+  dueDate: string;
+  status: 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'DISPUTED';
+  paidAmountUSD?: number;
+  paymentDate?: string;
+  paymentRef?: string;       // Bank receipt / MoFP remittance ref
+  lraRemittanceRef?: string;
+  issuedBy: string;
+}
+
+// ==================== 8. TIMBER HARVEST & AAC TRACKING ====================
+export interface HarvestLog {
+  id: string;
+  logNo: string;             // e.g. "FDA-HRV-2026-001"
+  concessionId: string;
+  concessionPermitNo: string;
+  holderName: string;
+  county: LiberiaCounty;
+  harvestDate: string;
+  species: string;           // e.g. "Iroko", "African Mahogany", "Sipo"
+  volumeHarvestedM3: number;
+  aacAllowedM3: number;      // Annual Allowable Cut for this concession
+  cumulativeHarvestedM3: number; // Year-to-date for this concession
+  aacCompliancePercent: number;  // cumulative/aac * 100
+  sgsWaybillNo: string;      // SGS LiberTrace waybill
+  logGrader: string;         // Ranger / log grader name
+  destination: string;       // e.g. "Port of Buchanan", "Local Mill"
+  status: 'VERIFIED' | 'UNDER_REVIEW' | 'FLAGGED';
+}
+
+// ==================== 9. LEGAL CASE MANAGEMENT ====================
+export interface LegalCase {
+  id: string;
+  caseNo: string;            // e.g. "FDA-CASE-2026-001"
+  incidentId?: string;       // Linked ranger incident
+  incidentNo?: string;
+  county: LiberiaCounty;
+  caseType: 'ILLEGAL_LOGGING' | 'ENCROACHMENT' | 'WILDLIFE_TRAFFICKING' | 'CHAINSAW_SEIZURE' | 'CONTRACT_VIOLATION' | 'REVENUE_FRAUD';
+  suspects: string[];        // Suspect names
+  filedDate: string;
+  assignedLegalOfficer: string;
+  courtName?: string;        // e.g. "Montserrado County Court"
+  hearingDate?: string;
+  penaltyUSD?: number;
+  penaltyCollectedUSD?: number;
+  status: 'FILED' | 'UNDER_INVESTIGATION' | 'REFERRED_TO_COURT' | 'JUDGMENT_ISSUED' | 'PENALTY_COLLECTED' | 'CLOSED' | 'DISMISSED';
+  description: string;
+  evidenceFiles: number;
+  closedDate?: string;
+  judgment?: string;
+}
+
+// ==================== 10. COMMUNITY & SOCIAL SAFEGUARDS ====================
+export interface CommunityRegistry {
+  id: string;
+  communityName: string;
+  county: LiberiaCounty;
+  district: string;
+  gpsLat: number;
+  gpsLon: number;
+  populationEstimate: number;
+  chiefLeader: string;
+  contactPhone: string;
+  nearbyForestArea: string;  // e.g. "Sapo National Park Buffer Zone"
+  benefitSharingStatus: 'ACTIVE' | 'PENDING_RENEWAL' | 'NOT_ESTABLISHED';
+  fpicStatus: 'OBTAINED' | 'PENDING' | 'NOT_REQUIRED' | 'WITHDRAWN';
+  fpicDate?: string;
+  fpicRefNo?: string;
+  grievancePending: number;  // count of open grievances
+}
+
+export interface CommunityGrievance {
+  id: string;
+  grievanceNo: string;       // e.g. "FDA-GRV-2026-001"
+  communityId: string;
+  communityName: string;
+  county: LiberiaCounty;
+  filedDate: string;
+  filedBy: string;
+  grievanceType: 'BOUNDARY_DISPUTE' | 'BENEFIT_SHARE_DELAY' | 'ENVIRONMENTAL_DAMAGE' | 'RANGER_CONDUCT' | 'CONCESSION_ENCROACHMENT' | 'OTHER';
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  assignedOfficer: string;
+  status: 'RECEIVED' | 'UNDER_REVIEW' | 'IN_MEDIATION' | 'RESOLVED' | 'ESCALATED';
+  resolutionNotes?: string;
+  resolvedDate?: string;
+}
+
+// ==================== 11. BIODIVERSITY & WILDLIFE MONITORING ====================
+export interface ProtectedArea {
+  id: string;
+  name: string;              // e.g. "Sapo National Park"
+  areaType: 'NATIONAL_PARK' | 'BIOSPHERE_RESERVE' | 'WILDLIFE_REFUGE' | 'FOREST_RESERVE' | 'COMMUNITY_FOREST';
+  county: LiberiaCounty;
+  areaHectares: number;
+  establishedYear: number;
+  threatLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+  lastSurveyDate: string;
+  biodiversityScore: number; // 0-100 composite health index
+  rangerCount: number;
+  cameraTraps: number;
+  keySpecies: string[];      // e.g. ["Western Chimpanzee", "Pygmy Hippo", "Forest Elephant"]
+  status: 'STABLE' | 'UNDER_PRESSURE' | 'DEGRADED' | 'RECOVERING';
+}
+
+export interface SpeciesSighting {
+  id: string;
+  sightingNo: string;        // e.g. "FDA-SIT-2026-001"
+  protectedAreaId: string;
+  protectedAreaName: string;
+  county: LiberiaCounty;
+  sightingDate: string;
+  species: string;
+  conservationStatus: 'CRITICALLY_ENDANGERED' | 'ENDANGERED' | 'VULNERABLE' | 'NEAR_THREATENED' | 'LEAST_CONCERN';
+  individualCount: number;
+  gpsLat: number;
+  gpsLon: number;
+  recordedBy: string;        // Ranger name
+  method: 'DIRECT_OBSERVATION' | 'CAMERA_TRAP' | 'ACOUSTIC_SURVEY' | 'TRACK_SIGN';
+  threatObserved: boolean;
+  notes: string;
+}
+
+// ==================== 12. GRANT & DONOR MANAGEMENT ====================
+export interface DonorGrant {
+  id: string;
+  grantRef: string;          // e.g. "USAID-FDA-2026-LIB-001"
+  donorName: string;         // e.g. "USAID", "World Bank", "EU", "GEF"
+  grantTitle: string;
+  projectCode: string;
+  totalAmountUSD: number;
+  disbursedToDateUSD: number;
+  spentToDateUSD: number;
+  startDate: string;
+  endDate: string;
+  focalArea: 'CONSERVATION' | 'CAPACITY_BUILDING' | 'GOVERNANCE' | 'COMMUNITY_FORESTRY' | 'BIODIVERSITY' | 'CLIMATE_RESILIENCE';
+  status: 'ACTIVE' | 'SUSPENDED' | 'COMPLETED' | 'PIPELINE';
+  grantOfficer: string;
+  nextReportDue: string;
+  conditions: string[];      // Key compliance conditions
+  implementingPartners?: string[];
+}
+
+export interface GrantDisbursement {
+  id: string;
+  disbursementNo: string;    // e.g. "DISB-2026-001"
+  grantId: string;
+  grantRef: string;
+  donorName: string;
+  amountUSD: number;
+  disbursementDate: string;
+  period: string;            // e.g. "Q2 FY2026"
+  bankRef: string;
+  purpose: string;
+  status: 'RECEIVED' | 'ALLOCATED' | 'SPENT';
+  milestoneAchieved?: string;
+}
+
+// ==================== 13. IN-APP NOTIFICATIONS ====================
+export interface AppNotification {
+  id: string;
+  createdAt: string;
+  type:
+    | 'LEAVE_APPROVED'
+    | 'LEAVE_REJECTED'
+    | 'VOUCHER_AWAITING_APPROVAL'
+    | 'VOUCHER_APPROVED'
+    | 'TRAINING_ASSIGNED'
+    | 'TRAINING_DUE'
+    | 'INCIDENT_ESCALATED'
+    | 'GRANT_REPORT_DUE'
+    | 'ROYALTY_OVERDUE'
+    | 'CASE_UPDATE'
+    | 'ASSET_TRANSFER';
+  title: string;
+  message: string;
+  targetRoles: UserRole[];   // Which roles should see this notification
+  isRead: boolean;
+  linkModule?: string;       // Which module to navigate to on click
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+}
+
+// ==================== PrintModal payload ====================
+export type PrintModalPayload =
+  | { type: 'PAY_SLIP'; data: PayrollRecord }
+  | { type: 'LEAVE_CERTIFICATE'; data: LeaveRequest }
+  | { type: 'PAYMENT_VOUCHER'; data: PaymentVoucher }
+  | { type: 'PURCHASE_ORDER'; data: PurchaseOrder }
+  | { type: 'ASSET_TAG'; data: FixedAsset }
+  | { type: 'TRAINING_CERTIFICATE'; data: EmployeeTrainingEnrollment }
+  | { type: 'ROYALTY_INVOICE'; data: RoyaltyInvoice }
+  | { type: 'LEGAL_CASE_REPORT'; data: LegalCase };

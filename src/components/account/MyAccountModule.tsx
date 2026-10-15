@@ -849,19 +849,13 @@ export const MyAccountModule: React.FC = () => {
                             onClick={() => openPrintModal({
                               type: 'LEAVE_CERTIFICATE',
                               data: {
+                                ...req,
                                 certificateNo: req.certificateNo || `FDA-CERT-${req.id}`,
-                                employeeName: req.employeeName,
                                 empNo: activeEmployee.empNo,
                                 position: activeEmployee.position,
-                                department: req.department,
-                                dutyStation: req.dutyStation || activeEmployee.dutyStation,
-                                leaveType: req.leaveType,
-                                startDate: req.startDate,
-                                endDate: req.endDate,
-                                days: req.days,
                                 approvedBy: req.approvedBy || 'Helena S. Gbotoe (HR Director)',
                                 approvedDate: req.approvedDate || '2026-09-20'
-                              }
+                              } as any
                             })}
                             className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded border border-emerald-300 transition"
                           >
@@ -1129,7 +1123,7 @@ export const MyAccountModule: React.FC = () => {
               </div>
               <button
                 onClick={() => openPrintModal({
-                  type: 'PAYROLL_SLIP',
+                  type: 'PAY_SLIP',
                   data: {
                     ...selectedPaystub,
                     employeeName: activeEmployee.fullName,
@@ -1139,7 +1133,7 @@ export const MyAccountModule: React.FC = () => {
                     empNo: activeEmployee.empNo,
                     bankName: activeEmployee.bankName,
                     accountNumber: activeEmployee.accountNumber
-                  }
+                  } as any
                 })}
                 className="px-4 py-2 bg-gold-500 hover:bg-gold-600 text-slate-950 font-bold rounded-lg text-xs transition shadow flex items-center space-x-1.5"
               >

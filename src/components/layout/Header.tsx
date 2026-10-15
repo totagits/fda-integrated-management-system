@@ -22,8 +22,8 @@ export const Header: React.FC = () => {
     setCurrentRole,
     notifications,
     dismissNotification,
-    openPrintModal,
-    rtmRequirements,
+    markNotificationRead,
+    markAllNotificationsRead,
     logoutToPublicPortal,
     setActiveModule
   } = useApp();
@@ -100,18 +100,16 @@ export const Header: React.FC = () => {
               <span>Public Portal</span>
             </button>
 
-            {/* Quick Print Official Report Button */}
+            {/* Quick RTM Compliance Dossier Button */}
             <button
-              onClick={() => openPrintModal({
-                type: 'RTM_REPORT',
-                data: { title: 'FDA Liberia ERP Executive Compliance Dossier', items: rtmRequirements }
-              })}
-              title="Print Official Document with FDA Letterhead"
+              onClick={() => { setActiveModule('RTM'); }}
+              title="View FDA ERP Requirements Traceability Matrix"
               className="hidden lg:inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-forest-100 text-xs px-3 py-2 rounded-md font-medium transition border border-forest-700 shrink-0 whitespace-nowrap"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print Dossier</span>
+              <span>RTM Dossier</span>
             </button>
+
 
             {/* Notification Bell */}
             <div className="relative shrink-0">
@@ -121,9 +119,9 @@ export const Header: React.FC = () => {
                 aria-label="Notifications"
               >
                 <Bell className="w-5 h-5" />
-                {notifications.length > 0 && (
+                {notifications.filter(n => !n.isRead).length > 0 && (
                   <span className="absolute top-1 right-1 bg-amber-500 text-forest-950 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                    {notifications.length}
+                    {notifications.filter(n => !n.isRead).length}
                   </span>
                 )}
               </button>
@@ -136,22 +134,36 @@ export const Header: React.FC = () => {
                       <Bell className="w-4 h-4 text-forest-700" />
                       Platform Notifications
                     </span>
-                    <span className="text-xs text-slate-400">{notifications.length} unread</span>
+                    <button
+                      onClick={() => { markAllNotificationsRead(); }}
+                      className="text-[10px] text-forest-700 hover:text-forest-900 font-bold"
+                    >
+                      Mark all read
+                    </button>
                   </div>
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
                     {notifications.length === 0 ? (
-                      <p className="p-4 text-xs text-slate-500 text-center">No new notifications</p>
+                      <p className="p-4 text-xs text-slate-500 text-center">No notifications</p>
                     ) : (
-                      notifications.map(n => (
-                        <div key={n.id} className="p-3 hover:bg-slate-50 text-xs transition flex justify-between gap-2">
-                          <div>
-                            <p className="font-semibold text-slate-900">{n.title}</p>
-                            <p className="text-slate-600 mt-0.5">{n.message}</p>
-                            <span className="text-[10px] text-slate-400 mt-1 inline-block">{n.timestamp}</span>
+                      notifications.slice(0, 12).map(n => (
+                        <div
+                          key={n.id}
+                          className={`p-3 text-xs transition flex justify-between gap-2 cursor-pointer ${n.isRead ? 'bg-white hover:bg-slate-50' : 'bg-amber-50/60 hover:bg-amber-50'}`}
+                          onClick={() => markNotificationRead(n.id)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              {!n.isRead && <span className="w-1.5 h-1.5 bg-amber-500 rounded-full shrink-0" />}
+                              <p className={`font-semibold text-slate-900 truncate ${n.priority === 'URGENT' ? 'text-red-700' : ''}`}>{n.title}</p>
+                            </div>
+                            <p className="text-slate-600 mt-0.5 line-clamp-2">{n.message}</p>
+                            <span className="text-[10px] text-slate-400 mt-1 inline-block">
+                              {new Date(n.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
                           </div>
                           <button
-                            onClick={() => dismissNotification(n.id)}
-                            className="text-slate-400 hover:text-slate-700 self-start"
+                            onClick={(e) => { e.stopPropagation(); dismissNotification(n.id); }}
+                            className="text-slate-400 hover:text-slate-700 self-start shrink-0"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -162,6 +174,7 @@ export const Header: React.FC = () => {
                 </div>
               )}
             </div>
+
 
             {/* Role / Persona Switcher (Segregation of Duties Demo) */}
             <div className="relative shrink-0">

@@ -12,6 +12,11 @@ import { OperationsModule } from './components/operations/OperationsModule';
 import { RTMModule } from './components/governance/RTMModule';
 import { AuditModule } from './components/governance/AuditModule';
 import { SecurityModule } from './components/governance/SecurityModule';
+import { RevenueModule } from './components/revenue/RevenueModule';
+import { ComplianceModule } from './components/compliance/ComplianceModule';
+import { CommunityModule } from './components/community/CommunityModule';
+import { BiodiversityModule } from './components/biodiversity/BiodiversityModule';
+import { GrantsModule } from './components/grants/GrantsModule';
 import { PrintModal } from './components/ui/PrintModal';
 import { LandingPage } from './components/public/LandingPage';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
@@ -62,6 +67,11 @@ const MainLayout: React.FC = () => {
                 {activeModule === 'RTM' && <RTMModule />}
                 {activeModule === 'AUDIT' && <AuditModule />}
                 {activeModule === 'SECURITY' && <SecurityModule />}
+                {activeModule === 'REVENUE' && <RevenueModule />}
+                {activeModule === 'COMPLIANCE' && <ComplianceModule />}
+                {activeModule === 'COMMUNITY' && <CommunityModule />}
+                {activeModule === 'BIODIVERSITY' && <BiodiversityModule />}
+                {activeModule === 'GRANTS' && <GrantsModule />}
               </>
             )}
           </div>

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 export const RTMModule: React.FC = () => {
-  const { rtmRequirements, setActiveModule, openPrintModal } = useApp();
+  const { rtmRequirements, setActiveModule } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
 
@@ -78,19 +78,14 @@ export const RTMModule: React.FC = () => {
 
         <div className="flex items-center space-x-2.5">
           <button
-            onClick={() => openPrintModal({
-              type: 'RTM_REPORT',
-              data: {
-                title: 'Official FDA Requirements Traceability Matrix & Compliance Dossier',
-                items: rtmRequirements
-              }
-            })}
+            onClick={() => window.print()}
             className="inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-white text-xs px-3.5 py-2 rounded-lg font-bold shadow-sm transition"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>Print Compliance Dossier</span>
           </button>
         </div>
+
       </div>
 
       {/* REOI Legal Assurance Alert */}

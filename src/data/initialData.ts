@@ -20,7 +20,17 @@ import {
   BidderClarificationQuery,
   PublicTenderNotice,
   TrainingProgram,
-  EmployeeTrainingEnrollment
+  EmployeeTrainingEnrollment,
+  RoyaltyInvoice,
+  HarvestLog,
+  LegalCase,
+  CommunityRegistry,
+  CommunityGrievance,
+  ProtectedArea,
+  SpeciesSighting,
+  DonorGrant,
+  GrantDisbursement,
+  AppNotification
 } from '../types';
 
 export const USER_PERSONAS: Record<string, UserPersona> = {
@@ -1779,3 +1789,363 @@ export const INITIAL_TRAINING_ENROLLMENTS: EmployeeTrainingEnrollment[] = [
 ];
 
 
+// ==================== ROYALTY INVOICES ====================
+export const INITIAL_ROYALTY_INVOICES: RoyaltyInvoice[] = [
+  {
+    id: 'ROY-001', invoiceNo: 'FDA-ROY-2026-001', concessionId: 'CONC-001',
+    concessionPermitNo: 'FDA-FMC-001/2026', holderName: 'Liberia Forest Products Ltd',
+    county: 'Nimba', invoiceType: 'STUMPAGE_FEE', periodFrom: '2026-01-01', periodTo: '2026-03-31',
+    volumeM3: 450, ratePerUnit: 18.5, amountUSD: 8325, amountLRD: 1623375,
+    dueDate: '2026-04-30', status: 'PAID', paidAmountUSD: 8325,
+    paymentDate: '2026-04-25', paymentRef: 'LBDI-TXN-2026-04-8821',
+    lraRemittanceRef: 'LRA-REM-2026-1042', issuedBy: 'Revenue Officer Karmoh'
+  },
+  {
+    id: 'ROY-002', invoiceNo: 'FDA-ROY-2026-002', concessionId: 'CONC-002',
+    concessionPermitNo: 'FDA-FMC-002/2026', holderName: 'Sime Darby Plantation Co',
+    county: 'Grand Bassa', invoiceType: 'AREA_FEE', periodFrom: '2026-01-01', periodTo: '2026-06-30',
+    areaBilled: 12500, ratePerUnit: 2.5, amountUSD: 31250, amountLRD: 6093750,
+    dueDate: '2026-07-31', status: 'OVERDUE', issuedBy: 'Revenue Officer Karmoh'
+  },
+  {
+    id: 'ROY-003', invoiceNo: 'FDA-ROY-2026-003', concessionId: 'CONC-003',
+    concessionPermitNo: 'FDA-TSC-001/2026', holderName: 'West African Timber Corp',
+    county: 'Sinoe', invoiceType: 'STUMPAGE_FEE', periodFrom: '2026-04-01', periodTo: '2026-06-30',
+    volumeM3: 320, ratePerUnit: 18.5, amountUSD: 5920, amountLRD: 1154400,
+    dueDate: '2026-07-31', status: 'PARTIALLY_PAID', paidAmountUSD: 3000,
+    issuedBy: 'Revenue Officer Karmoh'
+  },
+  {
+    id: 'ROY-004', invoiceNo: 'FDA-ROY-2026-004', concessionId: 'CONC-004',
+    concessionPermitNo: 'FDA-CFMA-001/2026', holderName: 'Gola Community Forest Assoc.',
+    county: 'Grand Cape Mount', invoiceType: 'NTFP_LEVY', periodFrom: '2026-01-01', periodTo: '2026-06-30',
+    amountUSD: 1250, amountLRD: 243750,
+    dueDate: '2026-08-15', status: 'ISSUED', ratePerUnit: 5,
+    issuedBy: 'Revenue Officer Karmoh'
+  },
+  {
+    id: 'ROY-005', invoiceNo: 'FDA-ROY-2026-005', concessionId: 'CONC-001',
+    concessionPermitNo: 'FDA-FMC-001/2026', holderName: 'Liberia Forest Products Ltd',
+    county: 'Nimba', invoiceType: 'STUMPAGE_FEE', periodFrom: '2026-04-01', periodTo: '2026-06-30',
+    volumeM3: 510, ratePerUnit: 18.5, amountUSD: 9435, amountLRD: 1839825,
+    dueDate: '2026-07-31', status: 'PAID', paidAmountUSD: 9435,
+    paymentDate: '2026-07-28', paymentRef: 'LBDI-TXN-2026-07-9204',
+    lraRemittanceRef: 'LRA-REM-2026-1187', issuedBy: 'Revenue Officer Karmoh'
+  }
+];
+
+// ==================== HARVEST LOGS ====================
+export const INITIAL_HARVEST_LOGS: HarvestLog[] = [
+  {
+    id: 'HRV-001', logNo: 'FDA-HRV-2026-001', concessionId: 'CONC-001',
+    concessionPermitNo: 'FDA-FMC-001/2026', holderName: 'Liberia Forest Products Ltd',
+    county: 'Nimba', harvestDate: '2026-03-15', species: 'Iroko (Milicia excelsa)',
+    volumeHarvestedM3: 145, aacAllowedM3: 2000, cumulativeHarvestedM3: 450,
+    aacCompliancePercent: 22.5, sgsWaybillNo: 'SGS-LT-2026-NIM-00141',
+    logGrader: 'Senior Log Grader Mulbah', destination: 'Port of Buchanan Export Terminal',
+    status: 'VERIFIED'
+  },
+  {
+    id: 'HRV-002', logNo: 'FDA-HRV-2026-002', concessionId: 'CONC-001',
+    concessionPermitNo: 'FDA-FMC-001/2026', holderName: 'Liberia Forest Products Ltd',
+    county: 'Nimba', harvestDate: '2026-04-22', species: 'African Mahogany (Khaya ivorensis)',
+    volumeHarvestedM3: 210, aacAllowedM3: 2000, cumulativeHarvestedM3: 660,
+    aacCompliancePercent: 33.0, sgsWaybillNo: 'SGS-LT-2026-NIM-00188',
+    logGrader: 'Senior Log Grader Mulbah', destination: 'Buchanan Deep Water Port',
+    status: 'VERIFIED'
+  },
+  {
+    id: 'HRV-003', logNo: 'FDA-HRV-2026-003', concessionId: 'CONC-003',
+    concessionPermitNo: 'FDA-TSC-001/2026', holderName: 'West African Timber Corp',
+    county: 'Sinoe', harvestDate: '2026-05-08', species: 'Sipo (Entandrophragma utile)',
+    volumeHarvestedM3: 320, aacAllowedM3: 800, cumulativeHarvestedM3: 320,
+    aacCompliancePercent: 40.0, sgsWaybillNo: 'SGS-LT-2026-SIN-00055',
+    logGrader: 'Log Grader Freeman', destination: 'Greenville Local Mill',
+    status: 'VERIFIED'
+  },
+  {
+    id: 'HRV-004', logNo: 'FDA-HRV-2026-004', concessionId: 'CONC-002',
+    concessionPermitNo: 'FDA-FMC-002/2026', holderName: 'Sime Darby Plantation Co',
+    county: 'Grand Bassa', harvestDate: '2026-06-12', species: 'Teak (Tectona grandis)',
+    volumeHarvestedM3: 890, aacAllowedM3: 1200, cumulativeHarvestedM3: 890,
+    aacCompliancePercent: 74.2, sgsWaybillNo: 'SGS-LT-2026-GRB-00072',
+    logGrader: 'Log Grader Tokpa', destination: 'Buchanan Port — Export',
+    status: 'FLAGGED'
+  },
+  {
+    id: 'HRV-005', logNo: 'FDA-HRV-2026-005', concessionId: 'CONC-001',
+    concessionPermitNo: 'FDA-FMC-001/2026', holderName: 'Liberia Forest Products Ltd',
+    county: 'Nimba', harvestDate: '2026-07-03', species: 'Ekki (Lophira alata)',
+    volumeHarvestedM3: 175, aacAllowedM3: 2000, cumulativeHarvestedM3: 835,
+    aacCompliancePercent: 41.75, sgsWaybillNo: 'SGS-LT-2026-NIM-00223',
+    logGrader: 'Senior Log Grader Mulbah', destination: 'Port of Buchanan Export Terminal',
+    status: 'VERIFIED'
+  }
+];
+
+// ==================== LEGAL CASES ====================
+export const INITIAL_LEGAL_CASES: LegalCase[] = [
+  {
+    id: 'CASE-001', caseNo: 'FDA-CASE-2026-001',
+    incidentId: 'INC-001', incidentNo: 'FRI-2026-001',
+    county: 'Nimba', caseType: 'ILLEGAL_LOGGING',
+    suspects: ['Emmanuel Dolo', 'James Kofa (Driver)'],
+    filedDate: '2026-03-18', assignedLegalOfficer: 'Counselor Allison Togba',
+    courtName: 'Nimba County Circuit Court', hearingDate: '2026-08-14',
+    penaltyUSD: 15000, status: 'REFERRED_TO_COURT',
+    description: 'Commercial illegal pit-sawing operation discovered at Gio Forest Reserve perimeter. 4 chainsaws confiscated. Approx. 60 cubic meters of unmarked timber with no waybill.',
+    evidenceFiles: 18
+  },
+  {
+    id: 'CASE-002', caseNo: 'FDA-CASE-2026-002',
+    county: 'Sinoe', caseType: 'WILDLIFE_TRAFFICKING',
+    suspects: ['Unknown Poacher Group (3 suspects)'],
+    filedDate: '2026-05-22', assignedLegalOfficer: 'Counselor Allison Togba',
+    courtName: 'Sinoe County Court', hearingDate: '2026-09-05',
+    penaltyUSD: 25000, status: 'UNDER_INVESTIGATION',
+    description: 'Pygmy hippopotamus remains and bushmeat from protected Sapo National Park wildlife found in transport vehicle. CITES-listed species suspected. Referred to FBI wildlife crime unit for collaboration.',
+    evidenceFiles: 22
+  },
+  {
+    id: 'CASE-003', caseNo: 'FDA-CASE-2026-003',
+    county: 'Grand Bassa', caseType: 'CONTRACT_VIOLATION',
+    suspects: ['Sime Darby Plantation Co (Corporate)'],
+    filedDate: '2026-06-14', assignedLegalOfficer: 'Counselor Allison Togba',
+    penaltyUSD: 50000, penaltyCollectedUSD: 0, status: 'FILED',
+    description: 'Harvest volume exceeded approved Annual Operational Plan by 74% in Q2 2026 without prior FDA amendment approval. LiberTrace waybill audit flagged discrepancy.',
+    evidenceFiles: 31
+  },
+  {
+    id: 'CASE-004', caseNo: 'FDA-CASE-2026-004',
+    county: 'Lofa', caseType: 'ENCROACHMENT',
+    suspects: ['Logging Crew — Unnamed Company'],
+    filedDate: '2026-04-02', assignedLegalOfficer: 'Counselor Allison Togba',
+    courtName: 'Lofa County Circuit Court',
+    penaltyUSD: 8000, penaltyCollectedUSD: 8000,
+    status: 'PENALTY_COLLECTED', judgment: 'Civil fine of $8,000 USD paid in full. Encroachment ceased.',
+    description: 'Unlicensed farm clearing inside Wologizi Mountain Forest Reserve buffer zone. Crops and structures found inside GPS-demarcated protected boundary.',
+    evidenceFiles: 9, closedDate: '2026-07-15'
+  }
+];
+
+// ==================== COMMUNITY REGISTRY ====================
+export const INITIAL_COMMUNITIES: CommunityRegistry[] = [
+  {
+    id: 'COM-001', communityName: 'Ziah Town', county: 'Sinoe', district: 'Pynee Cess District',
+    gpsLat: 5.341, gpsLon: -8.789, populationEstimate: 1240, chiefLeader: 'Chief Solomon Nyepan',
+    contactPhone: '+231770188421', nearbyForestArea: 'Sapo National Park Buffer Zone',
+    benefitSharingStatus: 'ACTIVE', fpicStatus: 'OBTAINED',
+    fpicDate: '2024-11-15', fpicRefNo: 'FPIC-2024-SNP-001', grievancePending: 1
+  },
+  {
+    id: 'COM-002', communityName: 'Kpain Community', county: 'Grand Cape Mount', district: 'Tewor District',
+    gpsLat: 7.112, gpsLon: -11.032, populationEstimate: 860, chiefLeader: 'Chief Mariatu Fofanah',
+    contactPhone: '+231886543210', nearbyForestArea: 'Gola Forest National Park',
+    benefitSharingStatus: 'ACTIVE', fpicStatus: 'OBTAINED',
+    fpicDate: '2025-02-08', fpicRefNo: 'FPIC-2025-GOLA-003', grievancePending: 0
+  },
+  {
+    id: 'COM-003', communityName: 'Saclepea Town', county: 'Nimba', district: 'Saclepea-Mahn District',
+    gpsLat: 7.432, gpsLon: -8.683, populationEstimate: 2100, chiefLeader: 'Chief David Toe Wleh',
+    contactPhone: '+231886221190', nearbyForestArea: 'Mt. Nimba Strict Nature Reserve',
+    benefitSharingStatus: 'PENDING_RENEWAL', fpicStatus: 'PENDING',
+    grievancePending: 2
+  },
+  {
+    id: 'COM-004', communityName: 'Gbarpolu Central', county: 'Gbarpolu', district: 'Bopolu District',
+    gpsLat: 7.068, gpsLon: -10.483, populationEstimate: 680, chiefLeader: 'Chief Tenneh Korto',
+    contactPhone: '+231770334455', nearbyForestArea: 'Wologizi Mountain Forest Reserve',
+    benefitSharingStatus: 'NOT_ESTABLISHED', fpicStatus: 'NOT_REQUIRED',
+    grievancePending: 0
+  }
+];
+
+export const INITIAL_GRIEVANCES: CommunityGrievance[] = [
+  {
+    id: 'GRV-001', grievanceNo: 'FDA-GRV-2026-001', communityId: 'COM-001',
+    communityName: 'Ziah Town', county: 'Sinoe',
+    filedDate: '2026-06-18', filedBy: 'Chief Solomon Nyepan',
+    grievanceType: 'BENEFIT_SHARE_DELAY', priority: 'HIGH',
+    description: 'Q1 2026 benefit-sharing payment of $2,400 USD has not been received from Liberia Forest Products Ltd as per signed Community Forest Agreement. Three follow-up letters sent to FDA without response.',
+    assignedOfficer: 'Community Relations Officer Kollie', status: 'IN_MEDIATION'
+  },
+  {
+    id: 'GRV-002', grievanceNo: 'FDA-GRV-2026-002', communityId: 'COM-003',
+    communityName: 'Saclepea Town', county: 'Nimba',
+    filedDate: '2026-07-02', filedBy: 'Community Representative Flomo',
+    grievanceType: 'CONCESSION_ENCROACHMENT', priority: 'CRITICAL',
+    description: 'Logging crew operating inside community farmland which lies in the Nimba County Forest concession boundary. No consultation was done before entry. Crops destroyed.',
+    assignedOfficer: 'Community Relations Officer Kollie', status: 'ESCALATED'
+  }
+];
+
+// ==================== PROTECTED AREAS ====================
+export const INITIAL_PROTECTED_AREAS: ProtectedArea[] = [
+  {
+    id: 'PA-001', name: 'Sapo National Park', areaType: 'NATIONAL_PARK',
+    county: 'Sinoe', areaHectares: 180000, establishedYear: 1983,
+    threatLevel: 'HIGH', lastSurveyDate: '2026-06-15', biodiversityScore: 82,
+    rangerCount: 48, cameraTraps: 32,
+    keySpecies: ['Western Chimpanzee', 'Pygmy Hippopotamus', 'Forest Elephant', 'Liberian Mongoose', 'Diana Monkey'],
+    status: 'UNDER_PRESSURE'
+  },
+  {
+    id: 'PA-002', name: 'Mt. Nimba Biosphere Reserve', areaType: 'BIOSPHERE_RESERVE',
+    county: 'Nimba', areaHectares: 13000, establishedYear: 1944,
+    threatLevel: 'CRITICAL', lastSurveyDate: '2026-04-20', biodiversityScore: 71,
+    rangerCount: 22, cameraTraps: 18,
+    keySpecies: ['Viviparous Toad (Nimbaphrynoides)', 'Chimpanzee', 'Duiker', 'Horseshoe Bat'],
+    status: 'DEGRADED'
+  },
+  {
+    id: 'PA-003', name: 'Gola Forest National Park', areaType: 'NATIONAL_PARK',
+    county: 'Grand Cape Mount', areaHectares: 88000, establishedYear: 2016,
+    threatLevel: 'MODERATE', lastSurveyDate: '2026-05-10', biodiversityScore: 76,
+    rangerCount: 36, cameraTraps: 24,
+    keySpecies: ['Western Chimpanzee', 'Pygmy Hippo', 'African Golden Cat', 'White-Necked Rockfowl'],
+    status: 'STABLE'
+  },
+  {
+    id: 'PA-004', name: 'East Nimba Nature Reserve', areaType: 'WILDLIFE_REFUGE',
+    county: 'Nimba', areaHectares: 4200, establishedYear: 2000,
+    threatLevel: 'HIGH', lastSurveyDate: '2026-03-08', biodiversityScore: 65,
+    rangerCount: 12, cameraTraps: 8,
+    keySpecies: ['Chimpanzee', 'Duiker', 'African Civet', 'Spotted Hyena'],
+    status: 'UNDER_PRESSURE'
+  }
+];
+
+export const INITIAL_SPECIES_SIGHTINGS: SpeciesSighting[] = [
+  {
+    id: 'SIT-001', sightingNo: 'FDA-SIT-2026-001', protectedAreaId: 'PA-001',
+    protectedAreaName: 'Sapo National Park', county: 'Sinoe',
+    sightingDate: '2026-06-15', species: 'Pygmy Hippopotamus (Choeropsis liberiensis)',
+    conservationStatus: 'ENDANGERED', individualCount: 2, gpsLat: 5.419, gpsLon: -8.742,
+    recordedBy: 'Ranger Capt. T. Toe Gbotoe', method: 'DIRECT_OBSERVATION',
+    threatObserved: false, notes: 'Mother and juvenile observed at river crossing near GPS waypoint SIR-094. No snares detected in vicinity.'
+  },
+  {
+    id: 'SIT-002', sightingNo: 'FDA-SIT-2026-002', protectedAreaId: 'PA-001',
+    protectedAreaName: 'Sapo National Park', county: 'Sinoe',
+    sightingDate: '2026-07-02', species: 'Western Chimpanzee (Pan troglodytes verus)',
+    conservationStatus: 'CRITICALLY_ENDANGERED', individualCount: 14, gpsLat: 5.398, gpsLon: -8.801,
+    recordedBy: 'Wildlife Monitor Quaye', method: 'CAMERA_TRAP',
+    threatObserved: true, notes: 'Camera trap 12 — group foraging near community boundary. Fresh snare wire found 200m west. Threat assessment: HIGH.'
+  },
+  {
+    id: 'SIT-003', sightingNo: 'FDA-SIT-2026-003', protectedAreaId: 'PA-002',
+    protectedAreaName: 'Mt. Nimba Biosphere Reserve', county: 'Nimba',
+    sightingDate: '2026-04-20', species: 'Nimba Otter Shrew (Micropotamogale lamottei)',
+    conservationStatus: 'CRITICALLY_ENDANGERED', individualCount: 1, gpsLat: 7.604, gpsLon: -8.393,
+    recordedBy: 'Ranger Sgt. Morris Kollie', method: 'ACOUSTIC_SURVEY',
+    threatObserved: false, notes: 'Acoustic signature confirmed by ARBIMON platform. Single individual near stream habitat. Baseline recording archived.'
+  }
+];
+
+// ==================== DONOR GRANTS ====================
+export const INITIAL_DONOR_GRANTS: DonorGrant[] = [
+  {
+    id: 'GRT-001', grantRef: 'USAID-FDA-2026-LIB-001',
+    donorName: 'USAID', grantTitle: 'Liberia Forest Governance & FLEGT Support',
+    projectCode: 'LFGFS-2026', totalAmountUSD: 2500000, disbursedToDateUSD: 1250000,
+    spentToDateUSD: 980000, startDate: '2026-01-15', endDate: '2028-01-14',
+    focalArea: 'GOVERNANCE', status: 'ACTIVE', grantOfficer: 'Grants Manager Pewu',
+    nextReportDue: '2026-10-31',
+    conditions: ['Quarterly financial reporting to USAID Monrovia Mission', 'Annual external audit by KPMG', 'FLEGT VPA process benchmarks met semi-annually'],
+    implementingPartners: ['FDA Technical Division', 'Global Witness (Observer)']
+  },
+  {
+    id: 'GRT-002', grantRef: 'WB-FDA-GEF-2025-LR4',
+    donorName: 'World Bank / GEF', grantTitle: 'Liberia Sustainable Landscapes Program',
+    projectCode: 'LSL-2025', totalAmountUSD: 5000000, disbursedToDateUSD: 2000000,
+    spentToDateUSD: 1650000, startDate: '2025-07-01', endDate: '2029-06-30',
+    focalArea: 'BIODIVERSITY', status: 'ACTIVE', grantOfficer: 'Grants Manager Pewu',
+    nextReportDue: '2026-12-15',
+    conditions: ['World Bank Environmental & Social Framework (ESF) compliance', 'Semi-annual ISR (Implementation Status Reports)', 'REDD+ Safeguard Information System (SIS) updates'],
+    implementingPartners: ['Conservation International', 'Society for Conservation Biology']
+  },
+  {
+    id: 'GRT-003', grantRef: 'EU-FDA-2026-ENV-12',
+    donorName: 'European Union', grantTitle: 'REDD+ Readiness & Carbon Accounting',
+    projectCode: 'REDD-2026', totalAmountUSD: 1200000, disbursedToDateUSD: 400000,
+    spentToDateUSD: 320000, startDate: '2026-03-01', endDate: '2027-08-31',
+    focalArea: 'CLIMATE_RESILIENCE', status: 'ACTIVE', grantOfficer: 'Grants Manager Pewu',
+    nextReportDue: '2026-09-30',
+    conditions: ['UNFCCC reporting standards for national MRV system', 'Community Free Prior and Informed Consent (FPIC) documentation', 'Quarterly narrative reports to EU Delegation Monrovia'],
+    implementingPartners: ['FCPF Carbon Fund', 'UN-REDD Programme']
+  },
+  {
+    id: 'GRT-004', grantRef: 'CI-FDA-2026-SAP-001',
+    donorName: 'Conservation International', grantTitle: 'Sapo National Park Ranger Support',
+    projectCode: 'SNP-RGR-2026', totalAmountUSD: 320000, disbursedToDateUSD: 320000,
+    spentToDateUSD: 310000, startDate: '2026-01-01', endDate: '2026-12-31',
+    focalArea: 'CONSERVATION', status: 'ACTIVE', grantOfficer: 'Grants Manager Pewu',
+    nextReportDue: '2026-10-01',
+    conditions: ['Monthly patrol log submission', 'Camera trap data sharing with CI GIS Hub'],
+    implementingPartners: ['FDA Field Operations Division']
+  }
+];
+
+export const INITIAL_GRANT_DISBURSEMENTS: GrantDisbursement[] = [
+  {
+    id: 'DISB-001', disbursementNo: 'DISB-2026-001', grantId: 'GRT-001',
+    grantRef: 'USAID-FDA-2026-LIB-001', donorName: 'USAID',
+    amountUSD: 625000, disbursementDate: '2026-02-01', period: 'Q1 FY2026',
+    bankRef: 'USAID-WIRE-2026-FEB-0042', purpose: 'Technical support staff salaries, training materials and field equipment',
+    status: 'SPENT', milestoneAchieved: 'M1: Forest governance baseline assessment completed'
+  },
+  {
+    id: 'DISB-002', disbursementNo: 'DISB-2026-002', grantId: 'GRT-001',
+    grantRef: 'USAID-FDA-2026-LIB-001', donorName: 'USAID',
+    amountUSD: 625000, disbursementDate: '2026-07-01', period: 'Q3 FY2026',
+    bankRef: 'USAID-WIRE-2026-JUL-0119', purpose: 'Policy reform support, FLEGT VPA technical meetings, community outreach',
+    status: 'ALLOCATED', milestoneAchieved: 'M2: FLEGT VPA road map validated by stakeholders'
+  },
+  {
+    id: 'DISB-003', disbursementNo: 'DISB-2026-003', grantId: 'GRT-002',
+    grantRef: 'WB-FDA-GEF-2025-LR4', donorName: 'World Bank / GEF',
+    amountUSD: 2000000, disbursementDate: '2026-01-15', period: 'Year 2 Tranche',
+    bankRef: 'WB-IBRD-2026-LR4-T2', purpose: 'Protected area management, biodiversity monitoring equipment, ranger capacity building',
+    status: 'ALLOCATED'
+  }
+];
+
+// ==================== INITIAL NOTIFICATIONS ====================
+export const INITIAL_NOTIFICATIONS: AppNotification[] = [
+  {
+    id: 'NOTIF-001', createdAt: '2026-10-14T08:15:00Z',
+    type: 'LEAVE_APPROVED', title: 'Leave Request Approved',
+    message: 'Your Annual Leave request (5 days, Oct 20–24) has been approved by HR Director.',
+    targetRoles: ['COUNTY_OFFICER'], isRead: false, linkModule: 'MY_ACCOUNT', priority: 'NORMAL'
+  },
+  {
+    id: 'NOTIF-002', createdAt: '2026-10-14T09:30:00Z',
+    type: 'VOUCHER_AWAITING_APPROVAL', title: 'Payment Voucher Awaiting Your Authorization',
+    message: 'PV-2026-009 for $18,500 USD (Field Equipment Purchase) is awaiting Managing Director sign-off.',
+    targetRoles: ['MANAGING_DIRECTOR'], isRead: false, linkModule: 'FINANCE', priority: 'HIGH'
+  },
+  {
+    id: 'NOTIF-003', createdAt: '2026-10-13T14:00:00Z',
+    type: 'ROYALTY_OVERDUE', title: 'Royalty Invoice Overdue — Sime Darby',
+    message: 'Invoice FDA-ROY-2026-002 for $31,250 USD is 75+ days overdue. Concession may be flagged for suspension.',
+    targetRoles: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR'], isRead: false, linkModule: 'REVENUE', priority: 'URGENT'
+  },
+  {
+    id: 'NOTIF-004', createdAt: '2026-10-13T11:00:00Z',
+    type: 'INCIDENT_ESCALATED', title: 'Critical Incident Escalated',
+    message: 'Incident FRI-2026-003 (Wildlife Trafficking, Sinoe County) has been escalated to Managing Director.',
+    targetRoles: ['MANAGING_DIRECTOR'], isRead: true, linkModule: 'OPERATIONS', priority: 'URGENT'
+  },
+  {
+    id: 'NOTIF-005', createdAt: '2026-10-12T16:00:00Z',
+    type: 'GRANT_REPORT_DUE', title: 'Donor Report Due in 17 Days',
+    message: 'USAID Grant (USAID-FDA-2026-LIB-001) quarterly report is due October 31, 2026.',
+    targetRoles: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR'], isRead: false, linkModule: 'GRANTS', priority: 'HIGH'
+  },
+  {
+    id: 'NOTIF-006', createdAt: '2026-10-14T07:00:00Z',
+    type: 'TRAINING_DUE', title: 'Training Deadline Approaching',
+    message: 'SMART GPS Patrol Training is due in 3 days for 3 unstarted employees.',
+    targetRoles: ['HR_DIRECTOR'], isRead: false, linkModule: 'HRMIS', priority: 'NORMAL'
+  }
+];

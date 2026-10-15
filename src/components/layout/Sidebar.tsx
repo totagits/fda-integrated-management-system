@@ -15,7 +15,12 @@ import {
   MapPin,
   LogOut,
   Shield,
-  UserCheck
+  UserCheck,
+  DollarSign,
+  Scale,
+  Users2,
+  Leaf,
+  HandCoins
 } from 'lucide-react';
 
 interface NavItem {
@@ -37,6 +42,10 @@ export const Sidebar: React.FC = () => {
     purchaseOrders,
     depotTransfers,
     rangerIncidents,
+    royaltyInvoices,
+    legalCases,
+    grievances,
+    donorGrants,
     logoutToPublicPortal
   } = useApp();
 
@@ -46,6 +55,12 @@ export const Sidebar: React.FC = () => {
   const pendingPOs = purchaseOrders.filter(po => po.threeWayMatch.status === 'PENDING').length;
   const activeTransfers = depotTransfers.filter(t => t.status === 'IN_TRANSIT').length;
   const openIncidents = rangerIncidents.filter(i => i.status === 'INVESTIGATING' || i.status === 'ESCALATED_TO_MD').length;
+  const overdueInvoices = royaltyInvoices.filter(i => i.status === 'OVERDUE').length;
+  const activeCases = legalCases.filter(c => !['CLOSED_CONVICTED', 'CLOSED_ACQUITTED', 'CLOSED_WITHDRAWN', 'SETTLED'].includes(c.status)).length;
+  const openGrievances = grievances.filter(g => !['RESOLVED', 'CLOSED'].includes(g.status)).length;
+  const today = new Date();
+  const soon = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const reportsComingDue = donorGrants.filter(g => g.nextReportDue && new Date(g.nextReportDue) <= soon && g.status === 'ACTIVE').length;
 
   const allNavItems: NavItem[] = [
     {
@@ -115,6 +130,40 @@ export const Sidebar: React.FC = () => {
       subtitle: 'Core ERP, Gateways & Tech Specs',
       icon: Server,
       highlight: true
+    },
+    {
+      id: 'REVENUE',
+      label: 'Revenue & Royalties',
+      subtitle: 'Stumpage Fees, LRA Remittance',
+      icon: DollarSign,
+      badge: overdueInvoices > 0 ? overdueInvoices : undefined
+    },
+    {
+      id: 'COMPLIANCE',
+      label: 'Legal & Enforcement',
+      subtitle: 'Cases, Penalties & Court Actions',
+      icon: Scale,
+      badge: activeCases > 0 ? activeCases : undefined
+    },
+    {
+      id: 'COMMUNITY',
+      label: 'Community & FPIC',
+      subtitle: 'Social Safeguards & Grievances',
+      icon: Users2,
+      badge: openGrievances > 0 ? openGrievances : undefined
+    },
+    {
+      id: 'BIODIVERSITY',
+      label: 'Biodiversity & Wildlife',
+      subtitle: 'Protected Areas & Species Watch',
+      icon: Leaf
+    },
+    {
+      id: 'GRANTS',
+      label: 'Grants & Donor Funds',
+      subtitle: 'USAID, World Bank, EU Projects',
+      icon: HandCoins,
+      badge: reportsComingDue > 0 ? reportsComingDue : undefined
     }
   ];
 
