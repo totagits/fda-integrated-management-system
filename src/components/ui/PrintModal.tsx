@@ -446,6 +446,90 @@ export const PrintModal: React.FC = () => {
             </div>
           )}
 
+          {/* DOCUMENT BODY: 6. OFFICIAL TRAINING & COMPETENCY CERTIFICATE */}
+          {printPayload.type === 'TRAINING_CERTIFICATE' && (
+            <div className="p-8 border-4 border-double border-forest-800 rounded-2xl bg-amber-50/20 text-center space-y-6 relative overflow-hidden">
+              {/* Watermark / Badge */}
+              <div className="absolute top-4 right-4 bg-emerald-800 text-gold-300 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">
+                Official Credential
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-forest-800 uppercase tracking-widest block">
+                  Forestry Development Authority • Republic of Liberia
+                </span>
+                <h3 className="text-2xl font-black text-forest-950 font-serif uppercase tracking-wide">
+                  Certificate of Competency & Training Completion
+                </h3>
+                <p className="text-xs text-slate-600 font-sans italic">
+                  Pursuant to the National Forestry Reform Law of 2006 & Civil Service Training Mandate
+                </p>
+              </div>
+
+              <div className="py-2">
+                <p className="text-xs text-slate-500 uppercase tracking-wider">This is to officially certify that</p>
+                <h4 className="text-2xl font-black text-slate-900 underline decoration-gold-500 decoration-2 underline-offset-4 my-2">
+                  {printPayload.data.employeeName}
+                </h4>
+                <p className="text-xs font-mono text-slate-600">
+                  Employee ID: <strong className="text-slate-900">{printPayload.data.employeeId}</strong> • {printPayload.data.department} • Station: {printPayload.data.dutyStation} ({printPayload.data.county} County)
+                </p>
+              </div>
+
+              <div className="bg-white/80 p-5 rounded-xl border border-gold-300/60 max-w-2xl mx-auto shadow-sm space-y-2">
+                <p className="text-xs text-slate-600">
+                  has satisfactorily fulfilled all academic, tactical field simulation, and on-the-job competency modules for:
+                </p>
+                <h5 className="text-base font-extrabold text-forest-900 uppercase">
+                  {printPayload.data.trainingTitle}
+                </h5>
+                <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-mono text-slate-700 pt-2 border-t border-slate-200">
+                  <span><strong>Duration:</strong> {printPayload.data.hoursCompleted} Practical Hours</span>
+                  <span>•</span>
+                  <span><strong>Format:</strong> {printPayload.data.deliveryMethod?.replace(/_/g, ' ')}</span>
+                  {printPayload.data.score && (
+                    <>
+                      <span>•</span>
+                      <span className="text-emerald-700 font-bold"><strong>Score:</strong> {printPayload.data.score}% Distinction</span>
+                    </>
+                  )}
+                  <span>•</span>
+                  <span><strong>Completed:</strong> {printPayload.data.completedDate || '2026-09-20'}</span>
+                </div>
+                {printPayload.data.supervisorFeedback && (
+                  <p className="text-[11px] text-slate-600 italic bg-slate-50 p-2 rounded border border-slate-200 mt-2">
+                    "{printPayload.data.supervisorFeedback}"
+                  </p>
+                )}
+              </div>
+
+              {/* Three Signatures */}
+              <div className="grid grid-cols-3 gap-6 pt-4 text-[11px] max-w-2xl mx-auto">
+                <div className="border-t border-slate-400 pt-2">
+                  <p className="font-bold text-slate-800">{printPayload.data.trainerSignedBy || 'SGS LiberTrace Academy Lead'}</p>
+                  <p className="text-[10px] text-slate-500">Course Instructor / Facilitator</p>
+                  <p className="text-[9px] text-emerald-700 font-bold">✓ Field Competency Verified</p>
+                </div>
+                <div className="border-t border-slate-400 pt-2">
+                  <p className="font-bold text-slate-800">Helena S. Gbotoe</p>
+                  <p className="text-[10px] text-slate-500">Director of Human Resources</p>
+                  <p className="text-[9px] text-emerald-700 font-bold">✓ Certified in HRMIS Cadre</p>
+                </div>
+                <div className="border-t border-slate-400 pt-2">
+                  <p className="font-bold text-slate-800">Hon. Rudolph J. Merab, Sr.</p>
+                  <p className="text-[10px] text-slate-500">Managing Director & CEO</p>
+                  <p className="text-[9px] text-forest-800 font-bold">✓ Executive Endorsement</p>
+                </div>
+              </div>
+
+              {/* Certificate Footer Badge */}
+              <div className="pt-2 flex flex-col sm:flex-row justify-between items-center text-[10px] font-mono text-slate-400 border-t border-slate-200">
+                <span>Certificate No: <strong className="text-slate-700">{printPayload.data.certificateNo || 'FDA-CERT-TRN-2026-001'}</strong></span>
+                <span>Verified by National Biometric HRMIS & FDA Registry</span>
+              </div>
+            </div>
+          )}
+
           {/* DOCUMENT BODY: 4. RTM COMPLIANCE DOSSIER (WITH EXPANDABLE LINE ITEMS) */}
           {printPayload.type === 'RTM_REPORT' && (
             <div className="space-y-4 text-xs">

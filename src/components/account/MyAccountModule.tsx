@@ -27,9 +27,14 @@ import {
   Compass,
   Radio,
   FileCheck2,
-  HelpCircle
+  HelpCircle,
+  GraduationCap,
+  Award,
+  BookOpen,
+  TrendingUp,
+  Check
 } from 'lucide-react';
-import { LeaveRequest } from '../../types';
+import { LeaveRequest, EmployeeTrainingEnrollment } from '../../types';
 
 // Official Republic of Liberia Statutory Public Holidays (Act of Legislature)
 const LIBERIA_STATUTORY_HOLIDAYS = [
@@ -57,10 +62,13 @@ export const MyAccountModule: React.FC = () => {
     fieldAttendanceLogs,
     logFieldAttendance,
     openPrintModal,
-    currentPersona
+    currentPersona,
+    trainingPrograms,
+    trainingEnrollments,
+    updateTrainingProgress
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'DETAILS' | 'LEAVE' | 'HOURS' | 'PAYSTUBS'>('DETAILS');
+  const [activeTab, setActiveTab] = useState<'DETAILS' | 'LEAVE' | 'HOURS' | 'PAYSTUBS' | 'TRAINING'>('DETAILS');
 
   // Form states for profile editing
   const [email, setEmail] = useState(activeEmployee.email || '');
@@ -100,6 +108,21 @@ export const MyAccountModule: React.FC = () => {
   const userAttendanceLogs = fieldAttendanceLogs.filter(a =>
     a.employeeId === activeEmployee.id || a.employeeName.toLowerCase().includes(activeEmployee.fullName.toLowerCase().split(' ')[0])
   );
+
+  // Employee-specific trainings
+  const userTrainingEnrollments = trainingEnrollments.filter(e =>
+    e.employeeId === activeEmployee.id || e.employeeName.toLowerCase().includes(activeEmployee.fullName.toLowerCase().split(' ')[0])
+  );
+  const completedTrainings = userTrainingEnrollments.filter(e => e.status === 'COMPLETED');
+  const inProgressTrainings = userTrainingEnrollments.filter(e => e.status === 'IN_PROGRESS' || e.status === 'NOT_STARTED');
+  const totalTrainingHoursLogged = userTrainingEnrollments.reduce((acc, curr) => acc + curr.hoursCompleted, 0);
+
+  // Training progress modal state
+  const [selectedTrainingEnrollment, setSelectedTrainingEnrollment] = useState<EmployeeTrainingEnrollment | null>(null);
+  const [logHours, setLogHours] = useState<number>(0);
+  const [logFeedback, setLogFeedback] = useState<string>('');
+  const [logScore, setLogScore] = useState<number>(90);
+  const [certifyCompletion, setCertifyCompletion] = useState<boolean>(false);
 
   // Leave calculations
   const totalAnnual = activeEmployee.accumulatedAnnualLeaveDays ?? 21;
@@ -414,6 +437,18 @@ export const MyAccountModule: React.FC = () => {
         >
           <Landmark className="w-4 h-4" />
           <span>Digital Paystubs & Deductions ({userPayrollRecords.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('TRAINING')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+            activeTab === 'TRAINING'
+              ? 'bg-forest-800 text-white shadow'
+              : 'text-slate-600 hover:bg-slate-200/60'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4 text-gold-400" />
+          <span>Trainings & Certifications ({userTrainingEnrollments.length})</span>
         </button>
       </div>
 
@@ -1208,6 +1243,370 @@ export const MyAccountModule: React.FC = () => {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* TAB 5: ON-THE-JOB TRAINING & CERTIFICATIONS */}
+      {activeTab === 'TRAINING' && (
+        <div className="space-y-6">
+          
+          {/* Top Capacity Building Header Banner */}
+          <div className="bg-gradient-to-r from-forest-900 via-forest-850 to-slate-900 rounded-2xl p-6 text-white border border-forest-800 shadow-lg relative overflow-hidden">
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center space-x-2 text-gold-400 text-xs font-bold uppercase tracking-wider mb-1">
+                  <GraduationCap className="w-4 h-4" />
+                  <span>FDA Capacity Building & Field Workforce Development</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                  My On-the-Job Trainings & Professional Certifications
+                </h2>
+                <p className="text-xs text-forest-200 mt-1 max-w-2xl">
+                  Track assigned practical field curricula, log hands-on competencies, monitor supervisory evaluations, and print accredited Forestry Development Authority certificates of completion.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-3 shrink-0">
+                <div className="bg-forest-800/80 border border-forest-700 p-3 rounded-xl text-center">
+                  <span className="text-[10px] uppercase text-forest-300 font-bold block">Overall Completion</span>
+                  <span className="text-xl font-black text-gold-400">
+                    {userTrainingEnrollments.length > 0
+                      ? Math.round((completedTrainings.length / userTrainingEnrollments.length) * 100)
+                      : 100}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4 Stats Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6 pt-5 border-t border-forest-800/80">
+              <div className="bg-forest-900/60 p-3 rounded-xl border border-forest-800">
+                <span className="text-[10px] text-forest-300 font-bold uppercase tracking-wider block">Assigned Programs</span>
+                <p className="text-xl font-extrabold text-white mt-1">{userTrainingEnrollments.length} <span className="text-xs font-normal text-forest-300">Curricula</span></p>
+                <p className="text-[10px] text-forest-300 mt-0.5">Mandatory & Cadre-specific</p>
+              </div>
+
+              <div className="bg-forest-900/60 p-3 rounded-xl border border-forest-800">
+                <span className="text-[10px] text-forest-300 font-bold uppercase tracking-wider block">Practical Hours Completed</span>
+                <p className="text-xl font-extrabold text-emerald-400 mt-1">{totalTrainingHoursLogged} <span className="text-xs font-normal text-forest-300">Hours</span></p>
+                <p className="text-[10px] text-emerald-300 mt-0.5">Field simulation & workshops</p>
+              </div>
+
+              <div className="bg-forest-900/60 p-3 rounded-xl border border-forest-800">
+                <span className="text-[10px] text-forest-300 font-bold uppercase tracking-wider block">Official Certificates</span>
+                <p className="text-xl font-extrabold text-gold-400 mt-1">{completedTrainings.length} <span className="text-xs font-normal text-forest-300">Earned</span></p>
+                <p className="text-[10px] text-gold-300 mt-0.5">Accredited & Printable</p>
+              </div>
+
+              <div className="bg-forest-900/60 p-3 rounded-xl border border-forest-800">
+                <span className="text-[10px] text-forest-300 font-bold uppercase tracking-wider block">In-Progress Practicums</span>
+                <p className="text-xl font-extrabold text-amber-400 mt-1">{inProgressTrainings.length} <span className="text-xs font-normal text-forest-300">Active</span></p>
+                <p className="text-[10px] text-amber-300 mt-0.5">On-the-job training in field</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Training Cards Grid */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Enrolled Training Curricula & Field Practicums</h3>
+                <p className="text-xs text-slate-500">Curricula assigned by HR & Department Training Coordinators for {activeEmployee.fullName}</p>
+              </div>
+              <span className="text-xs font-mono font-semibold bg-slate-100 text-slate-700 px-3 py-1 rounded-lg border border-slate-200">
+                {userTrainingEnrollments.length} Programs
+              </span>
+            </div>
+
+            {userTrainingEnrollments.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
+                <BookOpen className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+                <p className="font-bold text-sm text-slate-700">No Training Programs Currently Assigned</p>
+                <p className="text-xs text-slate-500 mt-1">The HR Training Directorate assigns regular courses based on employee cadre and county post.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {userTrainingEnrollments.map(enr => {
+                  const isDone = enr.status === 'COMPLETED';
+                  return (
+                    <div
+                      key={enr.id}
+                      className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition space-y-4"
+                    >
+                      {/* Card Top: Badges & Status */}
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="bg-forest-100 text-forest-800 font-bold text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                              {enr.category.replace(/_/g, ' ')}
+                            </span>
+                            <span className="bg-slate-100 text-slate-700 font-mono text-[10px] px-2 py-0.5 rounded font-semibold">
+                              {enr.deliveryMethod.replace(/_/g, ' ')}
+                            </span>
+                            {enr.isMandatory && (
+                              <span className="bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                Mandatory OJT
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-base font-bold text-slate-900">{enr.trainingTitle}</h4>
+                          <p className="text-xs text-slate-500">
+                            Station: <strong className="text-slate-700">{enr.dutyStation}</strong> ({enr.county} County) • Assigned: {enr.assignedDate} • Due Date: <strong className="text-slate-800">{enr.dueDate}</strong>
+                          </p>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2">
+                          {isDone ? (
+                            <span className="bg-emerald-100 text-emerald-800 font-bold text-xs px-3 py-1 rounded-full flex items-center space-x-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Completed & Certified</span>
+                            </span>
+                          ) : (
+                            <span className="bg-amber-100 text-amber-800 font-bold text-xs px-3 py-1 rounded-full flex items-center space-x-1">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                              <span>In Progress ({enr.progressPercent}%)</span>
+                            </span>
+                          )}
+                          {enr.score && (
+                            <span className="text-[11px] font-bold text-forest-800 font-mono">
+                              Evaluation Score: {enr.score}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Progress Bar & Hours */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                            <TrendingUp className="w-3.5 h-3.5 text-forest-700" />
+                            <span>Practical On-the-Job Hours</span>
+                          </span>
+                          <span className="font-mono text-slate-900 font-bold">
+                            {enr.hoursCompleted} / {enr.totalHours} Hours ({enr.progressPercent}%)
+                          </span>
+                        </div>
+                        <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                          <div
+                            className={`h-full transition-all duration-500 rounded-full ${
+                              isDone
+                                ? 'bg-gradient-to-r from-emerald-500 to-forest-700'
+                                : 'bg-gradient-to-r from-amber-500 to-forest-600'
+                            }`}
+                            style={{ width: `${Math.min(100, enr.progressPercent)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Supervisor / Trainer Remarks */}
+                      {enr.supervisorFeedback && (
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+                          <span className="font-bold text-slate-600 uppercase text-[10px] block mb-0.5">
+                            Trainer & Supervisory Field Feedback
+                          </span>
+                          <p className="text-slate-800 italic">"{enr.supervisorFeedback}"</p>
+                          {enr.trainerSignedBy && (
+                            <p className="text-[10px] text-emerald-700 font-semibold mt-1">
+                              ✓ Evaluated & Signed by: {enr.trainerSignedBy}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Card Action Footer */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                        <div className="text-xs text-slate-500">
+                          {isDone ? (
+                            <span className="font-mono text-emerald-800 font-semibold flex items-center gap-1">
+                              <Award className="w-4 h-4 text-gold-500" />
+                              <span>Certificate No: {enr.certificateNo} (Completed on {enr.completedDate})</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">
+                              {enr.totalHours - enr.hoursCompleted} practical hours remaining before competency certification.
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => {
+                              setSelectedTrainingEnrollment(enr);
+                              setLogHours(enr.hoursCompleted);
+                              setLogFeedback(enr.supervisorFeedback || '');
+                              setLogScore(enr.score || 90);
+                              setCertifyCompletion(isDone);
+                            }}
+                            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 border border-slate-300 shadow-sm"
+                          >
+                            <TrendingUp className="w-3.5 h-3.5 text-forest-700" />
+                            <span>Update Practical Hours</span>
+                          </button>
+
+                          {isDone && (
+                            <button
+                              onClick={() => {
+                                openPrintModal({
+                                  type: 'TRAINING_CERTIFICATE',
+                                  data: enr
+                                });
+                              }}
+                              className="px-4 py-1.5 bg-forest-800 hover:bg-forest-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow"
+                            >
+                              <Award className="w-3.5 h-3.5 text-gold-400" />
+                              <span>View & Print Official Certificate</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* MODAL: UPDATE TRAINING PROGRESS & COMPETENCIES */}
+      {selectedTrainingEnrollment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 bg-forest-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <GraduationCap className="w-5 h-5 text-gold-400" />
+                <h3 className="font-bold text-sm">Update On-the-Job Training Progress</h3>
+              </div>
+              <button
+                onClick={() => setSelectedTrainingEnrollment(null)}
+                className="text-slate-300 hover:text-white text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                updateTrainingProgress(
+                  selectedTrainingEnrollment.id,
+                  Number(logHours),
+                  logFeedback,
+                  Number(logScore),
+                  certifyCompletion
+                );
+                setSelectedTrainingEnrollment(null);
+              }}
+              className="p-5 space-y-4 text-xs"
+            >
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
+                <span className="text-[10px] text-slate-500 font-bold uppercase block">Course Details</span>
+                <p className="font-bold text-sm text-slate-900">{selectedTrainingEnrollment.trainingTitle}</p>
+                <p className="text-[11px] text-slate-600">
+                  Cadre / Employee: <strong>{selectedTrainingEnrollment.employeeName}</strong> ({selectedTrainingEnrollment.dutyStation})
+                </p>
+                <p className="text-[11px] text-forest-800 font-mono">
+                  Total Required Hours: <strong>{selectedTrainingEnrollment.totalHours} hrs</strong> • Current Logged: {selectedTrainingEnrollment.hoursCompleted} hrs
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Practical Hours Completed (Cumulative out of {selectedTrainingEnrollment.totalHours} hrs)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedTrainingEnrollment.totalHours}
+                    value={logHours}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setLogHours(val);
+                      if (val >= selectedTrainingEnrollment.totalHours) {
+                        setCertifyCompletion(true);
+                      }
+                    }}
+                    required
+                    className="w-32 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-forest-600 focus:outline-none font-bold text-sm"
+                  />
+                  <span className="text-slate-500 font-mono text-xs">
+                    = {Math.min(100, Math.round((Number(logHours) / selectedTrainingEnrollment.totalHours) * 100))}% completed
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Practical Field Exercises / Logged Activities Notes
+                </label>
+                <textarea
+                  rows={3}
+                  value={logFeedback}
+                  onChange={(e) => setLogFeedback(e.target.value)}
+                  placeholder="Summarize practical competencies performed (e.g. handheld scanner barcode sync at checkpoint, GPS waypoint logging on patrol, voucher matching)..."
+                  className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-forest-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Practical Evaluation Score (%)</label>
+                  <input
+                    type="number"
+                    min={60}
+                    max={100}
+                    value={logScore}
+                    onChange={(e) => setLogScore(Number(e.target.value))}
+                    className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-forest-600 focus:outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Due Date</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={selectedTrainingEnrollment.dueDate}
+                    className="w-full p-2 border border-slate-200 bg-slate-50 rounded-lg text-slate-600"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-forest-50 border border-forest-200 rounded-lg flex items-start space-x-2.5">
+                <input
+                  type="checkbox"
+                  id="certifyCompletionCheck"
+                  checked={certifyCompletion}
+                  onChange={(e) => setCertifyCompletion(e.target.checked)}
+                  className="mt-0.5 rounded text-forest-700 focus:ring-forest-600"
+                />
+                <label htmlFor="certifyCompletionCheck" className="text-xs text-forest-900 cursor-pointer">
+                  <strong className="block">Certify Competency & Issue Official FDA Certificate</strong>
+                  <span>Marks this practical training as fully completed and generates an authentic FDA certificate of competency.</span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTrainingEnrollment(null)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-forest-800 hover:bg-forest-700 text-white rounded-lg font-bold transition shadow flex items-center space-x-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-gold-400" />
+                  <span>Save Progress & Hours</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

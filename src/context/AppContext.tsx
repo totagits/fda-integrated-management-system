@@ -25,7 +25,10 @@ import {
   RTMRequirement,
   BidderClarificationQuery,
   PublicTenderNotice,
-  OnboardingNotification
+  OnboardingNotification,
+  TrainingProgram,
+  EmployeeTrainingEnrollment,
+  TrainingStatus
 } from '../types';
 
 import {
@@ -48,7 +51,9 @@ import {
   INITIAL_RANGER_INCIDENTS,
   INITIAL_AUDIT_LOGS,
   INITIAL_PUBLIC_TENDERS,
-  INITIAL_BIDDER_QUERIES
+  INITIAL_BIDDER_QUERIES,
+  INITIAL_TRAINING_PROGRAMS,
+  INITIAL_TRAINING_ENROLLMENTS
 } from '../data/initialData';
 
 import { INITIAL_RTM_DATA } from '../data/rtmData';
@@ -84,7 +89,7 @@ export interface AppNotification {
 }
 
 export interface PrintModalPayload {
-  type: 'PAYMENT_VOUCHER' | 'ASSET_TAG' | 'PAYROLL_SLIP' | 'RTM_REPORT' | 'INCIDENT_DISPATCH' | 'LEAVE_CERTIFICATE';
+  type: 'PAYMENT_VOUCHER' | 'ASSET_TAG' | 'PAYROLL_SLIP' | 'RTM_REPORT' | 'INCIDENT_DISPATCH' | 'LEAVE_CERTIFICATE' | 'TRAINING_CERTIFICATE';
   data: any;
 }
 
@@ -105,7 +110,7 @@ interface AppContextType {
   submitBidderQuery: (query: Omit<BidderClarificationQuery, 'id' | 'questionDate' | 'status'>) => void;
   respondToBidderQuery: (id: string, response: string) => void;
 
-  // HRMIS & Attendance Telemetry
+  // HRMIS, Leave & Attendance Telemetry
   employees: Employee[];
   leaveRequests: LeaveRequest[];
   payrollRecords: PayrollRecord[];
@@ -127,6 +132,24 @@ interface AppContextType {
   processPayrollRun: (period: string) => void;
   syncWithCSA: () => void;
   runAntiGhostWorkerAudit: () => { totalScanned: number; duplicatesFound: number; verifiedClean: number; auditTimestamp: string; };
+
+  // Training & Capacity Development
+  trainingPrograms: TrainingProgram[];
+  trainingEnrollments: EmployeeTrainingEnrollment[];
+  assignTraining: (data: {
+    trainingId: string;
+    employeeId: string;
+    dueDate: string;
+    isMandatory?: boolean;
+  }) => void;
+  updateTrainingProgress: (
+    enrollmentId: string,
+    hoursCompleted: number,
+    feedback?: string,
+    score?: number,
+    certify?: boolean
+  ) => void;
+  createTrainingProgram: (prog: Omit<TrainingProgram, 'id'>) => void;
 
   // Finance
   budgetVotes: BudgetVoteCode[];
@@ -205,6 +228,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
   const [rtmRequirements] = useState<RTMRequirement[]>(INITIAL_RTM_DATA);
   const [dispatchedOnboardings, setDispatchedOnboardings] = useState<OnboardingNotification[]>([]);
+  const [trainingPrograms, setTrainingPrograms] = useState<TrainingProgram[]>(INITIAL_TRAINING_PROGRAMS);
+  const [trainingEnrollments, setTrainingEnrollments] = useState<EmployeeTrainingEnrollment[]>(INITIAL_TRAINING_ENROLLMENTS);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([
     {
@@ -643,6 +668,109 @@ Forestry Development Authority, Republic of Liberia`;
     };
   };
 
+  // Training & Capacity Development
+  const assignTraining = (data: {
+    trainingId: string;
+    employeeId: string;
+    dueDate: string;
+    isMandatory?: boolean;
+  }) => {
+    const prog = trainingPrograms.find(p => p.id === data.trainingId);
+    const emp = employees.find(e => e.id === data.employeeId);
+    if (!prog || !emp) {
+      notify('Assignment Error', 'Program or Employee not found.', 'ERROR');
+      return;
+    }
+
+    const newEnrollment: EmployeeTrainingEnrollment = {
+      id: `ENR-${Date.now()}`,
+      trainingId: prog.id,
+      trainingTitle: prog.title,
+      category: prog.category,
+      deliveryMethod: prog.deliveryMethod,
+      employeeId: emp.id,
+      employeeName: emp.fullName,
+      department: emp.department,
+      dutyStation: emp.dutyStation,
+      county: emp.county,
+      assignedDate: new Date().toISOString().substring(0, 10),
+      dueDate: data.dueDate,
+      status: 'NOT_STARTED',
+      progressPercent: 0,
+      hoursCompleted: 0,
+      totalHours: prog.durationHours,
+      isMandatory: data.isMandatory ?? true
+    };
+
+    setTrainingEnrollments(prev => [newEnrollment, ...prev]);
+
+    addAuditEntry(
+      'TRAINING_ASSIGNED',
+      'HRMIS',
+      `Assigned course "${prog.title}" to ${emp.fullName} (${emp.position}, ${emp.dutyStation}). Due: ${data.dueDate}.`
+    );
+
+    notify(
+      'Training Assigned',
+      `"${prog.title}" successfully assigned to ${emp.fullName}.`,
+      'SUCCESS'
+    );
+  };
+
+  const updateTrainingProgress = (
+    enrollmentId: string,
+    hoursCompleted: number,
+    feedback?: string,
+    score?: number,
+    certify: boolean = false
+  ) => {
+    setTrainingEnrollments(prev => prev.map(enr => {
+      if (enr.id === enrollmentId) {
+        const cappedHours = Math.min(enr.totalHours, Math.max(0, hoursCompleted));
+        const progressPercent = Math.min(100, Math.round((cappedHours / enr.totalHours) * 100));
+        const isDone = certify || progressPercent >= 100;
+        const finalStatus: TrainingStatus = isDone ? 'COMPLETED' : (cappedHours > 0 ? 'IN_PROGRESS' : 'NOT_STARTED');
+        const certNo = isDone ? (enr.certificateNo || `FDA-CERT-TRN-2026-${Date.now().toString().slice(-4)}`) : undefined;
+        const completedDate = isDone ? (enr.completedDate || new Date().toISOString().substring(0, 10)) : undefined;
+
+        return {
+          ...enr,
+          hoursCompleted: isDone ? enr.totalHours : cappedHours,
+          progressPercent: isDone ? 100 : progressPercent,
+          status: finalStatus,
+          supervisorFeedback: feedback !== undefined ? feedback : enr.supervisorFeedback,
+          score: score !== undefined ? score : enr.score,
+          completedDate,
+          certificateNo: certNo,
+          trainerSignedBy: isDone ? (enr.trainerSignedBy || currentPersona.name) : undefined
+        };
+      }
+      return enr;
+    }));
+
+    addAuditEntry(
+      'TRAINING_PROGRESS_LOGGED',
+      'HRMIS',
+      `Updated training progress for enrollment ${enrollmentId} (${hoursCompleted} hrs, certified: ${certify}). Signed by ${currentPersona.name}.`
+    );
+
+    notify(
+      'Training Progress Saved',
+      'Training record and competencies updated successfully.',
+      'SUCCESS'
+    );
+  };
+
+  const createTrainingProgram = (prog: Omit<TrainingProgram, 'id'>) => {
+    const newProg: TrainingProgram = {
+      ...prog,
+      id: `TRN-${(trainingPrograms.length + 1).toString().padStart(3, '0')}`
+    };
+    setTrainingPrograms(prev => [newProg, ...prev]);
+    addAuditEntry('TRAINING_PROGRAM_CREATED', 'HRMIS', `Created new curriculum "${newProg.title}" (${newProg.code})`);
+    notify('Training Program Created', `Course "${newProg.title}" added to FDA Training Catalog.`, 'SUCCESS');
+  };
+
   // Finance methods
   const createPaymentVoucher = (voucher: Omit<PaymentVoucher, 'id' | 'voucherNo' | 'dateCreated' | 'status'>): boolean => {
     const vote = budgetVotes.find(v => v.code === voucher.voteCode);
@@ -948,6 +1076,12 @@ Forestry Development Authority, Republic of Liberia`;
         processPayrollRun,
         syncWithCSA,
         runAntiGhostWorkerAudit,
+
+        trainingPrograms,
+        trainingEnrollments,
+        assignTraining,
+        updateTrainingProgress,
+        createTrainingProgram,
 
         budgetVotes,
         paymentVouchers,

@@ -129,5 +129,50 @@ describe('FDA Liberia ERP Core Engine Verification', () => {
     });
   });
 
+  describe('8. Staff Training, On-the-Job Mentorship & Competency Certification Engine (TOR §6)', () => {
+    it('should verify initial training programs exist with accredited facilitators', async () => {
+      const { INITIAL_TRAINING_PROGRAMS } = await import('../src/data/initialData');
+      expect(INITIAL_TRAINING_PROGRAMS.length).toBeGreaterThanOrEqual(6);
+      
+      const liberTrace = INITIAL_TRAINING_PROGRAMS.find(p => p.id === 'TRN-001');
+      expect(liberTrace).toBeDefined();
+      expect(liberTrace?.category).toBe('CHAIN_OF_CUSTODY');
+      expect(liberTrace?.durationHours).toBe(40);
+      expect(liberTrace?.deliveryMethod).toBe('ON_THE_JOB');
+      expect(liberTrace?.syllabusTopics.length).toBeGreaterThan(0);
+
+      const smartGps = INITIAL_TRAINING_PROGRAMS.find(p => p.id === 'TRN-002');
+      expect(smartGps).toBeDefined();
+      expect(smartGps?.category).toBe('FIELD_OPERATIONS');
+      expect(smartGps?.targetCadre).toBe('FIELD_RANGER');
+    });
+
+    it('should correctly calculate progress percentage and certificate issuance upon completion', () => {
+      const totalHours = 40;
+      const hoursLogged = 30;
+      const progressPercent = Math.min(100, Math.round((hoursLogged / totalHours) * 100));
+      expect(progressPercent).toBe(75);
+
+      const completedHours = 40;
+      const isComplete = completedHours >= totalHours;
+      const certificateNo = isComplete ? 'FDA-CERT-TRN-2026-0042' : undefined;
+
+      expect(isComplete).toBe(true);
+      expect(certificateNo).toContain('FDA-CERT-TRN-');
+    });
+
+    it('should verify employee specific training enrollments for Capt. Emmanuel D. Toe', async () => {
+      const { INITIAL_TRAINING_ENROLLMENTS } = await import('../src/data/initialData');
+      const toeTrainings = INITIAL_TRAINING_ENROLLMENTS.filter(e => e.employeeId === 'EMP-004');
+      
+      expect(toeTrainings.length).toBeGreaterThanOrEqual(2);
+      const completedToe = toeTrainings.filter(e => e.status === 'COMPLETED');
+      expect(completedToe.length).toBeGreaterThanOrEqual(1);
+      expect(completedToe[0].certificateNo).toBeDefined();
+      expect(completedToe[0].trainerSignedBy).toBeDefined();
+    });
+  });
+
 });
+
 

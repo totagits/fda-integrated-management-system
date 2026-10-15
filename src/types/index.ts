@@ -165,6 +165,49 @@ export interface LeaveRequest {
   rejectionReason?: string;
 }
 
+// ==================== TRAINING & CAPACITY DEVELOPMENT ====================
+export type TrainingDeliveryMethod = 'ON_THE_JOB' | 'FIELD_SIMULATION' | 'CLASSROOM_WORKSHOP' | 'E_LEARNING';
+export type TrainingStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
+
+export interface TrainingProgram {
+  id: string;
+  code: string;
+  title: string;
+  category: 'FOREST_GOVERNANCE' | 'FIELD_OPERATIONS' | 'CHAIN_OF_CUSTODY' | 'FINANCE_PROCUREMENT' | 'HEALTH_SAFETY' | 'LEADERSHIP';
+  targetCadre: 'ALL' | 'FIELD_RANGER' | 'CIVIL_SERVICE' | 'FDA_PERMANENT' | 'CONTRACTUAL';
+  durationHours: number;
+  deliveryMethod: TrainingDeliveryMethod;
+  facilitator: string;
+  description: string;
+  syllabusTopics: string[];
+  certificationIssued: boolean;
+}
+
+export interface EmployeeTrainingEnrollment {
+  id: string;
+  trainingId: string;
+  trainingTitle: string;
+  category: TrainingProgram['category'];
+  deliveryMethod: TrainingDeliveryMethod;
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  dutyStation: string;
+  county: LiberiaCounty;
+  assignedDate: string;
+  dueDate: string;
+  status: TrainingStatus;
+  progressPercent: number;
+  hoursCompleted: number;
+  totalHours: number;
+  score?: number;
+  supervisorFeedback?: string;
+  completedDate?: string;
+  certificateNo?: string;
+  isMandatory: boolean;
+  trainerSignedBy?: string;
+}
+
 export interface PayrollRecord {
   id: string;
   period: string; // e.g. "September 2026"
