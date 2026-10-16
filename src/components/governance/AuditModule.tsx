@@ -32,7 +32,8 @@ export const AuditModule: React.FC = () => {
     setIsVerifying(true);
     setTimeout(() => {
       setIsVerifying(false);
-      setVerificationResult(`Integrity Verified: All ${auditLogs.length} transaction blocks are valid and uncorrupted. Zero cryptographic tampering detected.`);
+      const incomplete=auditLogs.filter(l=>!l.id||!l.timestamp||!l.action||!l.actorName).length;
+      setVerificationResult(`${auditLogs.length} local records checked; ${incomplete} incomplete. This is a completeness check, not cryptographic or immutable-ledger verification.`);
     }, 600);
   };
 
@@ -46,13 +47,13 @@ export const AuditModule: React.FC = () => {
             <span className="bg-forest-100 text-forest-800 text-xs px-2.5 py-0.5 rounded font-bold uppercase tracking-wider">
               REOI §4 & TOR §7 Governance
             </span>
-            <span className="text-xs text-slate-500 font-mono">Immutable Ledger</span>
+            <span className="text-xs text-slate-500 font-mono">Browser-local history</span>
           </div>
           <h1 className="text-xl font-bold text-slate-900 mt-1">
-            Immutable Audit Trail & Cryptographic Transaction Ledger
+            Demo Audit Trail & Transaction History
           </h1>
           <p className="text-xs text-slate-600 mt-0.5">
-            Tamper-Resistant Event Logging • Segregation of Duties (SoD) Evidence • Forensic Transaction Trail
+            Demonstration Event Logging • Segregation of Duties (SoD) Evidence • Forensic Transaction Trail
           </p>
         </div>
 
@@ -63,7 +64,7 @@ export const AuditModule: React.FC = () => {
             className="inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-white text-xs px-3.5 py-2 rounded-lg font-bold shadow-sm transition"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isVerifying ? 'animate-spin' : ''}`} />
-            <span>{isVerifying ? 'Verifying Hashes...' : 'Verify Cryptographic Integrity'}</span>
+            <span>{isVerifying ? 'Checking records...' : 'Check record completeness'}</span>
           </button>
         </div>
       </div>

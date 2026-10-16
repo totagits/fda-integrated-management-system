@@ -1,3 +1,6 @@
+import { ROLE_MODULES, canRead, canAct, inCounty } from '../lib/rbac';
+import { useDemoState } from '../lib/demoStore';
+import { validateCommitment, voucherTransition, downloadJson } from '../lib/controls';
 import React, { createContext, useContext, useState } from 'react';
 import {
   UserRole,
@@ -94,17 +97,10 @@ export type AppModule =
   | 'COMPLIANCE'
   | 'COMMUNITY'
   | 'BIODIVERSITY'
-  | 'GRANTS';
+  | 'GRANTS'
+  | 'INTEGRATION';
 
-export const ROLE_ALLOWED_MODULES: Record<UserRole, AppModule[]> = {
-  MANAGING_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'ASSETS', 'OPERATIONS', 'RTM', 'AUDIT', 'SECURITY', 'REVENUE', 'COMPLIANCE', 'COMMUNITY', 'BIODIVERSITY', 'GRANTS'],
-  FINANCE_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY', 'REVENUE', 'GRANTS'],
-  HR_DIRECTOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'RTM', 'AUDIT', 'SECURITY', 'COMMUNITY'],
-  PROCUREMENT_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'PROCUREMENT', 'RTM', 'AUDIT', 'SECURITY'],
-  ASSET_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'ASSETS', 'RTM', 'AUDIT', 'SECURITY'],
-  COUNTY_OFFICER: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'OPERATIONS', 'ASSETS', 'RTM', 'SECURITY', 'COMPLIANCE', 'BIODIVERSITY', 'COMMUNITY'],
-  INTERNAL_AUDITOR: ['DASHBOARD', 'MY_ACCOUNT', 'HRMIS', 'FINANCE', 'PROCUREMENT', 'AUDIT', 'RTM', 'SECURITY', 'REVENUE', 'COMPLIANCE', 'GRANTS']
-};
+export const ROLE_ALLOWED_MODULES = ROLE_MODULES as unknown as Record<UserRole, AppModule[]>;
 
 
 interface AppContextType {
@@ -249,46 +245,46 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isPublicPortal, setIsPublicPortal] = useState<boolean>(true); // Defaults to Home/Landing page for public visitors!
+  const [isPublicPortal, setIsPublicPortal] = useState<boolean>(false); // Defaults to Home/Landing page for public visitors!
   const [activeModule, setActiveModule] = useState<AppModule>('DASHBOARD');
   const [currentPersona, setCurrentPersona] = useState<UserPersona>(USER_PERSONAS.MANAGING_DIRECTOR);
 
   // Datasets
-  const [publicTenders] = useState<PublicTenderNotice[]>(INITIAL_PUBLIC_TENDERS);
-  const [bidderQueries, setBidderQueries] = useState<BidderClarificationQuery[]>(INITIAL_BIDDER_QUERIES);
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(INITIAL_LEAVE_REQUESTS);
-  const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>(INITIAL_PAYROLL_RECORDS);
-  const [fieldAttendanceLogs, setFieldAttendanceLogs] = useState<FieldAttendanceLog[]>(INITIAL_FIELD_ATTENDANCE_LOGS);
-  const [budgetVotes, setBudgetVotes] = useState<BudgetVoteCode[]>(INITIAL_BUDGET_VOTES);
-  const [paymentVouchers, setPaymentVouchers] = useState<PaymentVoucher[]>(INITIAL_PAYMENT_VOUCHERS);
-  const [bankAccounts] = useState<BankAccount[]>(INITIAL_BANK_ACCOUNTS);
-  const [procurementReqs, setProcurementReqs] = useState<ProcurementRequisition[]>(INITIAL_PROCUREMENT_REQS);
-  const [vendors] = useState<Vendor[]>(INITIAL_VENDORS);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(INITIAL_PURCHASE_ORDERS);
-  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>(INITIAL_FIXED_ASSETS);
-  const [depotTransfers, setDepotTransfers] = useState<DepotTransfer[]>(INITIAL_DEPOT_TRANSFERS);
-  const [consumableInventory] = useState<ConsumableInventory[]>(INITIAL_INVENTORY_STORES);
-  const [countyStatuses, setCountyStatuses] = useState<CountyOfficeStatus[]>(INITIAL_COUNTY_STATUS);
-  const [timberConcessions] = useState<TimberConcessionPermit[]>(INITIAL_TIMBER_CONCESSIONS);
-  const [rangerIncidents, setRangerIncidents] = useState<FieldRangerIncident[]>(INITIAL_RANGER_INCIDENTS);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
-  const [rtmRequirements] = useState<RTMRequirement[]>(INITIAL_RTM_DATA);
+  const [publicTenders] = useDemoState<PublicTenderNotice[]>('INITIAL_PUBLIC_TENDERS', INITIAL_PUBLIC_TENDERS);
+  const [bidderQueries, setBidderQueries] = useDemoState<BidderClarificationQuery[]>('INITIAL_BIDDER_QUERIES', INITIAL_BIDDER_QUERIES);
+  const [employees, setEmployees] = useDemoState<Employee[]>('INITIAL_EMPLOYEES', INITIAL_EMPLOYEES);
+  const [leaveRequests, setLeaveRequests] = useDemoState<LeaveRequest[]>('INITIAL_LEAVE_REQUESTS', INITIAL_LEAVE_REQUESTS);
+  const [payrollRecords, setPayrollRecords] = useDemoState<PayrollRecord[]>('INITIAL_PAYROLL_RECORDS', INITIAL_PAYROLL_RECORDS);
+  const [fieldAttendanceLogs, setFieldAttendanceLogs] = useDemoState<FieldAttendanceLog[]>('INITIAL_FIELD_ATTENDANCE_LOGS', INITIAL_FIELD_ATTENDANCE_LOGS);
+  const [budgetVotes, setBudgetVotes] = useDemoState<BudgetVoteCode[]>('INITIAL_BUDGET_VOTES', INITIAL_BUDGET_VOTES);
+  const [paymentVouchers, setPaymentVouchers] = useDemoState<PaymentVoucher[]>('INITIAL_PAYMENT_VOUCHERS', INITIAL_PAYMENT_VOUCHERS);
+  const [bankAccounts] = useDemoState<BankAccount[]>('INITIAL_BANK_ACCOUNTS', INITIAL_BANK_ACCOUNTS);
+  const [procurementReqs, setProcurementReqs] = useDemoState<ProcurementRequisition[]>('INITIAL_PROCUREMENT_REQS', INITIAL_PROCUREMENT_REQS);
+  const [vendors] = useDemoState<Vendor[]>('INITIAL_VENDORS', INITIAL_VENDORS);
+  const [purchaseOrders, setPurchaseOrders] = useDemoState<PurchaseOrder[]>('INITIAL_PURCHASE_ORDERS', INITIAL_PURCHASE_ORDERS);
+  const [fixedAssets, setFixedAssets] = useDemoState<FixedAsset[]>('INITIAL_FIXED_ASSETS', INITIAL_FIXED_ASSETS);
+  const [depotTransfers, setDepotTransfers] = useDemoState<DepotTransfer[]>('INITIAL_DEPOT_TRANSFERS', INITIAL_DEPOT_TRANSFERS);
+  const [consumableInventory] = useDemoState<ConsumableInventory[]>('INITIAL_INVENTORY_STORES', INITIAL_INVENTORY_STORES);
+  const [countyStatuses, setCountyStatuses] = useDemoState<CountyOfficeStatus[]>('INITIAL_COUNTY_STATUS', INITIAL_COUNTY_STATUS);
+  const [timberConcessions] = useDemoState<TimberConcessionPermit[]>('INITIAL_TIMBER_CONCESSIONS', INITIAL_TIMBER_CONCESSIONS);
+  const [rangerIncidents, setRangerIncidents] = useDemoState<FieldRangerIncident[]>('INITIAL_RANGER_INCIDENTS', INITIAL_RANGER_INCIDENTS);
+  const [auditLogs, setAuditLogs] = useDemoState<AuditLogEntry[]>('INITIAL_AUDIT_LOGS', INITIAL_AUDIT_LOGS);
+  const [rtmRequirements] = useDemoState<RTMRequirement[]>('INITIAL_RTM_DATA', INITIAL_RTM_DATA);
   const [dispatchedOnboardings, setDispatchedOnboardings] = useState<OnboardingNotification[]>([]);
-  const [trainingPrograms, setTrainingPrograms] = useState<TrainingProgram[]>(INITIAL_TRAINING_PROGRAMS);
-  const [trainingEnrollments, setTrainingEnrollments] = useState<EmployeeTrainingEnrollment[]>(INITIAL_TRAINING_ENROLLMENTS);
+  const [trainingPrograms, setTrainingPrograms] = useDemoState<TrainingProgram[]>('INITIAL_TRAINING_PROGRAMS', INITIAL_TRAINING_PROGRAMS);
+  const [trainingEnrollments, setTrainingEnrollments] = useDemoState<EmployeeTrainingEnrollment[]>('INITIAL_TRAINING_ENROLLMENTS', INITIAL_TRAINING_ENROLLMENTS);
 
   // New state datasets for 8 additional modules
-  const [royaltyInvoices, setRoyaltyInvoices] = useState<RoyaltyInvoice[]>(INITIAL_ROYALTY_INVOICES);
-  const [harvestLogs, setHarvestLogs] = useState<HarvestLog[]>(INITIAL_HARVEST_LOGS);
-  const [legalCases, setLegalCases] = useState<LegalCase[]>(INITIAL_LEGAL_CASES);
-  const [communities, setCommunities] = useState<CommunityRegistry[]>(INITIAL_COMMUNITIES);
-  const [grievances, setGrievances] = useState<CommunityGrievance[]>(INITIAL_GRIEVANCES);
-  const [protectedAreas, setProtectedAreas] = useState<ProtectedArea[]>(INITIAL_PROTECTED_AREAS);
-  const [speciesSightings, setSpeciesSightings] = useState<SpeciesSighting[]>(INITIAL_SPECIES_SIGHTINGS);
-  const [donorGrants, setDonorGrants] = useState<DonorGrant[]>(INITIAL_DONOR_GRANTS);
-  const [grantDisbursements, setGrantDisbursements] = useState<GrantDisbursement[]>(INITIAL_GRANT_DISBURSEMENTS);
-  const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
+  const [royaltyInvoices, setRoyaltyInvoices] = useDemoState<RoyaltyInvoice[]>('INITIAL_ROYALTY_INVOICES', INITIAL_ROYALTY_INVOICES);
+  const [harvestLogs, setHarvestLogs] = useDemoState<HarvestLog[]>('INITIAL_HARVEST_LOGS', INITIAL_HARVEST_LOGS);
+  const [legalCases, setLegalCases] = useDemoState<LegalCase[]>('INITIAL_LEGAL_CASES', INITIAL_LEGAL_CASES);
+  const [communities, setCommunities] = useDemoState<CommunityRegistry[]>('INITIAL_COMMUNITIES', INITIAL_COMMUNITIES);
+  const [grievances, setGrievances] = useDemoState<CommunityGrievance[]>('INITIAL_GRIEVANCES', INITIAL_GRIEVANCES);
+  const [protectedAreas, setProtectedAreas] = useDemoState<ProtectedArea[]>('INITIAL_PROTECTED_AREAS', INITIAL_PROTECTED_AREAS);
+  const [speciesSightings, setSpeciesSightings] = useDemoState<SpeciesSighting[]>('INITIAL_SPECIES_SIGHTINGS', INITIAL_SPECIES_SIGHTINGS);
+  const [donorGrants, setDonorGrants] = useDemoState<DonorGrant[]>('INITIAL_DONOR_GRANTS', INITIAL_DONOR_GRANTS);
+  const [grantDisbursements, setGrantDisbursements] = useDemoState<GrantDisbursement[]>('INITIAL_GRANT_DISBURSEMENTS', INITIAL_GRANT_DISBURSEMENTS);
+  const [notifications, setNotifications] = useDemoState<AppNotification[]>('INITIAL_NOTIFICATIONS', INITIAL_NOTIFICATIONS);
 
   const [printPayload, setPrintPayload] = useState<PrintModalPayload | null>(null);
 
@@ -326,14 +322,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const hashPayload = `${now}|${currentPersona.name}|${action}|${details}`;
     const newEntry: AuditLogEntry = {
-      id: `AUD-${Date.now().toString().slice(-4)}`,
+      id: `AUD-${crypto.randomUUID()}`,
       timestamp: now,
       actorName: currentPersona.name,
       actorRole: currentPersona.role,
       action,
       module,
       details,
-      ipAddress: '197.231.10.24 (Liberia FDA Secure Intranet)',
+      ipAddress: 'Local demonstration browser',
       hash: generateSimpleHash(hashPayload)
     };
     setAuditLogs(prev => [newEntry, ...prev]);
@@ -384,6 +380,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const respondToBidderQuery = (id: string, response: string) => {
+    if (!canAct(currentPersona.role, 'procurement')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setBidderQueries(prev => prev.map(q => {
       if (q.id === id) {
         return {
@@ -415,6 +413,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }) || employees[0];
 
   const updateEmployeeProfile = (employeeId: string, updates: Partial<Employee>) => {
+    if (employeeId !== activeEmployee.id) { notify('Access denied','Only your own profile can be edited here.'); return; }
+    const allowed=['email','phone','address','avatarUrl','emergencyContact'];
+    updates=Object.fromEntries(Object.entries(updates).filter(([k])=>allowed.includes(k)));
+
     setEmployees(prev => prev.map(emp => {
       if (emp.id === employeeId) {
         return { ...emp, ...updates };
@@ -430,6 +432,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const changePassword = (employeeId: string, _newPass: string): boolean => {
+    if (employeeId !== activeEmployee.id) { notify('Access denied','This action is limited to your own employee record.'); return undefined as never; }
+
     setEmployees(prev => prev.map(emp => {
       if (emp.id === employeeId) {
         return { ...emp, mustChangePassword: false };
@@ -447,6 +451,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Automated HR Onboarding with Dual Email and SMS Dispatch
   const onboardEmployeeWithNotifications = (emp: Omit<Employee, 'id'>): OnboardingNotification => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const id = `EMP-${(employees.length + 1).toString().padStart(3, '0')}`;
     const tempPassword = `FDA#${Math.random().toString(36).slice(-4).toUpperCase()}2026!`;
     const csaBiometricRef = emp.biometricId || `BIO-${emp.county.slice(0, 3).toUpperCase()}-${Math.floor(10000 + Math.random() * 90000)}`;
@@ -533,10 +539,14 @@ Forestry Development Authority, Republic of Liberia`;
 
   // HRMIS methods
   const addEmployee = (emp: Omit<Employee, 'id'>) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     onboardEmployeeWithNotifications(emp);
   };
 
   const transferEmployeeStation = (employeeId: string, transfer: Omit<CountyPostingRecord, 'id'>) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const transferId = `TRS-${Date.now()}`;
     const newRecord: CountyPostingRecord = { ...transfer, id: transferId };
     setEmployees(prev => prev.map(emp => {
@@ -555,6 +565,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const promoteEmployee = (employeeId: string, promotion: Omit<PromotionRecord, 'id'>) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const promoId = `PRM-${Date.now()}`;
     const newPromo: PromotionRecord = { ...promotion, id: promoId };
     setEmployees(prev => prev.map(emp => {
@@ -575,6 +587,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const addDisciplinaryAction = (employeeId: string, record: Omit<DisciplinaryRecord, 'id'>) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const discId = `DISC-${Date.now()}`;
     const newDisc: DisciplinaryRecord = { ...record, id: discId };
     setEmployees(prev => prev.map(emp => {
@@ -591,6 +605,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const logFieldAttendance = (entry: Omit<FieldAttendanceLog, 'id' | 'timestamp'>) => {
+    if (entry.employeeId !== activeEmployee.id) { notify('Access denied','This action is limited to your own employee record.'); return undefined as never; }
+
     const newLog: FieldAttendanceLog = {
       ...entry,
       id: `ATT-${Date.now()}`,
@@ -602,6 +618,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const submitLeaveRequest = (req: Omit<LeaveRequest, 'id' | 'appliedDate' | 'status'>) => {
+    if (req.employeeId !== activeEmployee.id) { notify('Access denied','This action is limited to your own employee record.'); return undefined as never; }
+
     const id = `LV-2026-${(leaveRequests.length + 82).toString().padStart(3, '0')}`;
     const newReq: LeaveRequest = {
       ...req,
@@ -615,6 +633,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const endorseLeaveSupervisor = (id: string) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const timestamp = new Date().toISOString().substring(0, 10);
     setLeaveRequests(prev => prev.map(req => {
       if (req.id === id) {
@@ -632,6 +652,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const approveLeave = (id: string) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const timestamp = new Date().toISOString().substring(0, 10);
     const certNo = `FDA-CERT-LV-2026-${id.split('-').pop() || '001'}`;
     setLeaveRequests(prev => prev.map(req => {
@@ -651,6 +673,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const rejectLeave = (id: string, reason?: string) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setLeaveRequests(prev => prev.map(req => {
       if (req.id === id) {
         return {
@@ -667,6 +691,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const processPayrollRun = (period: string) => {
+    if (!canAct(currentPersona.role, 'payroll')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const records: PayrollRecord[] = employees.map(emp => {
       const baseSalaryUSD = emp.salaryUSD;
       const hazardPayUSD = emp.hazardPayUSD || 0;
@@ -704,21 +730,21 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const syncWithCSA = () => {
-    setEmployees(prev => prev.map(e => ({ ...e, csaSyncStatus: 'SYNCED' })));
-    addAuditEntry('CSA_BIOMETRIC_SYNC', 'HRMIS', 'Synchronized biometric clocking and civil service cadre data with CSA national server.');
-    notify('CSA Sync Successful', 'All employee civil service biometric records are synchronized with CSA HRMIS.', 'SUCCESS');
-  };
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
 
+    addAuditEntry('CSA_SANDBOX_PREVIEW', 'HRMIS', 'Prepared local personnel reconciliation preview. No CSA connection or transmission.');
+    downloadJson('fda-csa-demo-preview.json', { mode: 'SANDBOX', records: employees.map(e => ({ id:e.id, biometricId:e.biometricId })), notice:'CSA approval and official schema required.' });
+    notify('CSA preview downloaded', 'Local demonstration only. National records were not changed.', 'INFO');
+  };
   const runAntiGhostWorkerAudit = () => {
-    const timestamp = new Date().toISOString();
-    addAuditEntry('ANTI_GHOST_WORKER_SCAN', 'HRMIS', `Executed CSA cross-ministerial deduplication audit across ${employees.length} personnel records. 0 duplicates detected. 100% clean.`);
-    notify('CSA Biometric Scan Passed', `All ${employees.length} FDA staff cross-matched with CSA National Biometric database. Zero ghost workers detected.`, 'SUCCESS');
-    return {
-      totalScanned: employees.length,
-      duplicatesFound: 0,
-      verifiedClean: employees.length,
-      auditTimestamp: timestamp
-    };
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
+    const ids = new Set<string>(); let duplicatesFound=0;
+    employees.forEach(e => { if (!e.biometricId || ids.has(e.biometricId)) duplicatesFound++; else ids.add(e.biometricId); });
+    const auditTimestamp=new Date().toISOString();
+    addAuditEntry('LOCAL_DUPLICATE_SCAN','HRMIS',`Checked ${employees.length} local records; ${duplicatesFound} duplicate/missing identifiers. No national verification.`);
+    notify('Local identifier check complete', `${duplicatesFound} duplicate/missing IDs. No national biometric lookup performed.`, duplicatesFound ? 'WARNING' : 'INFO');
+    return {totalScanned:employees.length,duplicatesFound,verifiedClean:employees.length-duplicatesFound,auditTimestamp};
   };
 
   // Training & Capacity Development
@@ -728,6 +754,8 @@ Forestry Development Authority, Republic of Liberia`;
     dueDate: string;
     isMandatory?: boolean;
   }) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const prog = trainingPrograms.find(p => p.id === data.trainingId);
     const emp = employees.find(e => e.id === data.employeeId);
     if (!prog || !emp) {
@@ -777,6 +805,8 @@ Forestry Development Authority, Republic of Liberia`;
     score?: number,
     certify: boolean = false
   ) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setTrainingEnrollments(prev => prev.map(enr => {
       if (enr.id === enrollmentId) {
         const cappedHours = Math.min(enr.totalHours, Math.max(0, hoursCompleted));
@@ -815,6 +845,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const createTrainingProgram = (prog: Omit<TrainingProgram, 'id'>) => {
+    if (!canAct(currentPersona.role, 'hr')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newProg: TrainingProgram = {
       ...prog,
       id: `TRN-${(trainingPrograms.length + 1).toString().padStart(3, '0')}`
@@ -826,10 +858,13 @@ Forestry Development Authority, Republic of Liberia`;
 
   // Finance methods
   const createPaymentVoucher = (voucher: Omit<PaymentVoucher, 'id' | 'voucherNo' | 'dateCreated' | 'status'>): boolean => {
+    if (!canAct(currentPersona.role, 'finance')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const vote = budgetVotes.find(v => v.code === voucher.voteCode);
-    if (vote && vote.availableUSD < voucher.amountUSD) {
-      notify('Vote Book Ceiling Exceeded', `Cannot create voucher. Vote ${vote.code} has only $${vote.availableUSD.toLocaleString()} available, but requisition is $${voucher.amountUSD.toLocaleString()}.`, 'ERROR');
-      addAuditEntry('VOTE_CEILING_BLOCKED', 'FINANCE', `Attempted voucher for $${voucher.amountUSD} exceeded vote balance on ${vote.code}`);
+    const issue = validateCommitment(voucher.amountUSD, vote?.availableUSD);
+    if (issue) {
+      notify('Vote Book Ceiling Exceeded', issue, 'ERROR');
+      addAuditEntry('VOTE_CEILING_BLOCKED', 'FINANCE', `Attempted voucher for $${voucher.amountUSD} exceeded vote balance on ${vote?.code}`);
       return false;
     }
 
@@ -837,6 +872,7 @@ Forestry Development Authority, Republic of Liberia`;
     const voucherNo = `FDA/PV/2026/09/${(paymentVouchers.length + 41).toString().padStart(3, '0')}`;
     const newVoucher: PaymentVoucher = {
       ...voucher,
+      initiator: currentPersona.name,
       id,
       voucherNo,
       dateCreated: new Date().toISOString().substring(0, 10),
@@ -862,6 +898,9 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const approveVoucherFinance = (id: string) => {
+
+    const issue = voucherTransition(paymentVouchers.find(v=>v.id===id), currentPersona.role, currentPersona.name, 'FINANCE_APPROVED');
+    if (issue) { notify('Workflow control',issue,'ERROR'); return; }
     setPaymentVouchers(prev => prev.map(v => {
       if (v.id === id) {
         return { ...v, status: 'FINANCE_APPROVED' };
@@ -873,13 +912,16 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const authorizeVoucherMD = (id: string) => {
+
+    const issue = voucherTransition(paymentVouchers.find(v=>v.id===id), currentPersona.role, currentPersona.name, 'MD_AUTHORIZED');
+    if (issue) { notify('Workflow control',issue,'ERROR'); return; }
     setPaymentVouchers(prev => prev.map(v => {
       if (v.id === id) {
         return {
           ...v,
           status: 'MD_AUTHORIZED',
-          authorizedBy: 'Hon. Rudolph J. Merab, Sr.',
-          ifmisCommitmentNo: `IFMIS-MFDP-2026-${Math.floor(1000 + Math.random() * 9000)}`
+          authorizedBy: currentPersona.name,
+          ifmisCommitmentNo: `DEMO-LOCAL-2026-${Math.floor(1000 + Math.random() * 9000)}`
         };
       }
       return v;
@@ -889,6 +931,10 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const markVoucherPaid = (id: string, checkNo: string) => {
+
+    const issue = voucherTransition(paymentVouchers.find(v=>v.id===id), currentPersona.role, currentPersona.name, 'PAID');
+    if (issue) { notify('Workflow control',issue,'ERROR'); return; }
+    if (!checkNo.trim()) { notify('Reference required','Enter a sample payment reference.','ERROR'); return; }
     setPaymentVouchers(prev => prev.map(v => {
       if (v.id === id) {
         return { ...v, status: 'PAID', checkNumber: checkNo };
@@ -900,12 +946,18 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const exportIFMISBatch = () => {
-    addAuditEntry('IFMIS_BATCH_EXPORT', 'FINANCE', 'Generated GoL IFMIS XML/JSON transaction commitment batch for Ministry of Finance & Development Planning.');
-    notify('IFMIS Batch Exported', 'Commitment batch ready for transmission to GoL IFMIS server.', 'SUCCESS');
+    if (!canAct(currentPersona.role, 'finance')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
+    const records=paymentVouchers.filter(v=>['MD_AUTHORIZED','PAID'].includes(v.status)).map(v=>({externalId:v.id,amount:v.amountUSD,currency:'USD',voteCode:v.voteCode}));
+    downloadJson('fda-ifmis-demo-batch.json',{schema:'totag.fda.commitment-demo.v1',mode:'SANDBOX',records,controlTotal:records.reduce((s,r)=>s+r.amount,0),notice:'No IFMIS transmission. Official interface approval required.'});
+    addAuditEntry('IFMIS_SANDBOX_EXPORT','FINANCE',`Downloaded ${records.length} authorized local commitments; no external transmission.`);
+    notify('Demo batch downloaded','Inspect the JSON or use the interoperability workbench to validate it.','INFO');
   };
 
   // Procurement methods
   const createProcurementReq = (req: Omit<ProcurementRequisition, 'id' | 'prNo' | 'requestDate' | 'status'>) => {
+    if (!canAct(currentPersona.role, 'procurement')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const id = `PR-2026-${(procurementReqs.length + 26).toString().padStart(3, '0')}`;
     const prNo = `FDA/PR/2026/${(procurementReqs.length + 26).toString().padStart(3, '0')}`;
     const newReq: ProcurementRequisition = {
@@ -921,6 +973,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const approveProcurementReq = (id: string) => {
+    if (!canAct(currentPersona.role, 'procurement')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setProcurementReqs(prev => prev.map(r => {
       if (r.id === id) {
         return { ...r, status: 'PPCC_APPROVED' };
@@ -932,6 +986,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const createPurchaseOrder = (po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'issueDate' | 'status' | 'threeWayMatch'>) => {
+    if (!canAct(currentPersona.role, 'procurement')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const id = `PO-2026-${(purchaseOrders.length + 10).toString().padStart(3, '0')}`;
     const poNumber = `FDA/PO/2026/${(purchaseOrders.length + 10).toString().padStart(3, '0')}`;
     const newPO: PurchaseOrder = {
@@ -954,28 +1010,19 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const executeThreeWayMatch = (poId: string) => {
-    setPurchaseOrders(prev => prev.map(po => {
-      if (po.id === poId) {
-        return {
-          ...po,
-          status: 'GOODS_RECEIVED',
-          threeWayMatch: {
-            prMatched: true,
-            poMatched: true,
-            grnMatched: true,
-            invoiceMatched: true,
-            status: 'VERIFIED'
-          }
-        };
-      }
-      return po;
-    }));
-    addAuditEntry('THREE_WAY_MATCH_COMPLETED', 'PROCUREMENT', `Audit verification verified: PR, PO, Store GRN, and Supplier Invoice matched for PO ${poId}`);
-    notify('3-Way Match Verified', `PO ${poId} audit check passed: 100% matched across Requisition, PO, GRN, and Invoice.`, 'SUCCESS');
+    if (!canAct(currentPersona.role, 'procurement')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
+    const po=purchaseOrders.find(p=>p.id===poId); if (!po) return;
+    const m=po.threeWayMatch; const valid=m.prMatched && m.poMatched && m.grnMatched && m.invoiceMatched;
+    setPurchaseOrders(prev=>prev.map(p=>p.id===poId?{...p,threeWayMatch:{...p.threeWayMatch,status:valid?'VERIFIED':'DISCREPANCY'}}:p));
+    addAuditEntry('MATCH_EVIDENCE_CHECK','PROCUREMENT',`${poId}: ${valid?'sample evidence flags complete':'missing requisition, order, receipt or invoice evidence'}. No external document verification.`);
+    notify(valid?'Sample evidence complete':'Missing matching evidence',valid?'All four stored sample evidence flags are present.':'Receipt and invoice evidence must be recorded before matching; this check does not invent receipts.','INFO');
   };
 
   // Asset methods
   const addFixedAsset = (asset: Omit<FixedAsset, 'id' | 'barcode' | 'currentBookValueUSD'>) => {
+    if (!canAct(currentPersona.role, 'assets')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const id = `AST-${(fixedAssets.length + 6).toString().padStart(3, '0')}`;
     const barcode = `79201948${(fixedAssets.length + 340).toString()}`;
     const newAsset: FixedAsset = {
@@ -990,6 +1037,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const transferAssetToCounty = (assetTag: string, assetName: string, destination: string) => {
+    if (!canAct(currentPersona.role, 'assets')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const transferNo = `FDA/TRF/2026/${(depotTransfers.length + 35).toString().padStart(3, '0')}`;
     const id = `TRF-2026-${(depotTransfers.length + 35).toString().padStart(3, '0')}`;
     const newTransfer: DepotTransfer = {
@@ -1015,6 +1064,10 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const confirmDepotReceipt = (transferId: string) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && !inCounty(depotTransfers.find(t=>t.id===transferId)?.destination || '', currentPersona.county)) { notify('Access denied','This receipt is outside your county.'); return; }
+
+    if (!canAct(currentPersona.role, 'receipt')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const transfer = depotTransfers.find(t => t.id === transferId);
     if (!transfer) return;
 
@@ -1042,6 +1095,10 @@ Forestry Development Authority, Republic of Liberia`;
 
   // Operations methods
   const reportRangerIncident = (inc: Omit<FieldRangerIncident, 'id' | 'incidentNo' | 'incidentDate' | 'status'>) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && inc.county !== currentPersona.county) { notify('Access denied','The record is outside your assigned county.'); return; }
+
+    if (!canAct(currentPersona.role, 'field')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const id = `INC-2026-${(rangerIncidents.length + 47).toString().padStart(3, '0')}`;
     const incidentNo = `FDA/RNG/2026/${(rangerIncidents.length + 47).toString().padStart(3, '0')}`;
     const newInc: FieldRangerIncident = {
@@ -1057,6 +1114,8 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const escalateIncidentToMD = (id: string) => {
+    if (!canAct(currentPersona.role, 'executive')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setRangerIncidents(prev => prev.map(inc => {
       if (inc.id === id) {
         return { ...inc, status: 'ESCALATED_TO_MD' };
@@ -1068,6 +1127,10 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const syncCountyOffice = (county: string) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && county !== currentPersona.county) { notify('Access denied','The record is outside your assigned county.'); return; }
+
+    if (!canAct(currentPersona.role, 'field')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setCountyStatuses(prev => prev.map(c => {
       if (c.county === county) {
         return {
@@ -1086,12 +1149,16 @@ Forestry Development Authority, Republic of Liberia`;
 
   // ==================== REVENUE & ROYALTY ====================
   const issueRoyaltyInvoice = (inv: Omit<RoyaltyInvoice, 'id'>) => {
+    if (!canAct(currentPersona.role, 'finance')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newInv: RoyaltyInvoice = { ...inv, id: `ROY-${Date.now()}` };
     setRoyaltyInvoices(prev => [newInv, ...prev]);
     addAuditEntry('ROYALTY_INVOICE_ISSUED', 'FINANCE', `Royalty invoice ${newInv.invoiceNo} issued for ${newInv.holderName} — $${newInv.amountUSD.toLocaleString()} USD`);
   };
 
   const recordRoyaltyPayment = (invoiceId: string, amountUSD: number, paymentRef: string) => {
+    if (!canAct(currentPersona.role, 'finance')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setRoyaltyInvoices(prev => prev.map(inv =>
       inv.id === invoiceId
         ? { ...inv, status: (inv.paidAmountUSD || 0) + amountUSD >= inv.amountUSD ? 'PAID' : 'PARTIALLY_PAID', paidAmountUSD: (inv.paidAmountUSD || 0) + amountUSD, paymentRef, paymentDate: new Date().toISOString().split('T')[0] }
@@ -1102,6 +1169,10 @@ Forestry Development Authority, Republic of Liberia`;
 
   // ==================== HARVEST TRACKING ====================
   const addHarvestLog = (log: Omit<HarvestLog, 'id'>) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && log.county !== currentPersona.county) { notify('Access denied','The record is outside your assigned county.'); return; }
+
+    if (!canAct(currentPersona.role, 'field')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newLog: HarvestLog = { ...log, id: `HRV-${Date.now()}` };
     setHarvestLogs(prev => [newLog, ...prev]);
     addAuditEntry('HARVEST_LOG_CREATED', 'OPERATIONS', `Harvest log ${newLog.logNo} recorded: ${newLog.volumeHarvestedM3}m³ ${newLog.species} — ${newLog.holderName}`);
@@ -1109,12 +1180,16 @@ Forestry Development Authority, Republic of Liberia`;
 
   // ==================== LEGAL CASE MANAGEMENT ====================
   const createLegalCase = (c: Omit<LegalCase, 'id'>) => {
+    if (!canAct(currentPersona.role, 'legal')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newCase: LegalCase = { ...c, id: `CASE-${Date.now()}` };
     setLegalCases(prev => [newCase, ...prev]);
     addAuditEntry('LEGAL_CASE_FILED', 'OPERATIONS', `Legal case ${newCase.caseNo} filed — ${newCase.caseType} in ${newCase.county} County`);
   };
 
   const updateCaseStatus = (caseId: string, status: LegalCase['status'], notes?: string) => {
+    if (!canAct(currentPersona.role, 'legal')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setLegalCases(prev => prev.map(c =>
       c.id === caseId ? { ...c, status, judgment: notes || c.judgment } : c
     ));
@@ -1123,12 +1198,20 @@ Forestry Development Authority, Republic of Liberia`;
 
   // ==================== COMMUNITY & SOCIAL SAFEGUARDS ====================
   const addGrievance = (g: Omit<CommunityGrievance, 'id'>) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && g.county !== currentPersona.county) { notify('Access denied','The record is outside your assigned county.'); return; }
+
+    if (!canAct(currentPersona.role, 'community')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newG: CommunityGrievance = { ...g, id: `GRV-${Date.now()}` };
     setGrievances(prev => [newG, ...prev]);
     addAuditEntry('GRIEVANCE_REGISTERED', 'OPERATIONS', `Community grievance ${newG.grievanceNo} registered — ${newG.communityName}, ${newG.county} County`);
   };
 
   const resolveGrievance = (grievanceId: string, notes: string) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && grievances.find(g=>g.id===grievanceId)?.county !== currentPersona.county) { notify('Access denied','This grievance is outside your county.'); return; }
+
+    if (!canAct(currentPersona.role, 'community')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     setGrievances(prev => prev.map(g =>
       g.id === grievanceId ? { ...g, status: 'RESOLVED', resolutionNotes: notes, resolvedDate: new Date().toISOString().split('T')[0] } : g
     ));
@@ -1137,6 +1220,10 @@ Forestry Development Authority, Republic of Liberia`;
 
   // ==================== BIODIVERSITY & WILDLIFE ====================
   const addSpeciesSighting = (s: Omit<SpeciesSighting, 'id'>) => {
+    if (currentPersona.role === 'COUNTY_OFFICER' && s.county !== currentPersona.county) { notify('Access denied','The record is outside your assigned county.'); return; }
+
+    if (!canAct(currentPersona.role, 'field')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newS: SpeciesSighting = { ...s, id: `SIT-${Date.now()}` };
     setSpeciesSightings(prev => [newS, ...prev]);
     addAuditEntry('SPECIES_SIGHTING_RECORDED', 'OPERATIONS', `Species sighting ${newS.sightingNo} recorded: ${newS.species} at ${newS.protectedAreaName}`);
@@ -1144,6 +1231,8 @@ Forestry Development Authority, Republic of Liberia`;
 
   // ==================== GRANT & DONOR MANAGEMENT ====================
   const addGrantDisbursement = (d: Omit<GrantDisbursement, 'id'>) => {
+    if (!canAct(currentPersona.role, 'grant')) { notify('Access denied', 'Your role cannot perform this action.'); return undefined as never; }
+
     const newD: GrantDisbursement = { ...d, id: `DISB-${Date.now()}` };
     setGrantDisbursements(prev => [newD, ...prev]);
     setDonorGrants(prev => prev.map(g =>
@@ -1167,6 +1256,9 @@ Forestry Development Authority, Republic of Liberia`;
   };
 
   const openPrintModal = (payload: PrintModalPayload) => {
+    const module = {LEGAL_CASE_REPORT:'COMPLIANCE',PAY_SLIP:'MY_ACCOUNT',PURCHASE_ORDER:'PROCUREMENT',ROYALTY_INVOICE:'REVENUE',TRAINING_CERTIFICATE:'MY_ACCOUNT',PAYMENT_VOUCHER:'FINANCE',ASSET_TAG:'ASSETS',PAYROLL_SLIP:'MY_ACCOUNT',RTM_REPORT:'RTM',INCIDENT_DISPATCH:'OPERATIONS',LEAVE_CERTIFICATE:'MY_ACCOUNT'}[payload.type];
+    if (module && !canRead(currentPersona.role,module)) { notify('Access denied','Your role cannot export this resource.'); return; }
+
     setPrintPayload(payload);
   };
 
@@ -1187,18 +1279,18 @@ Forestry Development Authority, Republic of Liberia`;
         loginToIntranet,
 
         publicTenders,
-        bidderQueries,
+        bidderQueries: canRead(currentPersona.role,'PROCUREMENT') ? bidderQueries : [],
         submitBidderQuery,
         respondToBidderQuery,
 
-        employees,
-        leaveRequests,
-        payrollRecords,
-        fieldAttendanceLogs,
+        employees: canRead(currentPersona.role,'HRMIS') ? employees : employees.filter(r=>r.id === activeEmployee.id),
+        leaveRequests: canRead(currentPersona.role,'HRMIS') ? leaveRequests : leaveRequests.filter(r=>r.employeeId === activeEmployee.id),
+        payrollRecords: canRead(currentPersona.role,'HRMIS') ? payrollRecords : payrollRecords.filter(r=>r.employeeId === activeEmployee.id),
+        fieldAttendanceLogs: canRead(currentPersona.role,'HRMIS') ? fieldAttendanceLogs : fieldAttendanceLogs.filter(r=>r.employeeId === activeEmployee.id),
         activeEmployee,
         updateEmployeeProfile,
         changePassword,
-        dispatchedOnboardings,
+        dispatchedOnboardings: currentPersona.role === 'HR_DIRECTOR' ? dispatchedOnboardings : [],
         onboardEmployeeWithNotifications,
         addEmployee,
         transferEmployeeStation,
@@ -1214,74 +1306,74 @@ Forestry Development Authority, Republic of Liberia`;
         runAntiGhostWorkerAudit,
 
         trainingPrograms,
-        trainingEnrollments,
+        trainingEnrollments: canRead(currentPersona.role,'HRMIS') ? trainingEnrollments : trainingEnrollments.filter(r=>r.employeeId === activeEmployee.id),
         assignTraining,
         updateTrainingProgress,
         createTrainingProgram,
 
-        budgetVotes,
-        paymentVouchers,
-        bankAccounts,
+        budgetVotes: canRead(currentPersona.role,'FINANCE') ? budgetVotes : [],
+        paymentVouchers: canRead(currentPersona.role,'FINANCE') ? paymentVouchers : [],
+        bankAccounts: canRead(currentPersona.role,'FINANCE') ? bankAccounts : [],
         createPaymentVoucher,
         approveVoucherFinance,
         authorizeVoucherMD,
         markVoucherPaid,
         exportIFMISBatch,
 
-        procurementReqs,
-        vendors,
-        purchaseOrders,
+        procurementReqs: canRead(currentPersona.role,'PROCUREMENT') ? procurementReqs : [],
+        vendors: canRead(currentPersona.role,'PROCUREMENT') ? vendors : [],
+        purchaseOrders: canRead(currentPersona.role,'PROCUREMENT') ? purchaseOrders : [],
         createProcurementReq,
         approveProcurementReq,
         createPurchaseOrder,
         executeThreeWayMatch,
 
-        fixedAssets,
-        depotTransfers,
-        consumableInventory,
+        fixedAssets: canRead(currentPersona.role,'ASSETS') ? fixedAssets.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || inCounty(r.location,currentPersona.county)) : [],
+        depotTransfers: canRead(currentPersona.role,'ASSETS') ? depotTransfers.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || inCounty(r.destination,currentPersona.county) || inCounty(r.origin,currentPersona.county)) : [],
+        consumableInventory: canRead(currentPersona.role,'ASSETS') ? consumableInventory.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || inCounty(r.depotLocation,currentPersona.county)) : [],
         addFixedAsset,
         transferAssetToCounty,
         confirmDepotReceipt,
 
-        countyStatuses,
-        timberConcessions,
-        rangerIncidents,
+        countyStatuses: canRead(currentPersona.role,'OPERATIONS') ? countyStatuses.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
+        timberConcessions: canRead(currentPersona.role,'OPERATIONS') ? timberConcessions.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
+        rangerIncidents: canRead(currentPersona.role,'OPERATIONS') ? rangerIncidents.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
         reportRangerIncident,
         escalateIncidentToMD,
         syncCountyOffice,
 
-        auditLogs,
-        rtmRequirements,
+        auditLogs: canRead(currentPersona.role,'AUDIT') ? auditLogs : [],
+        rtmRequirements: canRead(currentPersona.role,'RTM') ? rtmRequirements : [],
         addAuditEntry,
 
-        notifications,
+        notifications: notifications.filter(n=>n.targetRoles.includes(currentPersona.role) && (!n.linkModule || canRead(currentPersona.role,n.linkModule))),
         dismissNotification,
         markNotificationRead,
         markAllNotificationsRead,
         addNotification,
 
-        royaltyInvoices,
+        royaltyInvoices: canRead(currentPersona.role,'REVENUE') ? royaltyInvoices : [],
         issueRoyaltyInvoice,
         recordRoyaltyPayment,
 
-        harvestLogs,
+        harvestLogs: canRead(currentPersona.role,'OPERATIONS') ? harvestLogs.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
         addHarvestLog,
 
-        legalCases,
+        legalCases: canRead(currentPersona.role,'COMPLIANCE') ? legalCases.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
         createLegalCase,
         updateCaseStatus,
 
-        communities,
-        grievances,
+        communities: canRead(currentPersona.role,'COMMUNITY') ? communities.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
+        grievances: canRead(currentPersona.role,'COMMUNITY') ? grievances.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
         addGrievance,
         resolveGrievance,
 
-        protectedAreas,
-        speciesSightings,
+        protectedAreas: canRead(currentPersona.role,'BIODIVERSITY') ? protectedAreas.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
+        speciesSightings: canRead(currentPersona.role,'BIODIVERSITY') ? speciesSightings.filter(r=>currentPersona.role !== 'COUNTY_OFFICER' || r.county === currentPersona.county) : [],
         addSpeciesSighting,
 
-        donorGrants,
-        grantDisbursements,
+        donorGrants: canRead(currentPersona.role,'GRANTS') ? donorGrants : [],
+        grantDisbursements: canRead(currentPersona.role,'GRANTS') ? grantDisbursements : [],
         addGrantDisbursement,
 
         printPayload,

@@ -1,3 +1,6 @@
+import { RoleDashboard } from './components/dashboard/RoleDashboard';
+import { IntegrationModule } from './components/integration/IntegrationModule';
+import { DemoBar } from './components/integration/DemoBar';
 import React from 'react';
 import { AppProvider, useApp, ROLE_ALLOWED_MODULES } from './context/AppContext';
 import { Header } from './components/layout/Header';
@@ -57,7 +60,7 @@ const MainLayout: React.FC = () => {
               </div>
             ) : (
               <>
-                {activeModule === 'DASHBOARD' && <ExecutiveSummary />}
+                {activeModule === 'DASHBOARD' && (currentPersona.role === 'MANAGING_DIRECTOR' ? <ExecutiveSummary /> : <RoleDashboard />)}
                 {activeModule === 'MY_ACCOUNT' && <MyAccountModule />}
                 {activeModule === 'HRMIS' && <HRMISModule />}
                 {activeModule === 'FINANCE' && <FinanceModule />}
@@ -66,6 +69,7 @@ const MainLayout: React.FC = () => {
                 {activeModule === 'OPERATIONS' && <OperationsModule />}
                 {activeModule === 'RTM' && <RTMModule />}
                 {activeModule === 'AUDIT' && <AuditModule />}
+                {activeModule === 'INTEGRATION' && <IntegrationModule />}
                 {activeModule === 'SECURITY' && <SecurityModule />}
                 {activeModule === 'REVENUE' && <RevenueModule />}
                 {activeModule === 'COMPLIANCE' && <ComplianceModule />}
@@ -101,7 +105,7 @@ const AppContent: React.FC = () => {
 export function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <DemoBar /><AppContent />
     </AppProvider>
   );
 }

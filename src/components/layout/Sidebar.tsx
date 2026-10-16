@@ -63,10 +63,11 @@ export const Sidebar: React.FC = () => {
   const reportsComingDue = donorGrants.filter(g => g.nextReportDue && new Date(g.nextReportDue) <= soon && g.status === 'ACTIVE').length;
 
   const allNavItems: NavItem[] = [
+    {id:'INTEGRATION',label:'Interoperability',subtitle:'Validate, reconcile & stage',icon:Server},
     {
       id: 'DASHBOARD',
-      label: 'Executive Overview',
-      subtitle: 'KPIs, Vote Book & County Map',
+      label: currentPersona.role === 'MANAGING_DIRECTOR' ? 'Executive Overview' : 'My Role Dashboard',
+      subtitle: currentPersona.role === 'COUNTY_OFFICER' ? `${currentPersona.county} County workspace` : 'Role-specific tasks & overview',
       icon: LayoutDashboard
     },
     {
@@ -120,8 +121,8 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'AUDIT',
-      label: 'Immutable Audit Trail',
-      subtitle: 'Cryptographic Event Verification',
+      label: 'Demo Audit Trail',
+      subtitle: 'Local Activity History',
       icon: History
     },
     {
@@ -172,7 +173,7 @@ export const Sidebar: React.FC = () => {
   const visibleNavItems = allNavItems.filter(item => allowed.includes(item.id));
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 min-h-[calc(100vh-5rem)]">
+    <aside className="w-52 lg:w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 min-h-[calc(100vh-5rem)]">
       
       {/* Active User / Role Badge */}
       <div className="p-3.5 border-b border-slate-800 bg-slate-950/60">

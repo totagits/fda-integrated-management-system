@@ -1,3 +1,4 @@
+import { canRead } from '../../lib/rbac';
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { FDA_LOGO_URL } from '../../assets/logo';
@@ -71,19 +72,19 @@ export const Header: React.FC = () => {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
               <span className="font-medium text-slate-200">IFMIS:</span>
-              <span className="text-emerald-400 font-semibold">Active</span>
+              <span className="text-emerald-400 font-semibold">Sandbox</span>
             </div>
             <span className="text-forest-700">|</span>
             <div className="flex items-center space-x-1.5 text-slate-300">
               <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
               <span>CSA:</span>
-              <span className="text-blue-400 font-semibold">Synced</span>
+              <span className="text-blue-400 font-semibold">Sandbox</span>
             </div>
             <span className="text-forest-700">|</span>
             <div className="flex items-center space-x-1.5 text-slate-300">
               <Radio className="w-3.5 h-3.5 text-amber-400" />
               <span>SGS:</span>
-              <span className="text-amber-400 font-semibold">Connected</span>
+              <span className="text-amber-400 font-semibold">Sandbox</span>
             </div>
           </div>
 
@@ -102,6 +103,7 @@ export const Header: React.FC = () => {
 
             {/* Quick RTM Compliance Dossier Button */}
             <button
+              hidden={!canRead(currentPersona.role,'RTM')}
               onClick={() => { setActiveModule('RTM'); }}
               title="View FDA ERP Requirements Traceability Matrix"
               className="hidden lg:inline-flex items-center space-x-1.5 bg-forest-800 hover:bg-forest-700 text-forest-100 text-xs px-3 py-2 rounded-md font-medium transition border border-forest-700 shrink-0 whitespace-nowrap"
