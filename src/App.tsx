@@ -22,6 +22,7 @@ import { BiodiversityModule } from './components/biodiversity/BiodiversityModule
 import { GrantsModule } from './components/grants/GrantsModule';
 import { PrintModal } from './components/ui/PrintModal';
 import { LandingPage } from './components/public/LandingPage';
+import { SecurePortal } from './components/secure/SecurePortal';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
@@ -103,6 +104,9 @@ const AppContent: React.FC = () => {
 };
 
 export function App() {
+  if (window.location.pathname === '/secure' || window.location.pathname.startsWith('/secure/')) {
+    return <SecurePortal />;
+  }
   return (
     <AppProvider>
       <DemoBar /><AppContent />

@@ -3,8 +3,6 @@ import { useApp } from '../../context/AppContext';
 import { FDA_LOGO_URL } from '../../assets/logo';
 import { LIBERIA_SEAL_URL } from '../../assets/liberiaSeal';
 import { FdaPhotoCarousel } from './FdaPhotoCarousel';
-import { USER_PERSONAS } from '../../data/initialData';
-import { UserRole } from '../../types';
 import { SecurityModule } from '../governance/SecurityModule';
 import {
   TreePine,
@@ -21,7 +19,6 @@ import {
   Download,
   AlertCircle,
   ExternalLink,
-  ChevronRight,
   LogIn,
   Layers
 } from 'lucide-react';
@@ -31,13 +28,10 @@ export const LandingPage: React.FC = () => {
     publicTenders,
     bidderQueries,
     submitBidderQuery,
-    loginToIntranet,
-    currentPersona
   } = useApp();
 
   const [activeSection, setActiveSection] = useState<'OVERVIEW' | 'TENDERS' | 'BIDDER_PORTAL' | 'ARCHITECTURE'>('OVERVIEW');
   const [selectedTenderRef, setSelectedTenderRef] = useState<string>(publicTenders[0]?.tenderRef || '');
-  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
   // Bidder query submission form
   const [bidderForm, setBidderForm] = useState({
@@ -150,7 +144,7 @@ export const LandingPage: React.FC = () => {
           {/* Intranet ERP Login Button & Republic of Liberia Seal */}
           <div className="flex items-center space-x-3 shrink-0">
             <button
-              onClick={() => setShowLoginModal(true)}
+              onClick={() => window.location.assign('/secure')}
               className="inline-flex items-center space-x-2 bg-forest-800 hover:bg-forest-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold shadow-md hover:shadow-lg transition shrink-0 whitespace-nowrap"
             >
               <LogIn className="w-4 h-4 text-gold-400" />
@@ -211,7 +205,7 @@ export const LandingPage: React.FC = () => {
                   {/* Hero CTAs */}
                   <div className="flex flex-wrap gap-3 pt-2">
                     <button
-                      onClick={() => setShowLoginModal(true)}
+                      onClick={() => window.location.assign('/secure')}
                       className="inline-flex items-center space-x-2 bg-gold-600 hover:bg-gold-500 text-slate-950 text-xs sm:text-sm font-bold px-5 py-3 rounded-lg shadow-lg hover:shadow-xl transition"
                     >
                       <LogIn className="w-4 h-4" />
@@ -469,7 +463,7 @@ export const LandingPage: React.FC = () => {
                       <input
                         type="tel"
                         required
-                        placeholder="+231 776 000 000"
+                        placeholder="Enter bidder phone number"
                         value={bidderForm.phone}
                         onChange={e => setBidderForm({ ...bidderForm, phone: e.target.value })}
                         className="w-full p-2 border border-slate-300 rounded-md font-mono focus:ring-forest-600 focus:outline-none"
@@ -482,7 +476,7 @@ export const LandingPage: React.FC = () => {
                     <input
                       type="email"
                       required
-                      placeholder="procurement@yourcompany.com"
+                      placeholder="Enter official business email"
                       value={bidderForm.email}
                       onChange={e => setBidderForm({ ...bidderForm, email: e.target.value })}
                       className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
@@ -622,9 +616,7 @@ export const LandingPage: React.FC = () => {
 
             <div>
               <h4 className="font-bold text-white uppercase text-xs mb-3">Procurement & REOI Inquiries</h4>
-              <p className="text-[11px] text-forest-300"><strong>Primary:</strong> v.kpaiseh@yahoo.com</p>
-              <p className="text-[11px] text-forest-300 mt-1"><strong>Clarifications:</strong> wynnbryant12@gmail.com</p>
-              <p className="text-[11px] text-forest-300 mt-1"><strong>Hotlines:</strong> 0776-063-643 / 0886-551-249</p>
+              <p className="text-[11px] text-forest-300">Contact FDA through its official public channels.</p>
             </div>
 
             <div>
@@ -633,7 +625,7 @@ export const LandingPage: React.FC = () => {
                 Authorized staff, finance officers, rangers, and management may log into the internal ERP.
               </p>
               <button
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => window.location.assign('/secure')}
                 className="w-full bg-forest-800 hover:bg-forest-700 text-white text-xs px-3 py-2 rounded-lg font-bold transition shadow border border-forest-700"
               >
                 Access Staff ERP Portal
@@ -648,64 +640,6 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
       </footer>
-
-      {/* Login / Persona Selection Modal */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
-            <div className="px-5 py-4 bg-forest-900 text-white flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <img src={FDA_LOGO_URL} alt="FDA Logo" className="w-7 h-auto object-contain drop-shadow" />
-                <div>
-                  <h3 className="font-bold text-sm">FDA Staff Intranet Login (RBAC)</h3>
-                  <p className="text-[10px] text-forest-300">Forestry Development Authority • Republic of Liberia</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowLoginModal(false)}
-                className="text-slate-300 hover:text-white text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-5 space-y-3">
-              <div className="p-2.5 bg-forest-50 border border-forest-200 rounded-lg text-[11px] text-forest-900">
-                <strong>Employee Self-Service Enabled:</strong> All employees have authenticated accounts with role-based access, leave tracking, hours worked, paystubs, and profile management.
-              </div>
-
-              <p className="text-xs text-slate-600">
-                Select your designated personnel account to authenticate into the Integrated Management Information System:
-              </p>
-
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {Object.values(USER_PERSONAS).map(persona => (
-                  <button
-                    key={persona.role}
-                    onClick={() => {
-                      loginToIntranet(persona.role as UserRole);
-                      setShowLoginModal(false);
-                    }}
-                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-forest-700 hover:bg-forest-50/70 transition flex items-center space-x-3 group"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-forest-900 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                      {persona.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs font-bold text-slate-900 group-hover:text-forest-900">{persona.name}</p>
-                      <p className="text-[11px] text-slate-500 font-medium">{persona.title}</p>
-                      <span className="text-[10px] text-forest-800 bg-forest-100/70 px-1.5 py-0.2 rounded inline-block mt-0.5">
-                        {persona.badge}
-                      </span>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-forest-800 transition-transform" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

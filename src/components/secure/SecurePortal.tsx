@@ -1,0 +1,198 @@
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, CircleAlert, LoaderCircle, LogOut, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
+
+type Role = { role:string; orgUnitId:string|null; orgCode:string|null; orgName:string|null };
+type User = { id:string; email:string; fullName:string; mustChangePassword:boolean };
+type Budget = { id:string; fiscal_year:number; vote_code:string; title:string; org_unit_id:string; currency:'USD'|'LRD'; allocated_minor:string; reserved_minor:string; spent_minor:string; available_minor:string };
+type Vendor = { id:string; legal_name:string; registration_no:string; status:string };
+type Workflow = {
+  id:string; requisition_no:string; title:string; description:string; procurement_method:string; spend_type:string; currency:'USD'|'LRD'; amount_minor:string;
+  status:string; org_unit_id:string; requester_id:string; requester_name:string; vote_code:string; budget_title:string;
+  po_id:string|null; po_number:string|null; vendor_id:string|null; vendor_name:string|null; po_amount_minor:string|null; po_status:string|null;
+  receipt_id:string|null; receipt_no:string|null; receipt_status:string|null; accepted_amount_minor:string|null;
+  invoice_id:string|null; invoice_no:string|null; invoice_status:string|null; invoice_amount_minor:string|null;
+  payment_id:string|null; payment_ref:string|null; payment_status:string|null; payment_amount_minor:string|null;
+  asset_id:string|null; asset_tag:string|null; asset_description:string|null;
+};
+type Office = {id:string;code:string;name:string;level:string;parent_id:string|null;county:string|null};
+type PendingAction = { kind:string; item:Workflow } | null;
+
+const money=(minor?:string|null,currency='USD')=>`${currency} ${(Number(minor||0)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const roleLabel=(role:string)=>role.replaceAll('_',' ').toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
+const cookie=(name:string)=>document.cookie.split('; ').find((part)=>part.startsWith(`${name}=`))?.slice(name.length+1)||'';
+
+async function api<T=unknown>(path:string,options:RequestInit={}) : Promise<T> {
+  const headers=new Headers(options.headers||{});
+  if(options.body&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
+  const method=(options.method||'GET').toUpperCase();
+  if(!['GET','HEAD','OPTIONS'].includes(method))headers.set('X-CSRF-Token',decodeURIComponent(cookie('fda_csrf')));
+  const response=await fetch(path,{...options,headers,credentials:'same-origin'});
+  const type=response.headers.get('content-type')||'';
+  if(!type.includes('application/json'))throw new Error('The secure backend is not connected to this page yet. The public demo remains available.');
+  const value=await response.json();
+  if(!response.ok)throw new Error(value.error||`Request failed (${response.status}).`);
+  return value as T;
+}
+
+export const SecurePortal:React.FC=()=>{
+  const [user,setUser]=useState<User|null>(null);
+  const [roles,setRoles]=useState<Role[]>([]);
+  const [budgets,setBudgets]=useState<Budget[]>([]);
+  const [vendors,setVendors]=useState<Vendor[]>([]);
+  const [items,setItems]=useState<Workflow[]>([]);
+  const [offices,setOffices]=useState<Office[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [notice,setNotice]=useState('');
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [newPassword,setNewPassword]=useState('');
+  const [showRequest,setShowRequest]=useState(false);
+  const [pendingAction,setPendingAction]=useState<PendingAction>(null);
+  const [busy,setBusy]=useState(false);
+  const [request,setRequest]=useState({title:'',description:'',budgetAccountId:'',amount:'',currency:'USD' as 'USD'|'LRD',procurementMethod:'RFQ',spendType:'GOODS'});
+  const [actionValues,setActionValues]=useState<Record<string,string>>({});
+
+  const primaryRole=roles[0]?.role||'';
+  const canApprove=['MANAGING_DIRECTOR','FINANCE_DIRECTOR'].includes(primaryRole);
+  const canIssuePo=primaryRole==='PROCUREMENT_OFFICER';
+  const canInspect=['ASSET_OFFICER','COUNTY_OFFICER'].includes(primaryRole);
+  const canInvoice=primaryRole==='FINANCE_DIRECTOR';
+  const canAuthorize=['MANAGING_DIRECTOR','FINANCE_DIRECTOR'].includes(primaryRole);
+  const canRecordPayment=['MANAGING_DIRECTOR','FINANCE_DIRECTOR'].includes(primaryRole);
+
+  const refresh=useCallback(async()=>{
+    setError('');
+    try{
+      const me=await api<{user:User;roles:Role[]}>('/api/auth/me');
+      setUser(me.user);setRoles(me.roles);
+      const [b,w]=await Promise.all([api<Budget[]>('/api/budgets'),api<Workflow[]>('/api/workflow')]);
+      setBudgets(b);setItems(w);
+      if(me.roles.some((item)=>item.role==='MANAGING_DIRECTOR')){
+        const [v,o]=await Promise.all([api<Vendor[]>('/api/admin/vendors').catch(()=>api<Vendor[]>('/api/vendors')),api<Office[]>('/api/admin/org-units')]);
+        setVendors(v);setOffices(o);
+      }else if(me.roles.some((item)=>item.role==='PROCUREMENT_OFFICER'))setVendors(await api<Vendor[]>('/api/vendors'));
+      else setVendors([]);
+    }catch(err){
+      if(err instanceof Error&&err.message==='Failed to fetch')setError('Could not reach the secure service.');
+      else if(err instanceof Error&&err.message!=='Sign in to continue.'&&err.message!=='Your session has expired or been disabled. Sign in again.')setError(err.message);
+      setUser(null);setRoles([]);setItems([]);setBudgets([]);
+    }finally{setLoading(false);}
+  },[]);
+
+  useEffect(()=>{void refresh();},[refresh]);
+
+  const submitLogin=async(event:FormEvent)=>{
+    event.preventDefault();setBusy(true);setError('');
+    try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})});setPassword('');await refresh();}
+    catch(err){setError(err instanceof Error?err.message:'Sign in failed.');}
+    finally{setBusy(false);}
+  };
+
+  const changePassword=async(event:FormEvent)=>{
+    event.preventDefault();setBusy(true);setError('');
+    try{await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:password,newPassword})});setNotice('Password changed. Sign in again with the new password.');setPassword('');setNewPassword('');setUser(null);}
+    catch(err){setError(err instanceof Error?err.message:'Password update failed.');}
+    finally{setBusy(false);}
+  };
+
+  const logout=async()=>{try{await api('/api/auth/logout',{method:'POST',body:'{}'});}catch{}setUser(null);setRoles([]);setItems([]);};
+
+  const sendAction=async(event:FormEvent)=>{
+    event.preventDefault();if(!pendingAction)return;setBusy(true);setError('');setNotice('');
+    const {kind,item}=pendingAction;let url='',body:Record<string,string>={};
+    switch(kind){
+      case 'submit':url=`/api/requisitions/${item.id}/submit`;break;
+      case 'correct-requisition':url=`/api/requisitions/${item.id}/correct`;body={title:actionValues.title||'',description:actionValues.description||'',amount:actionValues.amount||''};break;
+      case 'approve':url=`/api/requisitions/${item.id}/approve`;break;
+      case 'return':url=`/api/requisitions/${item.id}/return`;body={reason:actionValues.reason||''};break;
+      case 'reject':url=`/api/requisitions/${item.id}/reject`;body={reason:actionValues.reason||''};break;
+      case 'po':url=`/api/requisitions/${item.id}/purchase-order`;body={vendorId:actionValues.vendorId||'',amount:actionValues.amount||''};if(actionValues.expectedDelivery)body.expectedDelivery=actionValues.expectedDelivery;break;
+      case 'receipt':url=`/api/purchase-orders/${item.po_id}/receipt`;body={conditionNotes:actionValues.conditionNotes||''};break;
+      case 'inspect':url=`/api/receipts/${item.receipt_id}/inspect`;body={outcome:actionValues.outcome||'',inspectionNotes:actionValues.inspectionNotes||''};if(actionValues.outcome==='ACCEPTED'){body.acceptedAmount=actionValues.acceptedAmount||'';body.assetCategory=actionValues.assetCategory||'GENERAL';}break;
+      case 'invoice':url=`/api/purchase-orders/${item.po_id}/invoice`;body={invoiceNo:actionValues.invoiceNo||'',amount:actionValues.amount||''};break;
+      case 'recheck':url=`/api/invoices/${item.invoice_id}/recheck-match`;break;
+      case 'correct-invoice':url=`/api/invoices/${item.invoice_id}/correct`;body={amount:actionValues.amount||'',reason:actionValues.reason||''};break;
+      case 'authorize':url=`/api/invoices/${item.invoice_id}/authorize`;break;
+      case 'paid':url=`/api/payments/${item.payment_id}/record`;body={paymentReference:actionValues.paymentReference||''};break;
+      default:break;
+    }
+    try{await api(url,{method:'POST',body:JSON.stringify(body)});setNotice('Saved. The workflow and audit history were updated.');setPendingAction(null);setActionValues({});await refresh();}
+    catch(err){setError(err instanceof Error?err.message:'The action could not be completed.');}
+    finally{setBusy(false);}
+  };
+
+  const createRequisition=async(event:FormEvent)=>{
+    event.preventDefault();setBusy(true);setError('');
+    try{await api('/api/requisitions',{method:'POST',body:JSON.stringify(request)});setShowRequest(false);setRequest({title:'',description:'',budgetAccountId:'',amount:'',currency:'USD',procurementMethod:'RFQ',spendType:'GOODS'});setNotice('Draft requisition created. Submit it to reserve funds and start approvals.');await refresh();}
+    catch(err){setError(err instanceof Error?err.message:'Could not create requisition.');}
+    finally{setBusy(false);}
+  };
+
+  const totals=useMemo(()=>({open:items.filter(x=>!['COMPLETE','REJECTED'].includes(x.status)).length,committed:budgets.reduce((sum,x)=>sum+Number(x.reserved_minor),0),spent:budgets.reduce((sum,x)=>sum+Number(x.spent_minor),0)}),[items,budgets]);
+
+  if(loading)return <div className="min-h-screen grid place-items-center bg-slate-100"><div className="flex items-center gap-3 text-slate-600"><LoaderCircle className="animate-spin"/>Checking secure FDA service…</div></div>;
+  return <div className="min-h-screen bg-slate-100 text-slate-900">
+    <header className="bg-forest-950 text-white"><div className="max-w-7xl mx-auto px-4 py-5 flex justify-between items-center"><div><p className="text-xs uppercase tracking-widest text-emerald-300">FDA Integrated Management Information System</p><h1 className="text-2xl font-bold mt-1">Secure Staff Workspace</h1></div><a href="/" className="text-sm text-emerald-200 hover:text-white">Public demo</a></div></header>
+    <main className="max-w-7xl mx-auto px-4 py-8">
+      {(error||notice)&&<div className={`mb-5 rounded-lg p-4 text-sm flex gap-2 ${error?'bg-red-50 text-red-800 border border-red-200':'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}><span>{error?<CircleAlert className="w-5 h-5 shrink-0"/>:<CheckCircle2 className="w-5 h-5 shrink-0"/>}</span><span>{error||notice}</span></div>}
+      {!user&&<section className="max-w-lg mx-auto bg-white rounded-2xl shadow border border-slate-200 p-7">
+        <div className="w-12 h-12 rounded-xl bg-forest-100 text-forest-900 grid place-items-center mb-4"><ShieldCheck/></div><h2 className="text-xl font-bold">Sign in to FDA staff workspace</h2><p className="text-sm text-slate-600 mt-2">Use the named account issued by your system administrator. Access is checked by the server for each request.</p>
+        <form className="mt-6 space-y-4" onSubmit={submitLogin}><label className="block text-sm font-semibold">Email<input autoComplete="username" type="email" required value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2.5"/></label><label className="block text-sm font-semibold">Password<input autoComplete="current-password" type="password" required value={password} onChange={e=>setPassword(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2.5"/></label><button disabled={busy} className="w-full rounded-lg bg-forest-800 hover:bg-forest-700 disabled:opacity-60 text-white px-4 py-3 font-bold">{busy?'Signing in…':'Sign in securely'}</button></form>
+      </section>}
+      {user&&user.mustChangePassword&&<section className="max-w-lg mx-auto bg-white rounded-2xl shadow border border-slate-200 p-7"><h2 className="text-xl font-bold">Set your own password</h2><p className="text-sm text-slate-600 mt-2">Your administrator issued a one-time password. Change it before using the system.</p><form onSubmit={changePassword} className="space-y-4 mt-5"><label className="block text-sm font-semibold">Temporary password<input autoComplete="current-password" type="password" required value={password} onChange={e=>setPassword(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2.5"/></label><label className="block text-sm font-semibold">New password (at least 12 characters)<input autoComplete="new-password" minLength={12} type="password" required value={newPassword} onChange={e=>setNewPassword(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2.5"/></label><button disabled={busy} className="w-full rounded-lg bg-forest-800 text-white px-4 py-3 font-bold">Change password</button></form></section>}
+      {user&&!user.mustChangePassword&&<>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6"><div><h2 className="text-lg font-bold">Welcome, {user.fullName}</h2><p className="text-sm text-slate-600">{roles.map(r=>`${roleLabel(r.role)}${r.orgName?` · ${r.orgName}`:''}`).join(' / ')}</p></div><div className="flex gap-2"><button onClick={()=>void refresh()} className="border rounded-lg bg-white px-3 py-2 text-sm font-semibold flex items-center gap-2"><RefreshCw className="w-4 h-4"/>Refresh</button><button onClick={()=>void logout()} className="border rounded-lg bg-white px-3 py-2 text-sm font-semibold flex items-center gap-2"><LogOut className="w-4 h-4"/>Sign out</button></div></div>
+        <div className="grid sm:grid-cols-3 gap-4 mb-6"><Kpi title="Open workflow records" value={String(totals.open)}/><Kpi title="Budget reserved" value={money(String(totals.committed))}/><Kpi title="Budget spent" value={money(String(totals.spent))}/></div>
+        <section className="bg-white border rounded-xl shadow-sm overflow-hidden"><div className="p-5 border-b flex justify-between items-center"><div><h3 className="font-bold">Integrated procure-to-pay and asset workflow</h3><p className="text-xs text-slate-500 mt-1">Requisition → budget reservation → approval → purchase order → inspected delivery → asset → invoice match → payment</p></div>{roles.some(r=>['PROCUREMENT_OFFICER','COUNTY_OFFICER'].includes(r.role))&&<button onClick={()=>{setRequest(v=>({...v,budgetAccountId:budgets[0]?.id||'',currency:budgets[0]?.currency||'USD'}));setShowRequest(true);}} className="bg-forest-800 text-white rounded-lg px-3 py-2 text-sm font-bold flex items-center gap-2"><Plus className="w-4 h-4"/>New requisition</button>}</div>
+          <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-600"><tr><th className="p-3">Requisition / Request</th><th className="p-3">Budget</th><th className="p-3">Value</th><th className="p-3">Linked chain</th><th className="p-3">Status</th><th className="p-3">Available action</th></tr></thead><tbody className="divide-y">{items.map(item=><tr key={item.id} className="align-top"><td className="p-3 min-w-52"><strong>{item.requisition_no}</strong><div className="font-semibold mt-1">{item.title}</div><div className="text-xs text-slate-500">{item.requester_name}</div></td><td className="p-3 min-w-40"><div className="font-semibold">{item.vote_code}</div><div className="text-xs text-slate-500">{item.budget_title}</div></td><td className="p-3 whitespace-nowrap">{money(item.amount_minor,item.currency)}</td><td className="p-3 min-w-60 text-xs text-slate-600">{item.po_number&&<div>PO: {item.po_number} · {item.vendor_name}</div>}{item.receipt_no&&<div>Receipt: {item.receipt_no} · {item.receipt_status}</div>}{item.invoice_no&&<div>Invoice: {item.invoice_no} · {item.invoice_status}</div>}{item.payment_ref&&<div>Payment: {item.payment_ref} · {item.payment_status}</div>}{item.asset_tag&&<div>Asset: {item.asset_tag}</div>}{!item.po_number&&<span>No purchase order yet</span>}</td><td className="p-3"><Status value={item.status}/></td><td className="p-3 min-w-52"><div className="flex flex-wrap gap-1.5">{item.status==='DRAFT'&&item.requester_id===user.id&&<ActionButton onClick={()=>openAction('submit',item)}>Submit</ActionButton>}{item.status==='RETURNED'&&item.requester_id===user.id&&<ActionButton subtle onClick={()=>openAction('correct-requisition',item)}>Correct and resubmit</ActionButton>}{item.status==='SUBMITTED'&&canApprove&&<><ActionButton onClick={()=>openAction('approve',item)}>Approve</ActionButton><ActionButton subtle onClick={()=>openAction('return',item)}>Return</ActionButton><ActionButton danger onClick={()=>openAction('reject',item)}>Reject</ActionButton></>}{item.status==='APPROVED'&&canIssuePo&&<ActionButton onClick={()=>openAction('po',item)}>Issue PO</ActionButton>}{item.po_status==='ISSUED'&&canInspect&&(!item.receipt_id||item.receipt_status==='REJECTED')&&<ActionButton onClick={()=>openAction('receipt',item)}>Record delivery</ActionButton>}{item.receipt_status==='PENDING'&&canInspect&&<ActionButton onClick={()=>openAction('inspect',item)}>Inspect delivery</ActionButton>}{item.receipt_status==='ACCEPTED'&&canInvoice&&!item.invoice_id&&<ActionButton onClick={()=>openAction('invoice',item)}>Enter invoice</ActionButton>}{item.invoice_status==='EXCEPTION'&&canInvoice&&<><ActionButton subtle onClick={()=>openAction('correct-invoice',item)}>Correct invoice</ActionButton><ActionButton onClick={()=>openAction('recheck',item)}>Recheck match</ActionButton></>}{item.invoice_status==='MATCHED'&&canAuthorize&&<ActionButton onClick={()=>openAction('authorize',item)}>Authorize payment</ActionButton>}{item.payment_status==='AUTHORIZED'&&canRecordPayment&&<ActionButton onClick={()=>openAction('paid',item)}>Record payment</ActionButton>}</div></td></tr>)}{!items.length&&<tr><td className="p-8 text-center text-slate-500" colSpan={6}>No workflow records yet. Authorized budgets, vendors, offices, and staff accounts must be configured first.</td></tr>}</tbody></table></div>
+        </section>
+        {roles.some(r=>r.role==='MANAGING_DIRECTOR')&&<AdminSetup offices={offices} onDone={refresh} setError={setError} setNotice={setNotice}/>}
+      </>}
+    </main>
+    {showRequest&&<Dialog title="Create procurement requisition" onClose={()=>setShowRequest(false)}><form onSubmit={createRequisition} className="space-y-3"><Field label="Request title"><input required value={request.title} onChange={e=>setRequest({...request,title:e.target.value})} className="input"/></Field><Field label="Description"><textarea required rows={3} value={request.description} onChange={e=>setRequest({...request,description:e.target.value})} className="input"/></Field><Field label="Budget account"><select required value={request.budgetAccountId} onChange={e=>{const b=budgets.find(x=>x.id===e.target.value);setRequest({...request,budgetAccountId:e.target.value,currency:b?.currency||'USD'});}} className="input"><option value="">Select an account</option>{budgets.map(b=><option key={b.id} value={b.id}>{b.fiscal_year} · {b.vote_code} · {b.title} · available {money(b.available_minor,b.currency)}</option>)}</select></Field><div className="grid grid-cols-2 gap-3"><Field label="Amount"><input type="number" min="0.01" step="0.01" required value={request.amount} onChange={e=>setRequest({...request,amount:e.target.value})} className="input"/></Field><Field label="Spend type"><select className="input" value={request.spendType} onChange={e=>setRequest({...request,spendType:e.target.value})}><option value="GOODS">Goods</option><option value="CAPITAL">Capital asset</option><option value="SERVICES">Services</option></select></Field></div><div className="grid grid-cols-2 gap-3"><Field label="Procurement method"><select className="input" value={request.procurementMethod} onChange={e=>setRequest({...request,procurementMethod:e.target.value})}><option value="RFQ">Request for quotation</option><option value="NATIONAL_COMPETITIVE_BIDDING">National competitive bidding</option><option value="INTERNATIONAL_COMPETITIVE_BIDDING">International competitive bidding</option><option value="SINGLE_SOURCE">Single source</option><option value="FRAMEWORK">Framework</option></select></Field><Field label="Currency"><select className="input" value={request.currency} onChange={e=>setRequest({...request,currency:e.target.value as 'USD'|'LRD'})}><option>USD</option><option>LRD</option></select></Field></div><DialogButtons busy={busy} onCancel={()=>setShowRequest(false)} submit="Save draft"/></form></Dialog>}
+    {pendingAction&&<Dialog title={actionTitle(pendingAction.kind)} onClose={()=>setPendingAction(null)}><form onSubmit={sendAction} className="space-y-3">{actionFields(pendingAction.kind,actionValues,setActionValues,vendors,pendingAction.item)}<DialogButtons busy={busy} onCancel={()=>setPendingAction(null)} submit={actionSubmitLabel(pendingAction.kind)}/></form></Dialog>}
+  </div>;
+
+  function openAction(kind:string,item:Workflow){setError('');setActionValues({vendorId:vendors[0]?.id||'',amount:kind==='po'?String(Number(item.amount_minor)/100):'',acceptedAmount:String(Number(item.po_amount_minor||item.amount_minor)/100),outcome:'ACCEPTED'});setPendingAction({kind,item});}
+};
+
+const Kpi:React.FC<{title:string;value:string}>=({title,value})=><div className="bg-white rounded-xl border p-4"><div className="text-xs uppercase tracking-wide text-slate-500">{title}</div><div className="text-xl font-bold mt-2">{value}</div></div>;
+const Status:React.FC<{value:string}>=({value})=><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold">{value.replaceAll('_',' ')}</span>;
+const ActionButton:React.FC<{children:React.ReactNode;onClick:()=>void;subtle?:boolean;danger?:boolean}>=({children,onClick,subtle,danger})=><button type="button" onClick={onClick} className={`rounded-md px-2 py-1 text-xs font-bold ${danger?'bg-red-50 text-red-700':subtle?'bg-amber-50 text-amber-800':'bg-forest-800 text-white hover:bg-forest-700'}`}>{children}</button>;
+const Field:React.FC<{label:string;children:React.ReactNode}>=({label,children})=><label className="block text-sm font-semibold">{label}<div className="mt-1">{children}</div></label>;
+const Dialog:React.FC<{title:string;onClose:()=>void;children:React.ReactNode}>=({title,onClose,children})=><div className="fixed inset-0 z-50 bg-slate-950/60 p-4 grid place-items-center"><div className="w-full max-w-xl max-h-[90vh] overflow-auto rounded-xl bg-white shadow-xl"><div className="flex items-center justify-between p-4 border-b"><h3 className="font-bold">{title}</h3><button onClick={onClose} type="button" aria-label="Close"><X className="w-5 h-5"/></button></div><div className="p-5">{children}</div></div></div>;
+const DialogButtons:React.FC<{busy:boolean;onCancel:()=>void;submit:string}>=({busy,onCancel,submit})=><div className="flex justify-end gap-2 pt-3"><button type="button" onClick={onCancel} className="border rounded-lg px-4 py-2 text-sm">Cancel</button><button disabled={busy} className="rounded-lg bg-forest-800 text-white px-4 py-2 text-sm font-bold disabled:opacity-60">{busy?'Saving…':submit}</button></div>;
+
+function actionTitle(kind:string){return ({submit:'Submit requisition','correct-requisition':'Correct returned requisition',approve:'Approve requisition',return:'Return for correction',reject:'Reject requisition',po:'Issue purchase order',receipt:'Record delivered goods',inspect:'Inspect and accept delivery',invoice:'Enter supplier invoice','correct-invoice':'Correct invoice exception',recheck:'Recheck three-way match',authorize:'Authorize payment',paid:'Record payment'})[kind]||'Workflow action';}
+function actionSubmitLabel(kind:string){return ({submit:'Submit and reserve budget','correct-requisition':'Save corrections',approve:'Approve',return:'Return requisition',reject:'Reject requisition',po:'Issue purchase order',receipt:'Record delivery',inspect:'Save inspection result',invoice:'Run three-way match','correct-invoice':'Save invoice correction',recheck:'Recheck match',authorize:'Authorize payment',paid:'Record as paid'})[kind]||'Save';}
+function actionFields(kind:string,values:Record<string,string>,setValues:(v:Record<string,string>)=>void,vendors:Vendor[],item:Workflow){
+  const set=(key:string,value:string)=>setValues({...values,[key]:value});
+  if(kind==='correct-requisition')return <><Field label="Request title"><input required value={values.title||item.title} onChange={e=>set('title',e.target.value)} className="input"/></Field><Field label="Description"><textarea required rows={3} value={values.description||item.description} onChange={e=>set('description',e.target.value)} className="input"/></Field><Field label="Amount"><input type="number" min="0.01" step="0.01" required value={values.amount||String(Number(item.amount_minor)/100)} onChange={e=>set('amount',e.target.value)} className="input"/></Field><p className="text-xs text-slate-500">After saving, submit the corrected draft to reserve funds again.</p></>;
+  if(kind==='correct-invoice')return <><div className="rounded bg-amber-50 p-3 text-xs">Current invoice amount {money(item.invoice_amount_minor,item.currency)}. Corrections are retained in the audit history.</div><Field label="Corrected invoice amount"><input type="number" min="0.01" step="0.01" required value={values.amount||String(Number(item.invoice_amount_minor)/100)} onChange={e=>set('amount',e.target.value)} className="input"/></Field><Field label="Correction reason"><textarea required rows={3} value={values.reason||''} onChange={e=>set('reason',e.target.value)} className="input"/></Field></>;
+  if(['return','reject'].includes(kind))return <Field label="Reason"><textarea required rows={3} value={values.reason||''} onChange={e=>set('reason',e.target.value)} className="input"/></Field>;
+  if(kind==='po')return <><Field label="Qualified vendor"><select required value={values.vendorId||''} onChange={e=>set('vendorId',e.target.value)} className="input"><option value="">Select vendor</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.legal_name} · {v.registration_no}</option>)}</select></Field><Field label="Purchase order amount"><input type="number" required min="0.01" step="0.01" value={values.amount||''} onChange={e=>set('amount',e.target.value)} className="input"/></Field><Field label="Expected delivery"><input type="date" value={values.expectedDelivery||''} onChange={e=>set('expectedDelivery',e.target.value)} className="input"/></Field></>;
+  if(kind==='receipt')return <Field label="Delivery condition / packing notes"><textarea required rows={3} value={values.conditionNotes||''} onChange={e=>set('conditionNotes',e.target.value)} className="input"/></Field>;
+  if(kind==='inspect')return <><Field label="Inspection outcome"><select className="input" value={values.outcome||'ACCEPTED'} onChange={e=>set('outcome',e.target.value)}><option value="ACCEPTED">Accept delivery</option><option value="REJECTED">Reject delivery</option></select></Field>{values.outcome!=='REJECTED'&&<><Field label="Accepted value"><input type="number" min="0.01" step="0.01" required value={values.acceptedAmount||''} onChange={e=>set('acceptedAmount',e.target.value)} className="input"/></Field>{item.spend_type==='CAPITAL'&&<Field label="Asset category"><input value={values.assetCategory||'GENERAL'} onChange={e=>set('assetCategory',e.target.value)} className="input"/></Field>}</>}<Field label="Inspection notes"><textarea required rows={3} value={values.inspectionNotes||''} onChange={e=>set('inspectionNotes',e.target.value)} className="input"/></Field></>;
+  if(kind==='invoice')return <><div className="rounded bg-slate-50 p-3 text-xs">PO value {money(item.po_amount_minor,item.currency)} · accepted receipt {money(item.accepted_amount_minor,item.currency)}. Exact matching values are required for authorization.</div><Field label="Supplier invoice number"><input required value={values.invoiceNo||''} onChange={e=>set('invoiceNo',e.target.value)} className="input"/></Field><Field label="Invoice amount"><input type="number" min="0.01" step="0.01" required value={values.amount||''} onChange={e=>set('amount',e.target.value)} className="input"/></Field></>;
+  if(kind==='paid')return <Field label="Payment / bank reference"><input required value={values.paymentReference||''} onChange={e=>set('paymentReference',e.target.value)} className="input"/></Field>;
+  if(kind==='recheck')return <p className="text-sm text-slate-600">The server will compare vendor, purchase order, and accepted delivery values again. Resolve source records first if the values still differ.</p>;
+  return <p className="text-sm text-slate-600">This action is recorded in the system audit history.</p>;
+}
+
+const AdminSetup:React.FC<{offices:Office[];onDone:()=>Promise<void>;setError:(v:string)=>void;setNotice:(v:string)=>void}>=({offices,onDone,setError,setNotice})=>{
+  const [section,setSection]=useState<'OFFICE'|'USER'|'BUDGET'|'VENDOR'>('OFFICE');const [busy,setBusy]=useState(false);const [result,setResult]=useState('');
+  const [office,setOffice]=useState({code:'',name:'',level:'COUNTY',parentId:'',county:''});
+  const [staff,setStaff]=useState({email:'',fullName:'',role:'PROCUREMENT_OFFICER',orgUnitId:''});
+  const [budget,setBudget]=useState({fiscalYear:String(new Date().getFullYear()),voteCode:'',title:'',orgUnitId:'',currency:'USD',allocatedAmount:''});
+  const [vendor,setVendor]=useState({legalName:'',registrationNo:'',taxClearanceExpires:'',ppccRegistrationNo:''});
+  const create=async(event:FormEvent)=>{event.preventDefault();setBusy(true);setError('');setResult('');let endpoint='',body:Record<string,unknown>={};if(section==='OFFICE'){endpoint='/api/admin/org-units';body=office;}if(section==='USER'){endpoint='/api/admin/users';body=staff;}if(section==='BUDGET'){endpoint='/api/admin/budgets';body=budget;}if(section==='VENDOR'){endpoint='/api/admin/vendors';body=vendor;}try{const data=await api<{temporaryPassword?:string;user?:{email:string}}>(endpoint,{method:'POST',body:JSON.stringify(body)});if(data.temporaryPassword)setResult(`Account ${data.user?.email} created. One-time password: ${data.temporaryPassword} — copy it now and deliver it securely.`);else setNotice('Master data record saved and audit logged.');await onDone();}catch(err){setError(err instanceof Error?err.message:'Setup could not be saved.');}finally{setBusy(false);}};
+  return <section className="mt-6 bg-white border rounded-xl p-5"><div className="flex items-center justify-between"><div><h3 className="font-bold">Administration and controlled setup</h3><p className="text-xs text-slate-500 mt-1">Only the Managing Director role can provision offices, named accounts, budgets, and vendor records.</p></div></div><div className="flex gap-2 flex-wrap mt-4">{(['OFFICE','USER','BUDGET','VENDOR'] as const).map(x=><button key={x} onClick={()=>{setSection(x);setResult('');}} className={`rounded-lg px-3 py-2 text-xs font-bold ${section===x?'bg-forest-800 text-white':'bg-slate-100'}`}>{({OFFICE:'Office',USER:'Staff account',BUDGET:'Budget',VENDOR:'Vendor'})[x]}</button>)}</div>
+    <form onSubmit={create} className="mt-4 grid md:grid-cols-2 gap-3">{section==='OFFICE'&&<><Field label="Office code"><input required className="input" value={office.code} onChange={e=>setOffice({...office,code:e.target.value})}/></Field><Field label="Office name"><input required className="input" value={office.name} onChange={e=>setOffice({...office,name:e.target.value})}/></Field><Field label="Level"><select className="input" value={office.level} onChange={e=>setOffice({...office,level:e.target.value})}><option value="HEADQUARTERS">Headquarters</option><option value="REGION">Regional office</option><option value="COUNTY">County office</option></select></Field>{office.level!=='HEADQUARTERS'&&<Field label="Parent office"><select required className="input" value={office.parentId} onChange={e=>setOffice({...office,parentId:e.target.value})}><option value="">Select parent</option>{offices.filter(o=>office.level==='REGION'?o.level==='HEADQUARTERS':o.level==='REGION').map(o=><option key={o.id} value={o.id}>{o.code} · {o.name}</option>)}</select></Field>}{office.level==='COUNTY'&&<Field label="County"><input required className="input" value={office.county} onChange={e=>setOffice({...office,county:e.target.value})}/></Field>}</>}
+      {section==='USER'&&<><Field label="Full name"><input required className="input" value={staff.fullName} onChange={e=>setStaff({...staff,fullName:e.target.value})}/></Field><Field label="Work email"><input type="email" required className="input" value={staff.email} onChange={e=>setStaff({...staff,email:e.target.value})}/></Field><Field label="Assigned role"><select className="input" value={staff.role} onChange={e=>setStaff({...staff,role:e.target.value})}>{['FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR','MANAGING_DIRECTOR'].map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</select></Field><Field label="Office scope"><select className="input" value={staff.orgUnitId} onChange={e=>setStaff({...staff,orgUnitId:e.target.value})}><option value="">No office scope / organization wide role</option>{offices.map(o=><option key={o.id} value={o.id}>{o.code} · {o.name}</option>)}</select></Field></>}
+      {section==='BUDGET'&&<><Field label="Fiscal year"><input type="number" required className="input" value={budget.fiscalYear} onChange={e=>setBudget({...budget,fiscalYear:e.target.value})}/></Field><Field label="Vote code"><input required className="input" value={budget.voteCode} onChange={e=>setBudget({...budget,voteCode:e.target.value})}/></Field><Field label="Budget description"><input required className="input" value={budget.title} onChange={e=>setBudget({...budget,title:e.target.value})}/></Field><Field label="Office"><select required className="input" value={budget.orgUnitId} onChange={e=>setBudget({...budget,orgUnitId:e.target.value})}><option value="">Select office</option>{offices.map(o=><option key={o.id} value={o.id}>{o.code} · {o.name}</option>)}</select></Field><Field label="Currency"><select className="input" value={budget.currency} onChange={e=>setBudget({...budget,currency:e.target.value})}><option>USD</option><option>LRD</option></select></Field><Field label="Authorized allocation"><input type="number" step="0.01" min="0" required className="input" value={budget.allocatedAmount} onChange={e=>setBudget({...budget,allocatedAmount:e.target.value})}/></Field></>}
+      {section==='VENDOR'&&<><Field label="Legal business name"><input required className="input" value={vendor.legalName} onChange={e=>setVendor({...vendor,legalName:e.target.value})}/></Field><Field label="Registration number"><input required className="input" value={vendor.registrationNo} onChange={e=>setVendor({...vendor,registrationNo:e.target.value})}/></Field><Field label="Tax clearance expiry"><input type="date" className="input" value={vendor.taxClearanceExpires} onChange={e=>setVendor({...vendor,taxClearanceExpires:e.target.value})}/></Field><Field label="PPCC registration"><input className="input" value={vendor.ppccRegistrationNo} onChange={e=>setVendor({...vendor,ppccRegistrationNo:e.target.value})}/></Field></>}
+      <div className="md:col-span-2 flex justify-end"><button disabled={busy} className="rounded-lg bg-forest-800 text-white px-4 py-2 text-sm font-bold">{busy?'Saving…':`Save ${({OFFICE:'office',USER:'account',BUDGET:'budget',VENDOR:'vendor'})[section]}`}</button></div>
+    </form>{result&&<div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 break-words">{result}</div>}</section>;
+};
+
