@@ -20,6 +20,6 @@ COPY --from=build --chown=node:node /app/server ./server
 COPY --chown=node:node server/start-api.sh ./start-api.sh
 RUN chmod 755 ./start-api.sh
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+
   CMD node -e "fetch('http://127.0.0.1:8080/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 ENTRYPOINT ["/app/start-api.sh"]
