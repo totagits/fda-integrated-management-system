@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+RUN node --check server/index.js
 RUN npm run build
 
 FROM node:22-alpine AS runtime
