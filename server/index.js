@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 15719)
-Total output lines: 811
-
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
