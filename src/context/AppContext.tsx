@@ -245,7 +245,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isPublicPortal, setIsPublicPortal] = useState<boolean>(false); // Defaults to Home/Landing page for public visitors!
+  const [isPublicPortal, setIsPublicPortal] = useState<boolean>(true); // Fresh visitors start on the public Home/Landing page.
   const [activeModule, setActiveModule] = useState<AppModule>('DASHBOARD');
   const [currentPersona, setCurrentPersona] = useState<UserPersona>(USER_PERSONAS.MANAGING_DIRECTOR);
 
