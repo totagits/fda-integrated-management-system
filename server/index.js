@@ -215,8 +215,8 @@ async function scopedUnits(auth) {
        UNION ALL SELECT o.id FROM org_units o JOIN descendants d ON o.parent_id=d.id
      ) SELECT DISTINCT id FROM descendants`, [roots],
   );
-  retur…10719 tokens truncated…ing(),rows:result.rows});
-}));
+  return result.rows.map(r => r.id);
+}
 
 app.get('/api/audit-events',loadAuth,guard('audit.read.all'),route(async(req,res)=>{
   const limit=Math.min(Math.max(Number(req.query.limit||50),1),200);
