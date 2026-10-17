@@ -1,42 +1,60 @@
-# Secure service deployment and operations
+# Upgrade the existing FDA app
 
-## Keep the current public demo while preparing the secure service
+This is one FDA application, one Coolify app and one public address: `https://fda.totag.network`. Do not create another FDA app or add a second hostname. The repository root `Dockerfile` builds the React site and secure API into the same service. The upgrade keeps the current hostname; the existing Coolify app must route to container port `8080`.
 
-The root `Dockerfile` remains the current static demo. `Dockerfile.api` builds the separate Node API plus the same React client. Do not switch the live hostname until the checks below pass. For a parallel trial, assign the API a temporary hostname such as `secure-demo.fda.totag.network`; the API serves both the frontend and `/api` on that same origin.
+## Get to the existing Coolify instance
 
-## Coolify application settings
+1. Sign in to Hostinger hPanel and open **VPS → Manage** for the active VPS.
+2. Open the Coolify link/details shown for that VPS or its installed application. Do not assume the old IP or port `6001` is current; the address used earlier refused a connection.
+3. If the Coolify page does not load, use Hostinger's VPS access/help to recover the existing Coolify service before changing DNS or reinstalling anything. Keep the `fda.totag.network` DNS record as it is.
 
-Create a new application from `totagits/fda-integrated-management-system`, branch `main`, with Dockerfile path `/Dockerfile.api`. Expose container port `8080` and mount a persistent private volume at `/data/uploads`. Do not publish PostgreSQL to the public internet. Attach the application and database to a private network and use the database's internal hostname.
+Hostinger's Coolify VPS guide: [How to use the Coolify VPS template](https://support.hostinger.com/en/articles/9615197-how-to-use-the-coolify-vps-template).
 
-Configure these secrets/settings in Coolify:
+## Add PostgreSQL to the same Coolify project
 
-- `NODE_ENV=production`
-- `PORT=8080`
-- `DATABASE_URL=postgresql://<service-user>:<secret>@<private-db-host>:5432/<database>`
-- `DB_POOL_SIZE=10` (adjust only after load testing)
-- `SESSION_HOURS=10`
-- `INITIAL_ADMIN_NAME`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD` for the first deployment only. Use a unique random password with at least 16 characters. After the first successful start, remove all three bootstrap variables and redeploy. The administrator must change the one-time password immediately.
-- `UPLOADS_DIR=/data/uploads`
-- Optional only after FDA approves a receiving endpoint: `INTEGRATION_WEBHOOK_URL=https://...` and `INTEGRATION_WEBHOOK_SECRET` (at least 32 random characters). Restrict outbound network access to the approved endpoint. The receiver must verify `X-FDA-Signature` as HMAC-SHA256 over the exact request body and deduplicate `Idempotency-Key`.
+1. In Coolify, open the existing FDA project and production environment.
+2. Select **New Resource → Database → PostgreSQL**. This creates a database resource inside Coolify; there is no separate database account or domain to purchase. Choose the same VPS and private Docker network as the existing FDA app.
+3. Start it and wait for its health status to turn healthy. In its connection details, copy the **Internal URL** for the FDA app's `DATABASE_URL`. Keep the database private; do not enable public TCP access or open port `5432` in the firewall.
 
-Use PostgreSQL TLS where supported (`DATABASE_SSL=true`); the application enforces certificate verification. Keep secrets out of GitHub, source files, browser storage and screenshots.
+Coolify creates a private connection URL and persistent database storage for the PostgreSQL resource. Persistent storage is not a backup, so backups must also be configured and restored in a test. See [Coolify PostgreSQL](https://coolify.io/docs/databases/postgresql) and [database persistent storage](https://coolify.io/docs/databases/configuration/persistent-storage).
 
-## First deployment checks
+## Configure the existing FDA app
 
-1. Confirm Coolify reports the container healthy. `GET /api/health/live` should return `{"status":"live"}` and `GET /api/health/ready` should return HTTP 200 only after migrations and database connectivity succeed.
-2. Sign in as the initial administrator, change the one-time password, then remove the bootstrap variables and redeploy.
-3. Configure the approved office hierarchy, named users, role scopes, budget accounts and qualified vendors. Do not load live data until FDA confirms the data model and approval policies.
-4. Exercise a sample requisition through return/correction, approval, PO, rejected and accepted delivery, invoice exception/correction, authorization and payment record. Confirm budget balances and audit events after each transition.
-5. Test that a different role and an out-of-scope office cannot read or mutate the same records or attachments.
-6. Test attachment upload and download; confirm the mounted volume persists across a redeploy and files are not available from the public web root.
-7. Check `/api/audit-events` with an authorized auditor role and run `node server/verify-audit.js` against the database. Configure an independently administered audit receiver before treating external audit preservation as complete.
+Open the **existing** FDA app, not a new one.
 
-## Backups and recovery
+1. In its networking/general settings, change **Ports Exposes** (or the app's internal container port) to `8080`. Keep `fda.totag.network` assigned to this same app. Coolify will continue to serve it publicly over HTTPS.
+2. Under **Persistent Storage**, add a volume mounted at exactly `/data/uploads`. That keeps uploaded documents when the container is replaced. It is separate from PostgreSQL's storage. See [Coolify application persistent storage](https://coolify.io/docs/applications/configuration/persistent-storage).
+3. Under **Environment Variables**, add these values to the existing app:
 
-Install `pg_dump`, `age`, and `rclone` in a restricted backup runner with private network access to PostgreSQL and read access to the upload volume. Configure an age public recipient and an encrypted, versioned offsite rclone destination. Run `ops/backup-encrypted.sh` daily and alert on nonzero exit status or a missing remote object. Keep the private age identity offline in an access-controlled recovery location; never store it beside backups.
+   - `NODE_ENV` = `production`
+   - `PORT` = `8080`
+   - `UPLOADS_DIR` = `/data/uploads`
+   - `DATABASE_URL` = PostgreSQL's private **Internal URL**
+   - `DB_POOL_SIZE` = `10`
+   - `SESSION_HOURS` = `10`
+   - `INITIAL_ADMIN_NAME` = the FDA-approved first administrator's name
+   - `INITIAL_ADMIN_EMAIL` = the approved administrator's work email
+   - `INITIAL_ADMIN_PASSWORD` = a unique, one-time password with at least 16 characters
 
-Set an FDA-approved retention schedule and RPO/RTO before production. At least quarterly, download a backup to a clean staging environment and run `ops/restore-staging.sh` with `RESTORE_TARGET_LABEL=staging`, a staging-only database URL, an empty uploads directory, and the age identity. Confirm record counts, linked workflow balances, attachment hashes, and audit-chain verification. A backup without a completed restore drill is not a verified recovery plan.
+   Mark the database URL and initial password as secret in Coolify. Do not put passwords or connection URLs in GitHub or ChatGPT. Coolify's [environment variable guide](https://coolify.io/docs/applications/configuration/environment-variables) explains its secret setting.
 
-## Monitoring
+4. Save. The app applies database migrations at startup. Once the first administrator has signed in and changed their password, remove all three `INITIAL_ADMIN_*` variables and redeploy the same app.
 
-Configure Coolify alerts for container unhealthy/restarts, CPU/memory/disk pressure, database availability and backup failures. Route application logs to a restricted log destination and retain request IDs for support. Alert on repeated `integration_delivery_failed` events and outbox backlog. The readiness endpoint confirms the DB and schema are reachable; it does not prove the webhook, backup, monitoring alerts, integrations or recovery path are working.
+## Deploy and check the existing address
+
+When PostgreSQL is healthy and the volume and app settings are saved, deploy the latest `main` revision from the existing FDA app. It uses the repository root Dockerfile. Do not create another app or change DNS.
+
+Check these URLs after deployment:
+
+- `https://fda.totag.network/` — existing FDA site
+- `https://fda.totag.network/api/health/live` — should return `{"status":"live"}`
+- `https://fda.totag.network/api/health/ready` — should return `{"status":"ready"}` when PostgreSQL and the schema are ready
+- `https://fda.totag.network/secure` — named-user sign-in
+
+Do not enter real FDA records until FDA approves the user roles, approval controls, privacy rules and retention policy.
+
+## Backups, recovery and integrations
+
+Configure scheduled PostgreSQL backups in Coolify and send copies to an offsite destination. The repository's encrypted database-and-attachment scripts in `ops/` require a restricted backup runner, `pg_dump`, `age`, and `rclone`. Run `ops/restore-staging.sh` only against an empty staging database and empty staging uploads directory. Verify recovery with a staging restore before production use.
+
+Before production, agree on retention and recovery objectives; configure alerts for failed deployments, resource pressure and missed backups; verify the independent audit chain with `node server/verify-audit.js`; and complete a restore drill. The optional signed webhook is a generic adapter, not a verified IFMIS, CSA, e-GP, bank, payroll or tax integration. Do not enable it until FDA approves its endpoint and credentials and the integration has been tested.
