@@ -1,33 +1,25 @@
-# TOTAG FDA Integrated Management Demonstration
+# FDA Integrated Management Information System
 
-[Open the demonstration](https://totagits.github.io/fda-integrated-management-system/)
+This repository contains the single full-stack FDA application deployed at `https://fda.totag.network`. It is not a demonstration environment and it does not ship seeded business records. The public page contains institutional information only; staff workflows read and write records through the authenticated API and PostgreSQL.
 
-An interactive proposal demonstration for FDA's HR, finance, procurement, assets and forestry operations scope. This is **not an official FDA service or production ERP**. Sample records persist in the current browser; no government or bank systems are connected. Do not enter real personnel, banking, biometric or procurement data.
+## Current implementation status
 
-## Demonstration modules
-- Executive dashboard and county overview
-- Personnel, leave, sample payroll and local identifier checks
-- Vote book, budget ceiling checks and ordered voucher approvals
-- Procurement requisitions, purchase orders and evidence-flag matching
-- Asset registers, depreciation and depot transfers
-- Field operations scenarios
-- Interoperability sandbox: JSON validation, duplicate/replay detection, control-total reconciliation, staging history and commitment exports
-- Local audit history and requirements demonstration matrix
-- Built-in seven-step presenter guide and reset control
+The current operational workflow covers authentication and session management, organization and user administration, budgets, vendors, requisitions, approvals, purchase orders, goods receipt and inspection, asset registration from accepted capital deliveries, invoice matching, and payment authorization/recording. Those workflows require a configured PostgreSQL database and are unavailable if the database is not configured.
 
-## Run and build
-Use Node.js 22 or newer.
+HR lifecycle, full general ledger and period close, end-to-end tendering and contract management, full asset custody/maintenance/disposal, verified FDA integrations, independent audit export, and proven backup recovery are not complete. Do not enter real operational data until the readiness gates in [Production readiness](docs/PRODUCTION_READINESS.md) have been passed.
+
+## Run locally
+
+Use Node.js 22 or newer. The API service requires a PostgreSQL database; startup fails when `DATABASE_URL` is missing.
 
 ```sh
 npm ci
 npm test
 npm run build
-npm run dev
 ```
 
-The build produces `dist/` with relative asset paths for GitHub Pages. The `gh-pages` branch serves the compiled demo. Source code is maintained on `main`.
+To run the full service locally, set `DATABASE_URL`, `PORT`, and `UPLOADS_DIR`, then run `npm start`. The service applies database migrations on startup and serves the web app and API together.
 
-## Evidence and limitations
-The persona selector demonstrates workflow permissions; it is not authentication or server-enforced authorization. Browser-local records and audit logs can be modified by the browser owner. Audit checks examine record completeness, not cryptographic integrity. Existing payroll rates, exchange rates, procurement thresholds, identifiers and status examples are illustrative assumptions, not verified statutory rules. National interfaces require approved schemas, access agreements, authentication and external reconciliation. Security architecture screens describe proposed target capabilities, not deployed production infrastructure.
+## Deployment
 
-Before operational use, implement server-side identity and access controls, a transactional database, validated policy configuration, secure document storage, independently tested audit controls, approved integrations, backup/restore and disaster-recovery evidence, accessibility and performance testing, and FDA-signed UAT. See [production roadmap](docs/PRODUCTION_READINESS.md) and [presentation guide](docs/DEMO_GUIDE.md).
+The root Dockerfile builds and runs the existing app as one service. Deployment and Hostinger/Coolify configuration are documented in [Production operations](docs/PRODUCTION_OPERATIONS.md). Never commit credentials, database URLs, personnel data, or uploaded documents.

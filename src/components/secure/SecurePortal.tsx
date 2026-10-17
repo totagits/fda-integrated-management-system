@@ -28,7 +28,7 @@ async function api<T=unknown>(path:string,options:RequestInit={}) : Promise<T> {
   if(!['GET','HEAD','OPTIONS'].includes(method))headers.set('X-CSRF-Token',decodeURIComponent(cookie('fda_csrf')));
   const response=await fetch(path,{...options,headers,credentials:'same-origin'});
   const type=response.headers.get('content-type')||'';
-  if(!type.includes('application/json'))throw new Error('The secure backend is not connected to this page yet. The public demo remains available.');
+  if(!type.includes('application/json'))throw new Error('The secure service returned an unexpected response. Contact the system administrator.');
   const value=await response.json();
   if(!response.ok)throw new Error(value.error||`Request failed (${response.status}).`);
   return value as T;
@@ -133,7 +133,7 @@ export const SecurePortal:React.FC=()=>{
 
   if(loading)return <div className="min-h-screen grid place-items-center bg-slate-100"><div className="flex items-center gap-3 text-slate-600"><LoaderCircle className="animate-spin"/>Checking secure FDA service…</div></div>;
   return <div className="min-h-screen bg-slate-100 text-slate-900">
-    <header className="bg-forest-950 text-white"><div className="max-w-7xl mx-auto px-4 py-5 flex justify-between items-center"><div><p className="text-xs uppercase tracking-widest text-emerald-300">FDA Integrated Management Information System</p><h1 className="text-2xl font-bold mt-1">Secure Staff Workspace</h1></div><a href="/" className="text-sm text-emerald-200 hover:text-white">Public demo</a></div></header>
+    <header className="bg-forest-950 text-white"><div className="max-w-7xl mx-auto px-4 py-5 flex justify-between items-center"><div><p className="text-xs uppercase tracking-widest text-emerald-300">FDA Integrated Management Information System</p><h1 className="text-2xl font-bold mt-1">Secure Staff Workspace</h1></div><a href="/" className="text-sm text-emerald-200 hover:text-white">Home</a></div></header>
     <main className="max-w-7xl mx-auto px-4 py-8">
       {(error||notice)&&<div className={`mb-5 rounded-lg p-4 text-sm flex gap-2 ${error?'bg-red-50 text-red-800 border border-red-200':'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}><span>{error?<CircleAlert className="w-5 h-5 shrink-0"/>:<CheckCircle2 className="w-5 h-5 shrink-0"/>}</span><span>{error||notice}</span></div>}
       {!user&&<section className="max-w-lg mx-auto bg-white rounded-2xl shadow border border-slate-200 p-7">
