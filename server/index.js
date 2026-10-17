@@ -11,7 +11,7 @@ import { ROLE_CAPABILITIES, parseMinorUnits, requireCapability, canTransition } 
 import { hashPassword, verifyPassword } from './security.js';
 
 const app = express();
-const port = Number(process.env.PORT || 80);
+const port = Number(process.env.PORT || 8080);
 const secureCookies = process.env.NODE_ENV === 'production';
 const sessionHours = Number(process.env.SESSION_HOURS || 10);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

@@ -2,7 +2,7 @@
 
 ## Implemented in this repository
 
-The existing public evaluation demo remains available. A separate secure application target is now included as `Dockerfile.api`, so it can be prepared without changing the existing static container configuration.
+The prepared release upgrades the existing FDA application in place. The root `Dockerfile` builds one full-stack service that serves the React site and secure API together. It keeps the single public hostname `fda.totag.network`; no second application or hostname is part of this design. The existing Coolify app must route to container port `8080` and mount `/data/uploads` before deploying the release. The live site has not yet been changed by this repository edit.
 
 The API foundation includes:
 
@@ -18,7 +18,7 @@ The API has unit-level checks for amount validation, workflow transitions, autho
 
 ## Not yet production-ready
 
-These implementation pieces do not by themselves authorize production use. The live domain still serves the existing demonstration until the secure service is deployed and configured. Before any real FDA records are entered, FDA/TOTAG must provide and approve:
+These implementation pieces do not by themselves authorize production use. The live domain remains on its current deployed image until the existing Coolify app deploys the updated root Dockerfile with PostgreSQL and its secrets configured. Before any real FDA records are entered, FDA/TOTAG must provide and approve:
 
 1. A managed PostgreSQL service or secured PostgreSQL instance, encrypted connection settings, database credentials and retention policy.
 2. Coolify environment secrets, a persistent private `/data/uploads` volume, TLS hostname/routing, firewall rules, SMTP or approved identity provider, monitoring alert destination, backup recipient key and offsite backup destination.
