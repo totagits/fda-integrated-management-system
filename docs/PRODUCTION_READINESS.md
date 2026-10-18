@@ -2,7 +2,7 @@
 
 ## Latest enterprise increment
 
-See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for payroll preparation/accrual, opened-bid evaluation, bank reconciliation, stocktaking, depreciation and integration diagnostics. The frontend build and 50 automated tests pass. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Full production readiness and the broader remaining scope are not claimed.
+See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for effective-dated payroll rule sets and calculations, sealed e-bidding, opened-bid evaluation, bank reconciliation, stocktaking, depreciation and integration diagnostics. The frontend build and 54 automated tests pass. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Automated bank payment initiation and settlement verification remain unavailable. Payroll rules require formal FDA approval and year-to-date, eligibility and filing controls remain incomplete. Full production readiness is not claimed.
 
 ## Earlier departmental release — 18 October 2026
 
@@ -28,12 +28,12 @@ The API has unit checks and isolated PostgreSQL-compatible integration tests; se
 
 ## Not yet production-ready
 
-These implementation pieces do not by themselves authorize production use. The live domain remains on its current deployed image until the existing Coolify app deploys the updated root Dockerfile with PostgreSQL and its secrets configured. Before any real FDA records are entered, FDA/TOTAG must provide and approve:
+These implementation pieces do not by themselves authorize production use. This repository change has not established successful production deployment. The existing GitHub webhook controls Hostinger deployment. Before any real FDA records are entered, FDA/TOTAG must provide and approve:
 
 1. A managed PostgreSQL service or secured PostgreSQL instance, encrypted connection settings, database credentials and retention policy.
 2. Coolify environment secrets, a persistent private `/data/uploads` volume, TLS hostname/routing, firewall rules, SMTP or approved identity provider, monitoring alert destination, backup recipient key and offsite backup destination.
-3. FDA-approved role assignments, least-privilege scopes, approval thresholds, financial controls, procurement rules, records retention and personal-data handling.
-4. The actual FDA integration specifications and sandbox credentials. The webhook mechanism is generic; it is **not** a verified IFMIS, CSA, e-GP, bank, payroll, tax or other national-system integration.
+3. FDA-approved role assignments, least-privilege scopes, approval thresholds, financial controls, procurement rules, payroll legal basis and employee coverage, records retention and personal-data handling. The RSA private-key secret for sealed e-bidding must be independently provisioned, protected and recoverable through an approved key-custody process.
+4. The actual FDA integration specifications and sandbox credentials. The webhook mechanism is generic; it is **not** a verified IFMIS, CSA, e-GP, bank, payroll, tax or other national-system integration. A bank API contract and callback verification scheme are needed before real transfers can be initiated from the application.
 5. A successful encrypted backup, offsite copy, staging restore, audit-chain check, database concurrency test, upload/download access test, vulnerability review, performance test, accessibility review, and FDA user acceptance.
 
 No certification, legal compliance, production service level, recovery time objective, recovery point objective or successful external-system integration is claimed until these are agreed, configured and tested.

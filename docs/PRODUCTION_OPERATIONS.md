@@ -58,3 +58,8 @@ Do not enter real FDA records until FDA approves the user roles, approval contro
 Configure scheduled PostgreSQL backups in Coolify and send copies to an offsite destination. The repository's encrypted database-and-attachment scripts in `ops/` require a restricted backup runner, `pg_dump`, `age`, and `rclone`. Run `ops/restore-staging.sh` only against an empty staging database and empty staging uploads directory. Verify recovery with a staging restore before production use.
 
 Before production, agree on retention and recovery objectives; configure alerts for failed deployments, resource pressure and missed backups; verify the independent audit chain with `node server/verify-audit.js`; and complete a restore drill. The optional signed webhook is a generic adapter, not a verified IFMIS, CSA, e-GP, bank, payroll or tax integration. Do not enable it until FDA approves its endpoint and credentials and the integration has been tested.
+
+
+## Sealed e-bidding secret
+
+Before creating a sealed tender in the staff workspace, provision the matching private RSA key in the application environment secret `SEALED_BID_PRIVATE_KEYS_JSON` as a JSON object keyed by the public key ID (for example, `{"key-v1":"-----BEGIN PRIVATE KEY-----\n..."}`). Never commit, log, or enter the private key into the public portal. The setup API refuses tender activation if the server secret is absent or does not cryptographically match the bidder-facing public key. Establish a separately approved escrow/recovery and custody procedure; a server environment secret is not an HSM.

@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { PGlite } from '@electric-sql/pglite';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, generateKeyPairSync, publicEncrypt, createCipheriv, constants } from 'node:crypto';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +20,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
@@ -78,23 +78,24 @@ it('completes procurement → qualification → contract → inspection → capi
 },30000);
 it('prepares payroll, prevents self-approval, posts accruals and limits employee statements to their owner',async()=>{
  const md='MANAGING_DIRECTOR',finance='FINANCE_DIRECTOR';
+ const policy=await ok(finance,'/api/payroll/policies',{reference:'LIBERIA-RULE-TEST',orgUnitId:office,effectiveFrom:'2026-01-01',effectiveTo:'2099-12-31',bands:'70000,0\n200000,500\nABOVE,1500',employeeRateBps:400,employerRateBps:400,injuryRateBps:200,nonCashExemptionLrd:'0',basis:'Official statutory schedule test fixture'});await ok(md,`/api/payroll/policies/${policy.id}/decide`,{status:'APPROVED',reason:'Independent test policy approval'});
  const p=await ok(md,'/api/hr/positions',{orgUnitId:office,code:'PAY-POS',title:'Payroll test position',grade:'A',capacity:1});
  const employee=await ok(md,'/api/hr/employees',{staffNumber:'PAY-EMP',fullName:'Payroll employee',positionId:p.id,userId:accounts.COUNTY_OFFICER.id,startDate:'2026-01-01'});
  const run=await ok(md,'/api/payroll/runs',{reference:'PAY-2026-10',orgUnitId:office,startDate:'2026-10-01',endDate:'2026-10-31',currency:'USD'});
  expect((await call('COUNTY_OFFICER','/api/payroll/runs')).status).toBe(403);
  expect((await call('HR_DIRECTOR','/api/payroll/runs')).data.rows).toHaveLength(0);
- expect((await call(md,`/api/payroll/runs/${run.id}/line`,{employeeId:employee.id,gross:'1000',deduction:'1000',basis:'Salary approval'})).status).toBe(422);
- await ok(md,`/api/payroll/runs/${run.id}/line`,{employeeId:employee.id,gross:'1000',deduction:'100',basis:'Approved salary and deductions schedule'});
+ expect((await call(md,`/api/payroll/runs/${run.id}/line`,{employeeId:employee.id,gross:'1000',deduction:'1000',basis:'Salary approval'})).status).toBe(422);expect((await call(md,`/api/payroll/runs/${run.id}/line`,{employeeId:employee.id,gross:'1000',taxable:'1',pensionable:'1000',lrdPerUnit:'180',basis:'Invalid tax base'})).status).toBe(422);
+ await ok(md,`/api/payroll/runs/${run.id}/line`,{employeeId:employee.id,gross:'1000',taxable:'1000',pensionable:'1000',otherDeduction:'100',lrdPerUnit:'180',basis:'Approved salary and deductions schedule'});
  await ok(md,`/api/payroll/runs/${run.id}/submit`,{});
  expect((await call(md,`/api/payroll/runs/${run.id}/decide`,{status:'APPROVED',reason:'Review'})).status).toBe(403);
  await ok(finance,`/api/payroll/runs/${run.id}/decide`,{status:'APPROVED',reason:'Salary schedule reconciled'});
  const period=(await ok(finance,'/api/finance/periods'))[0];
- const expense=await ok(finance,'/api/finance/accounts',{code:'5100',name:'Salaries',accountType:'EXPENSE'}),net=await ok(finance,'/api/finance/accounts',{code:'2100',name:'Salaries payable',accountType:'LIABILITY'}),deduction=await ok(finance,'/api/finance/accounts',{code:'2200',name:'Deductions payable',accountType:'LIABILITY'});
- const j=await ok(finance,`/api/payroll/runs/${run.id}/journal`,{reference:'PAY-J',periodId:period.id,entryDate:'2026-10-31',expenseAccountId:expense.id,payableAccountId:net.id,deductionAccountId:deduction.id});
+ const expense=await ok(finance,'/api/finance/accounts',{code:'5100',name:'Salaries',accountType:'EXPENSE'}),net=await ok(finance,'/api/finance/accounts',{code:'2100',name:'Salaries payable',accountType:'LIABILITY'}),deduction=await ok(finance,'/api/finance/accounts',{code:'2200',name:'Deductions payable',accountType:'LIABILITY'}),paye=await ok(finance,'/api/finance/accounts',{code:'2210',name:'PAYE payable',accountType:'LIABILITY'}),pension=await ok(finance,'/api/finance/accounts',{code:'2220',name:'Pension payable',accountType:'LIABILITY'}),employerExpense=await ok(finance,'/api/finance/accounts',{code:'5110',name:'Employer pension expense',accountType:'EXPENSE'}),employerLiability=await ok(finance,'/api/finance/accounts',{code:'2230',name:'Employer contributions payable',accountType:'LIABILITY'});
+ const j=await ok(finance,`/api/payroll/runs/${run.id}/journal`,{reference:'PAY-J',periodId:period.id,entryDate:'2026-10-31',expenseAccountId:expense.id,payableAccountId:net.id,payeAccountId:paye.id,pensionAccountId:pension.id,otherDeductionAccountId:deduction.id,employerExpenseAccountId:employerExpense.id,employerLiabilityAccountId:employerLiability.id});
  expect((await call(finance,`/api/payroll/runs/${run.id}/journal`,{})).status).toBe(409);
  expect((await ok('COUNTY_OFFICER','/api/payroll/my-payslips'))).toHaveLength(0);
  await ok(md,`/api/finance/journals/${j.id}/post`,{});
- const slips=await ok('COUNTY_OFFICER','/api/payroll/my-payslips');expect(slips).toHaveLength(1);expect(Number(slips[0].net_minor)).toBe(90000);expect(slips[0].status).toBe('ACCRUED_NOT_PAYMENT_CONFIRMATION');
+ const slips=await ok('COUNTY_OFFICER','/api/payroll/my-payslips');expect(slips).toHaveLength(1);expect(Number(slips[0].net_minor)).toBe(72088);expect(slips[0].status).toBe('ACCRUED_NOT_PAYMENT_CONFIRMATION');
  expect((await ok('ASSET_OFFICER','/api/payroll/my-payslips'))).toHaveLength(0);
  expect((await call(md,'/api/payroll/runs',{reference:'DUP-PAY',orgUnitId:office,startDate:'2026-10-15',endDate:'2026-10-31',currency:'USD'})).status).toBe(409);
 },30000);
@@ -150,4 +151,27 @@ it('requires conflict declarations and complete independent bid scores before re
  expect((await call(finance,`/api/evaluations/${e.id}/score`,{bidId:bid.id,technicalScore:90,responsive:'YES',rationale:'Too late'})).status).toBe(409);
  await ok(md,`/api/evaluations/${e.id}/decide`,{status:'APPROVED',reason:'Independent evaluation review complete'});
  const integrations=await ok(md,'/api/integrations/diagnostics');expect(integrations.find((r:any)=>r.name==='IFMIS').configured).toBe(false);
+},30000);
+
+it('keeps supplier bid packets encrypted until a deadline and two assigned openers, then records sealed evidence',async()=>{
+ const proc='PROCUREMENT_OFFICER',finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR',vendor=(await ok(proc,'/api/vendors'))[0],tender=randomUUID();
+ const deadline=new Date(Date.now()+86400000).toISOString();
+ await query("INSERT INTO public_tender_notices(id,tender_ref,org_unit_id,details,deadline,publication_status,created_by) VALUES($1,'SEALED-E2E',$2,$3,$4,'PUBLISHED',$5)",[tender,office,JSON.stringify({title:'Encrypted bid test'}),deadline,accounts[proc].id]);
+ const pair=generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
+ expect((await call(proc,'/api/sealed/tenders',{tenderId:tender,reference:'NO-KEY',keyId:'test-key-v1',publicKey:pair.publicKey})).status).toBe(503);process.env.SEALED_BID_PRIVATE_KEYS_JSON=JSON.stringify({'test-key-v1':pair.privateKey});
+ const sealed=await ok(proc,'/api/sealed/tenders',{tenderId:tender,reference:'SEALED-E2E-REF',keyId:'test-key-v1',publicKey:pair.publicKey});
+ const invitation=await ok(proc,`/api/sealed/tenders/${sealed.id}/invitations`,{vendorId:vendor.id,identityReference:'Supplier identity manually verified for isolated test'});expect(invitation.shownOnce).toBe(true);
+ const publicInfo=await fetch(origin+'/api/public/sealed/SEALED-E2E-REF').then(r=>r.json());const aes=randomBytes(32),iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',aes,iv);cipher.setAAD(Buffer.from(tender));
+ const plaintext=Buffer.from(JSON.stringify({amount:'1200.00',currency:'USD',technicalResponse:'A sufficiently detailed technical response that describes the proposed delivery method, implementation schedule, staffing, safeguards, quality assurance, service support, and compliance with the published requirements.',files:[{name:'offer.txt',type:'text/plain',data:Buffer.from('Confidential sealed offer supporting document').toString('base64')}]}));
+ const enc=Buffer.concat([cipher.update(plaintext),cipher.final()]),tag=cipher.getAuthTag(),wrapped=publicEncrypt({key:publicInfo.publicKey,padding:constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},aes);
+ const submit=await fetch(origin+'/api/public/sealed/SEALED-E2E-REF/submissions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:invitation.invitationToken,envelope:{wrappedKey:wrapped.toString('base64'),iv:iv.toString('base64'),tag:tag.toString('base64'),ciphertext:enc.toString('base64')}})}).then(async r=>({status:r.status,data:await r.json()}));expect(submit.status).toBe(201);expect(submit.data.receipt).toMatch(/^FDA-/);
+ expect(await query('SELECT envelope->>\'ciphertext\' AS c FROM sealed_submissions')).toBeDefined();
+ await query("UPDATE public_tender_notices SET deadline=now()-interval '1 minute' WHERE id=$1",[tender]);await query("UPDATE sealed_tenders SET deadline=now()-interval '1 minute' WHERE id=$1",[tender]);
+ const evaluation=await ok(proc,'/api/evaluations',{reference:'SEALED-EVAL-E2E',tenderId:tender,technicalWeight:70,passMark:60,criteria:'Published technical and price criteria and sealed bid opening record'});
+ await ok(proc,`/api/sealed/tenders/${sealed.id}/openers`,{userId:accounts[finance].id});await ok(proc,`/api/sealed/tenders/${sealed.id}/openers`,{userId:accounts[md].id});
+ expect((await call(md,`/api/sealed/tenders/${sealed.id}/open`,{})).status).toBe(403);
+ await ok(finance,`/api/sealed/tenders/${sealed.id}/consent`,{});await ok(md,`/api/sealed/tenders/${sealed.id}/consent`,{});
+ await ok(md,`/api/sealed/tenders/${sealed.id}/open`,{});delete process.env.SEALED_BID_PRIVATE_KEYS_JSON;
+ const opened=await ok(proc,`/api/evaluations/${evaluation.id}/bids`);expect(opened).toHaveLength(1);expect(Number(opened[0].amount_minor)).toBe(120000);expect(opened[0].technical_response).toContain('quality assurance');
+ const attachments=await query("SELECT id,original_name FROM attachments WHERE record_type='EVALUATION' AND record_id=$1",[evaluation.id]);expect(attachments.rowCount||attachments.rows.length).toBeGreaterThan(0);
 },30000);

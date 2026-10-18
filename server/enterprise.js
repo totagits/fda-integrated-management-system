@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { departmentAuth, DEPARTMENT_ROLES as R, fail, required, idValue, dateValue } from './departments.js';
 import { parseMinorUnits } from './domain.js';
+import { parseBands, calculateStatutory } from './statutory-payroll.js';
 const finance=R.financeWrite, payrollRead=[...R.hr,...R.finance];
 const positive=v=>{const n=parseMinorUnits(v);if(n<=0n)throw fail('Amount must be positive.');return n;};
 const decimal=v=>{const n=BigInt(v);return `${n/100n}.${String(n%100n).padStart(2,'0')}`;};
 const currency=v=>{if(!['USD','LRD'].includes(v))throw fail('Select USD or LRD.');return v;};
+const rateInput=v=>{const n=Number(v);if(!Number.isInteger(n)||n<0||n>10000)throw fail('Enter a statutory rate in basis points from 0 to 10000.');return n;};
 const different=(req,id)=>{if(req.auth.userId===id)throw fail('A different authorized officer must approve.',403);};
 const integer=(v,min,max)=>{const n=Number(v);if(!Number.isInteger(n)||n<min||n>max)throw fail(`Enter a whole number between ${min} and ${max}.`);return n;};
 export function registerEnterprise(app,deps){
@@ -24,6 +26,18 @@ export function registerEnterprise(app,deps){
  const parent=async(db,req,table)=>{const r=await row(db,table,req.params.id);await scope(req,r.org_unit_id,db);return r;};
  const account=async(db,id,type)=>{const a=await row(db,'gl_accounts',id,false);if(!a.active||a.account_type!==type)throw fail(`Select an active ${type.toLowerCase()} account.`);return a.id;};
  const journal=async(db,req,source,lines,description)=>createJournal(db,req,{...req.body,orgUnitId:source.org_unit_id,currency:source.currency,description,lines});
+
+ list('payroll_policies',['reference','status'],finance,'/api/payroll/policies');
+ post('/api/payroll/policies',finance,async(db,req)=>{
+  const b=req.body,unit=idValue(b.orgUnitId),start=dateValue(b.effectiveFrom),end=dateValue(b.effectiveTo);await scope(req,unit,db);if(start>end)throw fail('Policy end date must follow its start date.');
+  const overlap=await db.query("SELECT 1 FROM payroll_policies WHERE org_unit_id=$1 AND status='APPROVED' AND effective_from<=$3::date AND effective_to>=$2::date",[unit,start,end]);if(overlap.rowCount)throw fail('An approved policy overlaps these dates.',409);
+  const bands=parseBands(b.bands);const id=randomUUID();await db.query('INSERT INTO payroll_policies(id,org_unit_id,reference,effective_from,effective_to,bands,employee_bps,employer_bps,injury_bps,non_cash_exemption_lrd_minor,basis,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,unit,required(b.reference,'Policy reference',100),start,end,bands,rateInput(b.employeeRateBps),rateInput(b.employerRateBps),rateInput(b.injuryRateBps),parseMinorUnits(b.nonCashExemptionLrd||'0').toString(),required(b.basis,'Official circular / law and effective-date basis',3000),req.auth.userId]);await audit(db,req,'payroll.policy_created','payroll_policy',id,{reference:b.reference,effectiveFrom:start,effectiveTo:end});return {id};
+ });
+ post('/api/payroll/policies/:id/decide',finance,async(db,req)=>{
+  const p=await parent(db,req,'payroll_policies');different(req,p.created_by);if(p.status!=='DRAFT')throw fail('Only draft policies can be decided.',409);if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Select approve or reject.');
+  if(req.body.status==='APPROVED'){const conflict=await db.query("SELECT 1 FROM payroll_policies WHERE org_unit_id=$1 AND status='APPROVED' AND id<>$2 AND effective_from<=$4::date AND effective_to>=$3::date",[p.org_unit_id,p.id,p.effective_from,p.effective_to]);if(conflict.rowCount)throw fail('Another approved policy overlaps these dates.',409);}
+  await db.query('UPDATE payroll_policies SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[p.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent rule review note')]);await audit(db,req,`payroll.policy_${req.body.status.toLowerCase()}`,'payroll_policy',p.id);return {id:p.id};
+ });
  list('payroll_register',['reference','status'],payrollRead,'/api/payroll/runs');
  post('/api/payroll/runs',R.hr,async(db,req)=>{
   const b=req.body;await scope(req,idValue(b.orgUnitId),db);const start=dateValue(b.startDate),end=dateValue(b.endDate);if(start>end)throw fail('Payroll end must follow start.');
@@ -38,8 +52,12 @@ export function registerEnterprise(app,deps){
   const e=await row(db,'hr_employees',req.body.employeeId);if(e.org_unit_id!==p.org_unit_id||e.status!=='ACTIVE')throw fail('Select an active employee in this office.');
   const employment=await db.query('SELECT 1 FROM hr_employees WHERE id=$1 AND start_date<=$2::date',[e.id,p.end_date]);if(!employment.rowCount)throw fail('Employee starts after the payroll period.');
   const duplicate=await db.query("SELECT 1 FROM payroll_lines l JOIN payroll_runs r ON r.id=l.run_id WHERE l.employee_id=$1 AND r.id<>$2 AND r.status<>'REJECTED' AND r.currency=$3 AND r.start_date<=$5::date AND r.end_date>=$4::date",[e.id,p.id,p.currency,p.start_date,p.end_date]);if(duplicate.rowCount)throw fail('Employee already appears in an overlapping payroll run.',409);
-  const gross=positive(req.body.gross),deduction=parseMinorUnits(req.body.deduction||'0');if(deduction>=gross)throw fail('Deductions must be less than gross pay.');
-  await db.query('INSERT INTO payroll_lines(id,run_id,employee_id,gross_minor,deduction_minor,basis,prepared_by) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(run_id,employee_id) DO UPDATE SET gross_minor=EXCLUDED.gross_minor,deduction_minor=EXCLUDED.deduction_minor,basis=EXCLUDED.basis,prepared_by=EXCLUDED.prepared_by',[randomUUID(),p.id,e.id,gross.toString(),deduction.toString(),required(req.body.basis,'Approved salary / deduction schedule reference'),req.auth.userId]);await audit(db,req,'payroll.line_saved','payroll',p.id,{employeeId:e.id});return {id:p.id};
+  const first=new Date(`${p.start_date.toISOString?.().slice(0,10)||p.start_date}T00:00:00Z`),last=new Date(`${p.end_date.toISOString?.().slice(0,10)||p.end_date}T00:00:00Z`);if(first.getUTCDate()!==1||first.getUTCFullYear()!==last.getUTCFullYear()||first.getUTCMonth()!==last.getUTCMonth()||last.getUTCDate()!==new Date(Date.UTC(last.getUTCFullYear(),last.getUTCMonth()+1,0)).getUTCDate())throw fail('Statutory payroll requires one complete calendar month.');
+  const policyResult=await db.query("SELECT * FROM payroll_policies WHERE org_unit_id=$1 AND status='APPROVED' AND effective_from<=$3::date AND effective_to>=$2::date ORDER BY effective_from DESC LIMIT 2",[p.org_unit_id,p.start_date,p.end_date]);if(policyResult.rowCount!==1)throw fail('Exactly one approved statutory policy must cover the complete payroll month.',409);const policy=policyResult.rows[0];
+  const gross=positive(req.body.gross),nonCashBenefits=parseMinorUnits(req.body.nonCashBenefits||'0'),taxable=req.body.taxable?parseMinorUnits(req.body.taxable):gross+nonCashBenefits,pensionable=parseMinorUnits(req.body.pensionable||req.body.gross),other=parseMinorUnits(req.body.otherDeduction||req.body.deduction||'0');if(other<0n)throw fail('Other deductions cannot be negative.');if(taxable<gross+nonCashBenefits)throw fail('Taxable earnings must include all cash gross pay and the reported non-cash benefits before the legal exemption.');
+  const calculation=calculateStatutory({bands:policy.bands,employee_bps:policy.employee_bps,employer_bps:policy.employer_bps,injury_bps:policy.injury_bps,non_cash_exemption_lrd_minor:policy.non_cash_exemption_lrd_minor},{gross:req.body.gross,taxable:decimal(taxable),pensionable:decimal(pensionable),nonCashBenefits:decimal(nonCashBenefits),other:req.body.otherDeduction||req.body.deduction||'0',currency:p.currency,fx:req.body.lrdPerUnit||'1'});
+  const deduction=BigInt(calculation.deductions),employer=BigInt(calculation.employerPension)+BigInt(calculation.injury);const basis=required(req.body.basis,'Salary, earnings base and benefit valuation reference',3000);
+  await db.query('INSERT INTO payroll_lines(id,run_id,employee_id,gross_minor,deduction_minor,basis,prepared_by,policy_id,calculation,employer_minor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(run_id,employee_id) DO UPDATE SET gross_minor=EXCLUDED.gross_minor,deduction_minor=EXCLUDED.deduction_minor,basis=EXCLUDED.basis,prepared_by=EXCLUDED.prepared_by,policy_id=EXCLUDED.policy_id,calculation=EXCLUDED.calculation,employer_minor=EXCLUDED.employer_minor',[randomUUID(),p.id,e.id,gross.toString(),deduction.toString(),basis,req.auth.userId,policy.id,calculation,employer.toString()]);await audit(db,req,'payroll.statutory_line_calculated','payroll',p.id,{employeeId:e.id,policyId:policy.id,calculation});return {id:p.id,calculation};
  });
  post('/api/payroll/runs/:id/remove-line',R.hr,async(db,req)=>{
   const p=await parent(db,req,'payroll_runs');if(p.status!=='DRAFT')throw fail('Only draft payroll can be edited.',409);
@@ -56,10 +74,11 @@ export function registerEnterprise(app,deps){
  });
  post('/api/payroll/runs/:id/journal',finance,async(db,req)=>{
   const p=await parent(db,req,'payroll_runs');if(p.status==='JOURNALED'){const prior=await row(db,'gl_journals',p.journal_id);if(prior.status!=='VOID')throw fail('Payroll already has a journal.',409);}else if(p.status!=='APPROVED')throw fail('Payroll must be approved.',409);
-  const t=(await db.query('SELECT sum(gross_minor)::text AS gross,sum(deduction_minor)::text AS deductions FROM payroll_lines WHERE run_id=$1',[p.id])).rows[0];
-  const expense=await account(db,req.body.expenseAccountId,'EXPENSE'),payable=await account(db,req.body.payableAccountId,'LIABILITY');
-  const lines=[{accountId:expense,debit:decimal(t.gross)},{accountId:payable,credit:decimal(BigInt(t.gross)-BigInt(t.deductions))}];
-  if(BigInt(t.deductions)>0n){const deductions=await account(db,req.body.deductionAccountId,'LIABILITY');if(deductions===payable)throw fail('Use separate net-pay and deduction liability accounts.');lines.push({accountId:deductions,credit:decimal(t.deductions)});}
+  const t=(await db.query("SELECT sum(gross_minor)::text AS gross,sum(deduction_minor)::text AS deductions,coalesce(sum((calculation->>'paye')::bigint),0)::text AS paye,coalesce(sum((calculation->>'employee')::bigint),0)::text AS employee_pension,coalesce(sum((calculation->>'employerPension')::bigint),0)::text AS employer_pension,coalesce(sum((calculation->>'injury')::bigint),0)::text AS injury,coalesce(sum((calculation->>'other')::bigint),0)::text AS other FROM payroll_lines WHERE run_id=$1",[p.id])).rows[0];
+  const expense=await account(db,req.body.expenseAccountId,'EXPENSE'),payable=await account(db,req.body.payableAccountId,'LIABILITY'),lines=[{accountId:expense,debit:decimal(t.gross)}],deductions=BigInt(t.deductions),net=BigInt(t.gross)-deductions;
+  const optionalLiability=async(field,total)=>{const n=BigInt(total);if(n===0n)return;if(!req.body[field])throw fail(`Select an account for ${field}.`);const a=await account(db,req.body[field],'LIABILITY');if(a===payable)throw fail('Use separate net-pay and statutory liability accounts.');lines.push({accountId:a,credit:decimal(n)});};
+  lines.push({accountId:payable,credit:decimal(net)});await optionalLiability('payeAccountId',t.paye);await optionalLiability('pensionAccountId',t.employee_pension);await optionalLiability('otherDeductionAccountId',t.other);
+  const employerCost=BigInt(t.employer_pension)+BigInt(t.injury);if(employerCost>0n){const ee=await account(db,req.body.employerExpenseAccountId,'EXPENSE');if(ee===expense)lines[0].debit=decimal(BigInt(t.gross)+employerCost);else lines.push({accountId:ee,debit:decimal(employerCost)});await optionalLiability('employerLiabilityAccountId',employerCost);}
   const j=await journal(db,req,p,lines,`Payroll accrual ${p.reference}`);await db.query("UPDATE payroll_runs SET status='JOURNALED',journal_id=$2 WHERE id=$1",[p.id,j.id]);await audit(db,req,'payroll.journal_created','payroll',p.id,{journalId:j.id});return j;
  });
  app.get('/api/payroll/my-payslips',loadAuth,route(async(req,res)=>res.json((await pool.query("SELECT r.reference,r.start_date,r.end_date,r.currency,l.gross_minor,l.deduction_minor,(l.gross_minor-l.deduction_minor) AS net_minor,'ACCRUED_NOT_PAYMENT_CONFIRMATION' AS status FROM payroll_lines l JOIN payroll_runs r ON r.id=l.run_id JOIN hr_employees e ON e.id=l.employee_id JOIN gl_journals j ON j.id=r.journal_id WHERE e.user_id=$1 AND j.status='POSTED' ORDER BY r.end_date DESC LIMIT 100",[req.auth.userId])).rows)));

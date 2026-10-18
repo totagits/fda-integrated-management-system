@@ -1,5 +1,6 @@
 import { sendSignedWebhook, validateWebhookConfiguration } from './integration-transport.js';
 import { registerEnterprise } from './enterprise.js';
+import { registerSealedBidding } from './sealed-bidding.js';
 import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -776,6 +777,7 @@ app.get('/api/records/:type/:id/attachments',loadAuth,route(async(req,res)=>{
 
 const departmentServices=registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
 registerEnterprise(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess, ...departmentServices });
+registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess});
 
 registerPublicPortal(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor });
 

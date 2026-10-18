@@ -224,6 +224,7 @@ export const LandingPage: React.FC = () => {
                       <FileText className="w-4 h-4 text-emerald-400" />
                       <span>View Public Procurement Tenders</span>
                     </button>
+                    <a href="/sealed-bid" className="inline-flex items-center space-x-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-semibold px-4 py-3 rounded-lg transition"><span>Invited Sealed Bid Submission</span><ExternalLink className="w-4 h-4"/></a>
 
                     <button
                       onClick={() => setActiveSection('BIDDER_PORTAL')}
