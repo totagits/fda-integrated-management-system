@@ -774,10 +774,13 @@ app.use((error,req,res,_next)=>{
 });
 
 async function start() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required. Refusing to start without the production database.');
-  await migrate();
-  await bootstrapInitialAdmin();
-  await pool.query('SELECT 1');
+  if (process.env.DATABASE_URL) {
+    await migrate();
+    await bootstrapInitialAdmin();
+    await pool.query('SELECT 1');
+  } else {
+    console.error(JSON.stringify({ level: 'error', event: 'database_not_configured', message: 'Staff workflows are unavailable until PostgreSQL is configured.' }));
+  }
   await safeUploadsDirectory();
   if(process.env.INTEGRATION_WEBHOOK_URL&&process.env.INTEGRATION_WEBHOOK_SECRET){
     if(!process.env.INTEGRATION_WEBHOOK_URL.startsWith('https://')||process.env.INTEGRATION_WEBHOOK_SECRET.length<32)throw new Error('Integration webhook must use HTTPS and a secret of at least 32 characters.');

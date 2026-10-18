@@ -34,3 +34,31 @@ describe('production workflow controls', () => {
     expect(await verifyPassword(incorrectCandidate, stored)).toBe(false);
   });
 });
+
+import {
+  INITIAL_EMPLOYEES,
+  INITIAL_LEAVE_REQUESTS,
+  INITIAL_PAYROLL_RECORDS,
+  INITIAL_BUDGET_VOTES,
+  INITIAL_PAYMENT_VOUCHERS,
+  INITIAL_PROCUREMENT_REQS,
+  INITIAL_VENDORS,
+  INITIAL_PURCHASE_ORDERS,
+  INITIAL_FIXED_ASSETS,
+} from '../src/data/initialData';
+
+describe('operational data hygiene', () => {
+  it('ships no seeded personnel, financial, procurement, or asset records', () => {
+    expect([
+      INITIAL_EMPLOYEES,
+      INITIAL_LEAVE_REQUESTS,
+      INITIAL_PAYROLL_RECORDS,
+      INITIAL_BUDGET_VOTES,
+      INITIAL_PAYMENT_VOUCHERS,
+      INITIAL_PROCUREMENT_REQS,
+      INITIAL_VENDORS,
+      INITIAL_PURCHASE_ORDERS,
+      INITIAL_FIXED_ASSETS,
+    ].every((records) => records.length === 0)).toBe(true);
+  });
+});
