@@ -350,7 +350,7 @@ app.post('/api/auth/logout', loadAuth, csrfRequired, route(async (req, res) => {
 }));
 
 // Organization-scoped master data and work queues.
-app.get('/api/admin/org-units', loadAuth, guard('org.manage'), route(async (_req, res) => {
+app.get('/api/admin/org-units', loadAuth, guardAny('org.manage','org.read.all'), route(async (_req, res) => {
   const rows = await pool.query('SELECT id,code,name,level,parent_id,county,active FROM org_units ORDER BY level, name');
   res.json(rows.rows);
 }));
@@ -377,15 +377,20 @@ app.post('/api/admin/org-units', loadAuth, csrfRequired, guard('org.manage'), ro
   res.status(201).json({ id, code, name, level, parent_id: parentId, county: body.county || null });
 }));
 
-app.post('/api/admin/users', loadAuth, csrfRequired, guard('user.manage'), route(async (req, res) => {
+app.post('/api/admin/users', loadAuth, csrfRequired, guardAny('user.manage','it.admin.bootstrap'), route(async (req, res) => {
   const body = req.body || {};
   const email = text(body.email, 'Email', 254).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid work email.'), { status: 422, code: 'INVALID_INPUT' });
   if ((await pool.query('SELECT 1 FROM users WHERE email=$1',[email])).rowCount) throw Object.assign(new Error('An account already uses this email address.'), { status: 409, code: 'ACCOUNT_EXISTS' });
   const fullName = text(body.fullName, 'Full name', 160);
-  const role = validEnum(body.role, ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'], 'Role');
+  const role = validEnum(body.role, ['IT_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'], 'Role');
+  const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
+  const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
+  if (isMD && !isITDirector && role !== 'IT_DIRECTOR') throw Object.assign(new Error('The Managing Director may appoint only the IT Director. The IT Director provisions other staff accounts.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+  if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may provision accounts.'), { status: 403, code: 'FORBIDDEN' });
+  if (isITDirector && role === 'IT_DIRECTOR') throw Object.assign(new Error('Only the Managing Director may appoint an IT Director.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
   const orgUnitId = body.orgUnitId ? requireUuid(body.orgUnitId, 'Office') : null;
-  if (role !== 'MANAGING_DIRECTOR' && !orgUnitId) throw Object.assign(new Error('Assign this user to an office scope.'), { status: 422, code: 'OFFICE_SCOPE_REQUIRED' });
+  if (!['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(role) && !orgUnitId) throw Object.assign(new Error('Assign this user to an office scope.'), { status: 422, code: 'OFFICE_SCOPE_REQUIRED' });
   if (orgUnitId) {
     const office = await pool.query('SELECT id FROM org_units WHERE id=$1 AND active=true', [orgUnitId]);
     if (!office.rowCount) throw Object.assign(new Error('The selected office is not active.'), { status: 422, code: 'INVALID_OFFICE' });
@@ -403,13 +408,18 @@ app.post('/api/admin/users', loadAuth, csrfRequired, guard('user.manage'), route
   res.status(201).json({ user: { id, email, fullName }, ...delivery });
 }));
 
-app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guard('user.manage'), route(async (req, res) => {
+app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guardAny('user.manage','it.admin.bootstrap'), route(async (req, res) => {
   const id = requireUuid(req.params.id, 'User');
   const invitation = await transaction(async (client) => {
     const found = await client.query(`SELECT u.id,u.email,u.full_name,u.must_change_password,u.disabled_at,r.role,r.org_unit_id
       FROM users u JOIN user_roles r ON r.user_id=u.id WHERE u.id=$1 FOR UPDATE OF u`, [id]);
     const user = found.rows[0];
     if (!user || user.disabled_at || !user.must_change_password) throw Object.assign(new Error('This account has already been activated or is unavailable.'), { status: 409, code: 'INVITATION_NOT_AVAILABLE' });
+    const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
+    const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
+    if (isMD && !isITDirector && user.role !== 'IT_DIRECTOR') throw Object.assign(new Error('The Managing Director may resend only the IT Director appointment invitation.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+    if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may manage account invitations.'), { status: 403, code: 'FORBIDDEN' });
+    if (isITDirector && user.role === 'IT_DIRECTOR') throw Object.assign(new Error('Only the Managing Director may manage the IT Director appointment invitation.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     const issued=await issueIdentityInvitation(client, { user, requestedBy: req.auth.userId, orgUnitId: user.org_unit_id, invitationType: 'MD_ROLE_ACCOUNT' });
     await audit(client,req,'identity.invitation_resent','user',id,{role:user.role,orgUnitId:user.org_unit_id});
     return issued;
@@ -418,7 +428,7 @@ app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guard
   res.json(delivery);
 }));
 
-app.get('/api/admin/user-invitations', loadAuth, guard('user.manage'), route(async (_req, res) => {
+app.get('/api/admin/user-invitations', loadAuth, guardAny('user.manage','it.admin.bootstrap'), route(async (req, res) => {
   const rows=await pool.query(`SELECT u.id AS user_id,u.email,u.full_name,r.role,o.name AS office_name,
       i.id AS invitation_id,i.created_at,i.sent_at,i.expires_at,
       CASE WHEN i.expires_at<=now() THEN 'EXPIRED'
@@ -430,7 +440,8 @@ app.get('/api/admin/user-invitations', loadAuth, guard('user.manage'), route(asy
     JOIN LATERAL (SELECT id,created_at,sent_at,expires_at FROM identity_invitations WHERE user_id=u.id AND accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1) i ON true
     WHERE u.must_change_password=true AND u.disabled_at IS NULL
     ORDER BY i.created_at DESC LIMIT 200`);
-  res.json(rows.rows);
+  const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
+  res.json(isITDirector ? rows.rows : rows.rows.filter((row) => row.role === 'IT_DIRECTOR'));
 }));
 
 app.post('/api/admin/budgets', loadAuth, csrfRequired, guard('budget.manage'), route(async (req, res) => {

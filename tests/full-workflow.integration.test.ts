@@ -22,10 +22,10 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
- for(const [role,unit] of [['MANAGING_DIRECTOR',office],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
+ for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
   const id=randomUUID();await query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,false)',[id,`${role.toLowerCase()}@example.test`,role,hash]);
   await query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,$3,$4)',[randomUUID(),id,role==='FINANCE_RECORDER'?'FINANCE_DIRECTOR':role,unit]);accounts[role]={id,cookie:'',csrf:''};
  }
@@ -203,11 +203,18 @@ it('keeps supplier bid packets encrypted until a deadline and two assigned opene
  const attachments=await query("SELECT id,original_name FROM attachments WHERE record_type='EVALUATION' AND record_id=$1",[evaluation.id]);expect(attachments.rowCount||attachments.rows.length).toBeGreaterThan(0);
 },30000);
 
-it('lets the MD invite an HR Director and scoped HR invite employees without exposing passwords',async()=>{
- const created=await ok('MANAGING_DIRECTOR','/api/admin/users',{email:'new.hr@example.test',fullName:'New HR Director',role:'HR_DIRECTOR',orgUnitId:otherOffice});
- expect(created.temporaryPassword).toBeUndefined();expect(created.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.hr@example.test');
- expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(true);
+it('lets the MD appoint the IT Director, who provisions staff, while HR invites employees',async()=>{
+ expect((await call('MANAGING_DIRECTOR','/api/admin/users',{email:'blocked.hr@example.test',fullName:'Blocked HR Director',role:'HR_DIRECTOR',orgUnitId:otherOffice})).status).toBe(403);
+ const appointed=await ok('MANAGING_DIRECTOR','/api/admin/users',{email:'new.it@example.test',fullName:'New IT Director',role:'IT_DIRECTOR'});
+ expect(appointed.temporaryPassword).toBeUndefined();expect(appointed.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.it@example.test');
+ expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.it@example.test')).toBe(true);
  expect((await call('HR_DIRECTOR','/api/admin/user-invitations')).status).toBe(403);
+ expect((await call('IT_DIRECTOR','/api/hr/employees')).status).toBe(403);
+ const created=await ok('IT_DIRECTOR','/api/admin/users',{email:'new.hr@example.test',fullName:'New HR Director',role:'HR_DIRECTOR',orgUnitId:otherOffice});
+ expect(created.temporaryPassword).toBeUndefined();expect(created.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.hr@example.test');
+ expect((await ok('IT_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(true);
+ expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(false);
+ expect((await call('MANAGING_DIRECTOR',`/api/admin/users/${created.user.id}/invitation/resend`,{})).status).toBe(403);
  const hrToken=sentInvitations.at(-1).token;
  const activated=await call('anonymous','/api/auth/accept-invitation',{token:hrToken,password:'A-long-private-password-2026!'},false);expect(activated.status).toBe(200);
  const hrHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.hr@example.test']);expect(await verifyPassword('A-long-private-password-2026!',hrHash.rows[0].password_hash)).toBe(true);

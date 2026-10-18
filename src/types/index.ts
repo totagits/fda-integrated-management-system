@@ -1,5 +1,6 @@
 export type UserRole =
   | 'MANAGING_DIRECTOR'     // Hon. Rudolph J. Merab, Sr. - Executive authorization
+  | 'IT_DIRECTOR'           // Enterprise system administration and staff access
   | 'FINANCE_DIRECTOR'      // Budget Vote Book control, Payment Voucher approvals, IFMIS Gateway
   | 'HR_DIRECTOR'           // Civil service personnel, Leave workflows, Dual-Currency Payroll, CSA Sync
   | 'PROCUREMENT_OFFICER'   // PPCC compliance, RFQs, Vendor Registry, 3-Way Matching

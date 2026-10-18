@@ -1,5 +1,6 @@
 export const ROLES = Object.freeze([
   'MANAGING_DIRECTOR',
+  'IT_DIRECTOR',
   'FINANCE_DIRECTOR',
   'HR_DIRECTOR',
   'PROCUREMENT_OFFICER',
@@ -10,7 +11,8 @@ export const ROLES = Object.freeze([
 ]);
 
 export const ROLE_CAPABILITIES = Object.freeze({
-  MANAGING_DIRECTOR: ['notice.manage', 'workflow.read.all', 'requisition.approve', 'invoice.authorize', 'payment.record', 'budget.read.all', 'budget.manage', 'org.manage', 'user.manage', 'vendor.manage', 'asset.read.all', 'audit.read.all', 'attachment.read.all', 'attachment.write.all'],
+  MANAGING_DIRECTOR: ['notice.manage', 'workflow.read.all', 'requisition.approve', 'invoice.authorize', 'payment.record', 'budget.read.all', 'budget.manage', 'org.manage', 'it.admin.bootstrap', 'vendor.manage', 'asset.read.all', 'audit.read.all', 'attachment.read.all', 'attachment.write.all'],
+  IT_DIRECTOR: ['user.manage', 'integration.manage', 'org.read.all'],
   FINANCE_DIRECTOR: ['workflow.read.all', 'budget.read.all', 'requisition.approve', 'invoice.create', 'invoice.authorize', 'payment.record', 'asset.read.all', 'audit.read.all', 'attachment.read.all'],
   HR_DIRECTOR: ['hr.read.scope', 'hr.manage.scope'],
   PROCUREMENT_OFFICER: ['notice.manage', 'workflow.read.scope', 'requisition.create', 'requisition.submit.own', 'purchase_order.create', 'vendor.manage', 'invoice.read.scope', 'asset.read.scope', 'attachment.read.scope', 'attachment.write.scope'],
