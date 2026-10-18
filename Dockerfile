@@ -13,8 +13,7 @@ RUN apk add --no-cache su-exec \
   && mkdir -p /data/uploads \
   && chown node:node /data/uploads
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund \
-  && npm cache clean --force
+RUN npm ci --only=production --no-audit --no-fund
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
 COPY --chown=node:node server/start-api.sh ./start-api.sh
