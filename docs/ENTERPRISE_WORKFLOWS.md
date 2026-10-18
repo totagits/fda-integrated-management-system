@@ -56,7 +56,7 @@ The Integration Status workspace reports actual audit-outbox counts, pending/ret
 
 ## Verification and remaining assurance
 
-- Production frontend build and 50 automated tests pass.
+- Production frontend build and 54 automated tests pass.
 - Full application-route tests use named logins, real session cookies and CSRF, isolated PostgreSQL-compatible PGlite databases and real attachment files in a disposable test directory.
 - New tests exercise statutory arithmetic and approval, encrypted sealed-bid submission, receipt and two-officer opening with protected evidence, stocktake completeness, depreciation calculation/posting/duplicate prevention, reconciliation/matching/backdating controls, panel declarations/scoring/ranking/approval and truthful integration status.
 - Existing procure-to-pay, accounting, HR and asset tests continue to pass.
