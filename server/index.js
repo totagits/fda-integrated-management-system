@@ -1,3 +1,4 @@
+import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -206,11 +207,11 @@ function unrestricted(auth) {
   return auth.roles.some((item) => ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(item.role));
 }
 
-async function scopedUnits(auth) {
+async function scopedUnits(auth, client = pool) {
   if (unrestricted(auth)) return null;
   const roots = auth.roles.map((item) => item.orgUnitId).filter(Boolean);
   if (!roots.length) return [];
-  const result = await pool.query(
+  const result = await client.query(
     `WITH RECURSIVE descendants(id) AS (
        SELECT id FROM org_units WHERE id=ANY($1::uuid[])
        UNION ALL SELECT o.id FROM org_units o JOIN descendants d ON o.parent_id=d.id
@@ -219,10 +220,10 @@ async function scopedUnits(auth) {
   return result.rows.map(r => r.id);
 }
 
-async function assertOrgAccess(auth, orgUnitId) {
+async function assertOrgAccess(auth, orgUnitId, client = pool) {
   if (!orgUnitId) throw Object.assign(new Error('This record has no office scope.'), { status: 403, code: 'OFFICE_SCOPE_REQUIRED' });
   if (unrestricted(auth)) return;
-  const units = await scopedUnits(auth);
+  const units = await scopedUnits(auth, client);
   if (!units.includes(orgUnitId)) throw Object.assign(new Error('This record is outside your assigned office scope.'), { status: 403, code: 'OFFICE_SCOPE_FORBIDDEN' });
 }
 
@@ -399,6 +400,7 @@ app.post('/api/admin/vendors', loadAuth, csrfRequired, guard('vendor.manage'), r
   if (expiry && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) throw Object.assign(new Error('Tax-clearance expiry must be a valid date.'), { status: 422, code: 'INVALID_INPUT' });
   await transaction(async (client) => {
     await client.query('INSERT INTO vendors(id,legal_name,registration_no,tax_clearance_expires,ppcc_registration_no,status) VALUES($1,$2,$3,$4,$5,$6)', [id, legalName, registrationNo, expiry, b.ppccRegistrationNo ? text(b.ppccRegistrationNo, 'PPCC registration', 80) : null, 'PENDING']);
+    await client.query('UPDATE vendors SET created_by=$2 WHERE id=$1',[id,req.auth.userId]);
     await audit(client, req, 'procurement.vendor_registered', 'vendor', id, { legalName, registrationNo, status: 'PENDING' });
   });
   res.status(201).json({ id, legal_name: legalName, registration_no: registrationNo, tax_clearance_expires: expiry, ppcc_registration_no: b.ppccRegistrationNo || null, status: 'PENDING' });
@@ -418,9 +420,9 @@ app.get('/api/workflow', loadAuth, route(async (req, res) => {
   const units = await scopedUnits(req.auth);
   const rows = await pool.query(`SELECT r.id,r.requisition_no,r.requester_id,r.org_unit_id,r.budget_account_id,r.title,r.description,r.procurement_method,r.spend_type,r.currency,r.amount_minor,r.status,r.returned_reason,r.version,r.created_at,u.full_name AS requester_name,b.vote_code,b.title AS budget_title,
     po.id AS po_id,po.po_number,po.vendor_id,v.legal_name AS vendor_name,po.amount_minor AS po_amount_minor,po.status AS po_status,
-    gr.id AS receipt_id,gr.receipt_no,gr.status AS receipt_status,gr.accepted_amount_minor,
-    i.id AS invoice_id,i.invoice_no,i.status AS invoice_status,i.amount_minor AS invoice_amount_minor,
-    p.id AS payment_id,p.payment_ref,p.status AS payment_status,p.amount_minor AS payment_amount_minor,
+    gr.id AS receipt_id,gr.receipt_no,gr.status AS receipt_status,gr.accepted_amount_minor,gr.received_by AS receipt_received_by,
+    i.id AS invoice_id,i.invoice_no,i.status AS invoice_status,i.amount_minor AS invoice_amount_minor,i.submitted_by AS invoice_submitted_by,
+    p.id AS payment_id,p.payment_ref,p.status AS payment_status,p.amount_minor AS payment_amount_minor,p.authorized_by AS payment_authorized_by,
     a.id AS asset_id,a.asset_tag,a.description AS asset_description
     FROM requisitions r JOIN users u ON u.id=r.requester_id JOIN budget_accounts b ON b.id=r.budget_account_id
     LEFT JOIN purchase_orders po ON po.requisition_id=r.id LEFT JOIN vendors v ON v.id=po.vendor_id
@@ -438,7 +440,7 @@ async function requisitionForUpdate(client, id) {
 }
 
 async function receiptForUpdate(client, id) {
-  const result = await client.query('SELECT gr.*,po.id AS po_id,po.requisition_id,po.vendor_id,po.amount_minor AS po_amount_minor,po.currency,r.requester_id,r.org_unit_id,r.budget_account_id,r.spend_type,r.amount_minor AS requisition_amount_minor FROM goods_receipts gr JOIN purchase_orders po ON po.id=gr.purchase_order_id JOIN requisitions r ON r.id=po.requisition_id WHERE gr.id=$1 FOR UPDATE OF gr,po,r', [requireUuid(id, 'Receipt')]);
+  const result = await client.query('SELECT gr.*,po.id AS po_id,po.requisition_id,po.vendor_id,po.amount_minor AS po_amount_minor,po.currency AS po_currency,r.title AS requisition_title,r.requester_id,r.org_unit_id,r.budget_account_id,r.spend_type,r.amount_minor AS requisition_amount_minor FROM goods_receipts gr JOIN purchase_orders po ON po.id=gr.purchase_order_id JOIN requisitions r ON r.id=po.requisition_id WHERE gr.id=$1 FOR UPDATE OF gr,po,r', [requireUuid(id, 'Receipt')]);
   if (!result.rowCount) throw Object.assign(new Error('Delivery record not found.'), { status: 404, code: 'NOT_FOUND' });
   return result.rows[0];
 }
@@ -475,7 +477,7 @@ app.post('/api/requisitions', loadAuth, csrfRequired, guard('requisition.create'
 app.post('/api/requisitions/:id/submit', loadAuth, csrfRequired, guard('requisition.submit.own'), route(async (req, res) => {
   const result = await transaction(async (client) => {
     const r = await requisitionForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, r.org_unit_id);
+    await assertOrgAccess(req.auth, r.org_unit_id, client);
     if (r.requester_id !== req.auth.userId) throw Object.assign(new Error('Only the requesting employee can submit this requisition.'), { status: 403, code: 'FORBIDDEN' });
     if (!canTransition('requisition', r.status, 'SUBMITTED')) throw Object.assign(new Error('This requisition cannot be submitted in its current state.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     const budget = await client.query(`UPDATE budget_accounts SET reserved_minor=reserved_minor+$2,version=version+1 WHERE id=$1 AND allocated_minor-reserved_minor-spent_minor >= $2::bigint RETURNING id`, [r.budget_account_id, r.amount_minor]);
@@ -494,7 +496,7 @@ app.post('/api/requisitions/:id/correct', loadAuth, csrfRequired, guard('requisi
   const amount = positiveMinorUnits(b.amount);
   const result = await transaction(async (client) => {
     const r = await requisitionForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, r.org_unit_id);
+    await assertOrgAccess(req.auth, r.org_unit_id, client);
     if (r.requester_id !== req.auth.userId) throw Object.assign(new Error('Only the requesting employee can correct this requisition.'), { status: 403, code: 'FORBIDDEN' });
     if (r.status !== 'RETURNED') throw Object.assign(new Error('Only a returned requisition can be corrected.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     await client.query("UPDATE requisitions SET title=$2,description=$3,amount_minor=$4,status='DRAFT',returned_reason=NULL,updated_at=now(),version=version+1 WHERE id=$1", [r.id, title, description, amount]);
@@ -508,7 +510,7 @@ async function decideRequisition(req, res, decision) {
   const reason = ['RETURNED','REJECTED'].includes(decision) ? text(req.body?.reason, 'Decision reason', 2000) : null;
   const result = await transaction(async (client) => {
     const r = await requisitionForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, r.org_unit_id);
+    await assertOrgAccess(req.auth, r.org_unit_id, client);
     if (r.requester_id === req.auth.userId) throw Object.assign(new Error('The requester cannot approve or decide their own requisition.'), { status: 403, code: 'SEGREGATION_OF_DUTIES' });
     if (!canTransition('requisition', r.status, decision)) throw Object.assign(new Error('This requisition cannot be moved to that state.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     await client.query('UPDATE requisitions SET status=$2,returned_reason=$3,approved_by=$4,decided_at=now(),updated_at=now(),version=version+1 WHERE id=$1', [r.id, decision, reason, decision === 'APPROVED' ? req.auth.userId : null]);
@@ -532,12 +534,16 @@ app.post('/api/requisitions/:id/purchase-order', loadAuth, csrfRequired, guard('
   const poNumber = `FDA-PO-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
   await transaction(async (client) => {
     const r = await requisitionForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, r.org_unit_id);
+    await assertOrgAccess(req.auth, r.org_unit_id, client);
     if (r.status !== 'APPROVED') throw Object.assign(new Error('Only an approved requisition can receive a purchase order.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     if (amount !== String(r.amount_minor)) throw Object.assign(new Error('Purchase order amount must match the approved requisition amount.'), { status: 422, code: 'AMOUNT_MISMATCH' });
     const vendor = await client.query("SELECT id FROM vendors WHERE id=$1 AND status='ACTIVE'", [vendorId]);
     if (!vendor.rowCount) throw Object.assign(new Error('Select an active, qualified vendor.'), { status: 422, code: 'VENDOR_NOT_ACTIVE' });
+    const contracts=await client.query('SELECT *,current_date BETWEEN start_date AND end_date AS valid_now FROM procurement_contracts WHERE requisition_id=$1 FOR UPDATE',[r.id]);
+    const contract=contracts.rows[0];
+    if(contract&&(contract.status!=='APPROVED'||contract.vendor_id!==vendorId||String(contract.amount_minor)!==amount||!contract.valid_now))throw Object.assign(new Error('The contract must be approved, within its effective dates, and match the selected supplier and value.'),{status:409,code:'CONTRACT_NOT_READY'});
     await client.query('INSERT INTO purchase_orders(id,po_number,requisition_id,vendor_id,created_by,amount_minor,currency,expected_delivery,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,\'ISSUED\')', [id, poNumber, r.id, vendorId, req.auth.userId, amount, r.currency, expectedDelivery]);
+    if(contract)await client.query('UPDATE purchase_orders SET contract_id=$2 WHERE id=$1',[id,contract.id]);
     await client.query("UPDATE requisitions SET status='PO_ISSUED',updated_at=now(),version=version+1 WHERE id=$1", [r.id]);
     await audit(client, req, 'procurement.purchase_order_issued', 'purchase_order', id, { poNumber, requisitionId: r.id, vendorId, amountMinor: amount });
   });
@@ -553,8 +559,10 @@ app.post('/api/purchase-orders/:id/receipt', loadAuth, csrfRequired, guardAny('r
     const result = await client.query("SELECT po.id,po.status,po.requisition_id,r.org_unit_id FROM purchase_orders po JOIN requisitions r ON r.id=po.requisition_id WHERE po.id=$1 FOR UPDATE OF po,r", [poId]);
     if (!result.rowCount) throw Object.assign(new Error('Purchase order not found.'), { status: 404, code: 'NOT_FOUND' });
     const po = result.rows[0];
-    await assertOrgAccess(req.auth, po.org_unit_id);
+    await assertOrgAccess(req.auth, po.org_unit_id, client);
     if (!['ISSUED','RECEIVED'].includes(po.status)) throw Object.assign(new Error('This purchase order cannot receive a delivery.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
+    const prior=await client.query("SELECT 1 FROM goods_receipts WHERE purchase_order_id=$1 AND status IN ('PENDING','ACCEPTED')",[poId]);
+    if(prior.rowCount)throw Object.assign(new Error('Resolve the pending inspection first. An accepted delivery cannot be recorded twice.'),{status:409,code:'DELIVERY_ALREADY_RECORDED'});
     await client.query("INSERT INTO goods_receipts(id,receipt_no,purchase_order_id,received_by,accepted_amount_minor,condition_notes,status) VALUES($1,$2,$3,$4,0,$5,'PENDING')", [id, receiptNo, poId, req.auth.userId, conditionNotes]);
     await client.query("UPDATE purchase_orders SET status='RECEIVED' WHERE id=$1", [poId]);
     await audit(client, req, 'asset.delivery_recorded', 'goods_receipt', id, { receiptNo, purchaseOrderId: poId });
@@ -569,17 +577,18 @@ app.post('/api/receipts/:id/inspect', loadAuth, csrfRequired, guard('receipt.ins
   const id = requireUuid(req.params.id, 'Receipt');
   const result = await transaction(async (client) => {
     const receipt = await receiptForUpdate(client, id);
-    await assertOrgAccess(req.auth, receipt.org_unit_id);
+    await assertOrgAccess(req.auth, receipt.org_unit_id, client);
     if (receipt.status !== 'PENDING') throw Object.assign(new Error('This delivery was already inspected.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     if (receipt.received_by === req.auth.userId) throw Object.assign(new Error('The receiver cannot inspect the same delivery.'), { status: 403, code: 'SEGREGATION_OF_DUTIES' });
     if (outcome === 'ACCEPTED' && (BigInt(accepted) > BigInt(receipt.po_amount_minor) || BigInt(accepted) > BigInt(receipt.requisition_amount_minor))) throw Object.assign(new Error('Accepted delivery value cannot exceed the purchase order.'), { status: 422, code: 'AMOUNT_MISMATCH' });
+    if(outcome==='ACCEPTED'&&BigInt(accepted)!==BigInt(receipt.po_amount_minor))throw Object.assign(new Error('This workflow requires full-value receipt acceptance. Reject incomplete delivery and record its replacement; partial receipts are not yet supported.'),{status:422,code:'PARTIAL_RECEIPT_UNSUPPORTED'});
     await client.query('UPDATE goods_receipts SET status=$2,accepted_amount_minor=$3,inspected_by=$4,inspected_at=now(),condition_notes=condition_notes || $5 WHERE id=$1', [id, outcome, accepted, req.auth.userId, `\nInspection: ${inspectionNotes}`]);
     let asset = null;
     if (outcome === 'ACCEPTED' && receipt.spend_type === 'CAPITAL') {
       const category = text(req.body?.assetCategory || 'GENERAL', 'Asset category', 80);
       const assetId = uuid();
       const assetTag = `FDA-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-      await client.query('INSERT INTO assets(id,asset_tag,purchase_order_id,receipt_id,description,category,purchase_cost_minor,currency,org_unit_id,custodian) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [assetId, assetTag, receipt.po_id, id, `Asset from ${receipt.requisition_id}`, category, accepted, receipt.po_currency, receipt.org_unit_id, null]);
+      await client.query('INSERT INTO assets(id,asset_tag,purchase_order_id,receipt_id,description,category,purchase_cost_minor,currency,org_unit_id,custodian) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [assetId, assetTag, receipt.po_id, id, receipt.requisition_title, category, accepted, receipt.po_currency, receipt.org_unit_id, null]);
       asset = { id: assetId, asset_tag: assetTag };
     }
     await audit(client, req, `asset.delivery_${outcome.toLowerCase()}`, 'goods_receipt', id, { acceptedAmountMinor: accepted, asset });
@@ -606,7 +615,9 @@ app.post('/api/purchase-orders/:id/invoice', loadAuth, csrfRequired, guard('invo
   const result = await transaction(async (client) => {
     const po = await client.query('SELECT po.id,po.vendor_id,po.amount_minor,po.currency,r.org_unit_id FROM purchase_orders po JOIN requisitions r ON r.id=po.requisition_id WHERE po.id=$1 FOR UPDATE OF po,r', [poId]);
     if (!po.rowCount) throw Object.assign(new Error('Purchase order not found.'), { status: 404, code: 'NOT_FOUND' });
-    await assertOrgAccess(req.auth, po.rows[0].org_unit_id);
+    await assertOrgAccess(req.auth, po.rows[0].org_unit_id, client);
+    const priorInvoice=await client.query('SELECT 1 FROM invoices WHERE purchase_order_id=$1',[poId]);
+    if(priorInvoice.rowCount)throw Object.assign(new Error('This purchase order already has an invoice. Correct the existing invoice instead.'),{status:409,code:'INVOICE_ALREADY_RECORDED'});
     const accepted = await client.query("SELECT accepted_amount_minor FROM goods_receipts WHERE purchase_order_id=$1 AND status='ACCEPTED' ORDER BY inspected_at DESC LIMIT 1", [poId]);
     if (!accepted.rowCount) throw Object.assign(new Error('An accepted delivery inspection is required before invoice entry.'), { status: 409, code: 'DELIVERY_NOT_ACCEPTED' });
     await client.query('INSERT INTO invoices(id,invoice_no,vendor_id,purchase_order_id,submitted_by,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7,\'EXCEPTION\')', [id, invoiceNo, po.rows[0].vendor_id, poId, req.auth.userId, amount, po.rows[0].currency]);
@@ -620,7 +631,7 @@ app.post('/api/purchase-orders/:id/invoice', loadAuth, csrfRequired, guard('invo
 app.post('/api/invoices/:id/recheck-match', loadAuth, csrfRequired, guard('invoice.create'), route(async (req, res) => {
   const result = await transaction(async (client) => {
     const invoice = await invoiceForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, invoice.org_unit_id);
+    await assertOrgAccess(req.auth, invoice.org_unit_id, client);
     if (['AUTHORIZED','PAID'].includes(invoice.status)) throw Object.assign(new Error('An authorized invoice cannot be rematched.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     const matched = await matchInvoice(client, invoice.id);
     await audit(client, req, 'finance.invoice_match_rechecked', 'invoice', invoice.id, { matchStatus: matched ? 'MATCHED' : 'EXCEPTION' });
@@ -634,7 +645,7 @@ app.post('/api/invoices/:id/correct', loadAuth, csrfRequired, guard('invoice.cre
   const reason = text(req.body?.reason, 'Correction reason', 2000);
   const result = await transaction(async (client) => {
     const invoice = await invoiceForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, invoice.org_unit_id);
+    await assertOrgAccess(req.auth, invoice.org_unit_id, client);
     if (invoice.status !== 'EXCEPTION') throw Object.assign(new Error('Only an invoice exception can be corrected.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     await client.query('UPDATE invoices SET amount_minor=$2 WHERE id=$1', [invoice.id, amount]);
     const matched = await matchInvoice(client, invoice.id);
@@ -647,7 +658,7 @@ app.post('/api/invoices/:id/correct', loadAuth, csrfRequired, guard('invoice.cre
 app.post('/api/invoices/:id/authorize', loadAuth, csrfRequired, guard('invoice.authorize'), route(async (req, res) => {
   const result = await transaction(async (client) => {
     const invoice = await invoiceForUpdate(client, req.params.id);
-    await assertOrgAccess(req.auth, invoice.org_unit_id);
+    await assertOrgAccess(req.auth, invoice.org_unit_id, client);
     if (invoice.status !== 'MATCHED') throw Object.assign(new Error('Only a matched invoice can be authorized.'), { status: 409, code: 'INVOICE_NOT_MATCHED' });
     if (invoice.submitted_by === req.auth.userId || invoice.requester_id === req.auth.userId) throw Object.assign(new Error('The invoice submitter and requester cannot authorize its payment.'), { status: 403, code: 'SEGREGATION_OF_DUTIES' });
     const ref = `PENDING-${uuid()}`;
@@ -667,7 +678,7 @@ app.post('/api/payments/:id/record', loadAuth, csrfRequired, guard('payment.reco
       FROM payments p JOIN invoices i ON i.id=p.invoice_id JOIN purchase_orders po ON po.id=i.purchase_order_id JOIN requisitions r ON r.id=po.requisition_id WHERE p.id=$1 FOR UPDATE OF p,i,po,r`, [requireUuid(req.params.id, 'Payment')]);
     if (!payment.rowCount) throw Object.assign(new Error('Payment not found.'), { status: 404, code: 'NOT_FOUND' });
     const p = payment.rows[0];
-    await assertOrgAccess(req.auth, p.org_unit_id);
+    await assertOrgAccess(req.auth, p.org_unit_id, client);
     if (p.status !== 'AUTHORIZED') throw Object.assign(new Error('Only an authorized payment can be recorded.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     if (p.authorized_by === req.auth.userId || p.submitted_by === req.auth.userId || p.requester_id === req.auth.userId) throw Object.assign(new Error('Payment recording must be completed by a different authorized officer.'), { status: 403, code: 'SEGREGATION_OF_DUTIES' });
     if (String(p.amount_minor) !== String(p.requisition_amount_minor)) throw Object.assign(new Error('Payment amount does not match the reserved requisition value.'), { status: 409, code: 'AMOUNT_MISMATCH' });
@@ -691,6 +702,8 @@ app.get('/api/audit-events',loadAuth,guard('audit.read.all'),route(async(req,res
 
 const allowedFiles={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.txt':'text/plain'};
 async function assertRecordAttachmentAccess(auth,type,id,capability) {
+  const extra={EMPLOYEE:['hr_employees',DEPARTMENT_ROLES.hr],LEAVE:['hr_leave_requests',DEPARTMENT_ROLES.hr],JOURNAL:['gl_journals',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],PROCUREMENT_PLAN:['procurement_plans',capability.includes('write')?DEPARTMENT_ROLES.planWrite:DEPARTMENT_ROLES.procurement]}[type];
+  if(extra){const scoped=departmentAuth(auth,extra[1]);const found=await pool.query(`SELECT id,org_unit_id FROM ${extra[0]} WHERE id=$1`,[requireUuid(id,'Record')]);if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});await assertOrgAccess(scoped,found.rows[0].org_unit_id);return found.rows[0];}
   const table={REQUISITION:'requisitions',PURCHASE_ORDER:'purchase_orders',RECEIPT:'goods_receipts',INVOICE:'invoices',ASSET:'assets'}[type];
   if(!table) throw Object.assign(new Error('Unsupported attachment record type.'),{status:422,code:'INVALID_INPUT'});
   let sql;
@@ -723,6 +736,7 @@ app.post('/api/records/:type/:id/attachments',loadAuth,csrfRequired,route(async(
   await assertRecordAttachmentAccess(req.auth,type,req.params.id,'attachment.write.scope');
   next();
 }),upload.single('file'),route(async(req,res)=>{
+  const type=String(req.params.type||'').toUpperCase();
   if(!req.file) throw Object.assign(new Error('Choose an evidence file to upload.'),{status:422,code:'FILE_REQUIRED'});
   const ext=path.extname(req.file.originalname).toLowerCase();
   const bytes=fs.readFileSync(req.file.path);
@@ -761,6 +775,8 @@ app.get('/api/records/:type/:id/attachments',loadAuth,route(async(req,res)=>{
   res.json(rows.rows);
 }));
 
+registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
+
 registerPublicPortal(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor });
 
 app.use('/api',(_req,res)=>res.status(404).json({error:'API route not found.',code:'API_NOT_FOUND'}));
@@ -768,6 +784,8 @@ app.use(express.static(distDir,{index:false,etag:true,maxAge:'1h',setHeaders(res
 app.get(/.*/,(_req,res)=>res.sendFile(path.join(distDir,'index.html')));
 
 app.use((error,req,res,_next)=>{
+  if(error.code==='23505'){error.status=409;error.message='A record with this reference already exists, or this action is already pending.';}
+  if(['23503','23514','22P02'].includes(error.code)){error.status=422;error.message='The record contains an invalid value or references an unavailable record.';}
   const status=Number(error.status||error.statusCode||500);
   if(status>=500) console.error(JSON.stringify({level:'error',requestId:req.requestId,message:error.message,code:error.code}));
   else console.warn(JSON.stringify({level:'warn',requestId:req.requestId,code:error.code||'REQUEST_ERROR',status}));

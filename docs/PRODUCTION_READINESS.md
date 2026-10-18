@@ -1,8 +1,14 @@
 # Production readiness status
 
+## Current development release — 18 October 2026
+
+The current departmental workflow scope and test evidence are recorded in [DEPARTMENT_WORKFLOWS.md](DEPARTMENT_WORKFLOWS.md). The release retains the existing public portal and authenticated staff application, adds persistent HR, accounting, procurement planning/contracts and asset lifecycle operations, and does not seed business data. Hostinger deployment is handled by the existing GitHub webhook; this development task does not reconfigure hosting.
+
+The production frontend build and 42 automated tests pass, including isolated PostgreSQL-compatible integration tests and a real-session application-route test from procurement planning through payment, asset registration and ledger posting. Browser visual verification, real PostgreSQL concurrency/load testing, restore drill, independent security review and actual FDA integrations remain outstanding. These tests do not establish full production readiness.
+
 ## Implemented in this repository
 
-The prepared release upgrades the existing FDA application in place. The root `Dockerfile` builds one full-stack service that serves the React site and secure API together. It keeps the single public hostname `fda.totag.network`; no second application or hostname is part of this design. The existing Coolify app must route to container port `8080` and mount `/data/uploads` before deploying the release. The live site has not yet been changed by this repository edit.
+The prepared release upgrades the existing FDA application in place. The root `Dockerfile` builds one full-stack service that serves the React site and secure API together. It keeps the single public hostname `fda.totag.network`; no second application or hostname is part of this design. The existing Coolify app must route to container port `8080` and mount `/data/uploads` before deploying the release. Deployment completion is not asserted by this source-code release.
 
 The API foundation includes:
 
@@ -14,7 +20,7 @@ The API foundation includes:
 - Append-only database audit records with a hash chain, plus signed webhook delivery with idempotency keys, retry backoff and delivery leases when an approved webhook is configured.
 - Liveness/readiness endpoints, container health check, encrypted database-and-attachment backup script, staging-only restore script, and audit-chain verification script.
 
-The API has unit-level checks for amount validation, workflow transitions, authorization policy and password hashing. The frontend build, lint, and available tests pass. A PostgreSQL-backed end-to-end test, container build, restore drill, independent security review and load test have not been run in this environment.
+The API has unit checks and isolated PostgreSQL-compatible integration tests; see the current release evidence above. No clean whole-repository lint result, container validation, restore drill, independent security review or load-test result is claimed.
 
 ## Not yet production-ready
 

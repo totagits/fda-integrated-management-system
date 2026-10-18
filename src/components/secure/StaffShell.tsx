@@ -1,11 +1,14 @@
 import React from 'react';
-import { Box, Coins, History, LayoutDashboard, Settings, ShoppingCart, User, LogOut } from 'lucide-react';
+import { Box, Coins, History, LayoutDashboard, Settings, ShoppingCart, User, Users, LogOut } from 'lucide-react';
 import { FDA_LOGO_URL } from '../../assets/logo';
 export const staffSections = (roles: string[]) => {
   const has = (...allowed: string[]) => roles.some(role => allowed.includes(role));
   return [
     {id:'overview',label:'My Role Dashboard',icon:LayoutDashboard,show:true},
-    {id:'account',label:'My Account',icon:User,show:true},
+    {id:'hr',label:'HRMIS & Personnel',icon:Users,show:has('MANAGING_DIRECTOR','HR_DIRECTOR')},
+    {id:'accounting',label:'Accounts & Periods',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
+    {id:'plans',label:'Procurement Planning',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','PROCUREMENT_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR')},
+    {id:'account',label:'My Account & Self-Service',icon:User,show:true},
     {id:'workflow',label:'Procurement & Approvals',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR')},
     {id:'finance',label:'Finance & Vote Book',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'assets',label:'Asset Register',icon:Box,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','ASSET_OFFICER','COUNTY_OFFICER','PROCUREMENT_OFFICER','INTERNAL_AUDITOR')},
