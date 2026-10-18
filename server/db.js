@@ -20,6 +20,8 @@ export async function migrate() {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // Serialize schema changes when multiple application instances start together.
+      await client.query('SELECT pg_advisory_xact_lock($1)', [1370492740]);
       await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
       const found = await client.query('SELECT version FROM schema_migrations WHERE version = $1', [file]);
       if (found.rowCount) {

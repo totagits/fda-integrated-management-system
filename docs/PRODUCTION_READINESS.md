@@ -1,6 +1,10 @@
 # Production readiness status
 
-## Current development release — 18 October 2026
+## Latest enterprise increment
+
+See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for payroll preparation/accrual, opened-bid evaluation, bank reconciliation, stocktaking, depreciation and integration diagnostics. The frontend build and 50 automated tests pass. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Full production readiness and the broader remaining scope are not claimed.
+
+## Earlier departmental release — 18 October 2026
 
 The current departmental workflow scope and test evidence are recorded in [DEPARTMENT_WORKFLOWS.md](DEPARTMENT_WORKFLOWS.md). The release retains the existing public portal and authenticated staff application, adds persistent HR, accounting, procurement planning/contracts and asset lifecycle operations, and does not seed business data. Hostinger deployment is handled by the existing GitHub webhook; this development task does not reconfigure hosting.
 

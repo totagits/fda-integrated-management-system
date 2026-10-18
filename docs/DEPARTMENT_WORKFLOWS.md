@@ -1,5 +1,7 @@
 # Department workflow release — 18 October 2026
 
+This is the earlier departmental increment. See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for subsequent payroll, evaluation, reconciliation, stocktake and depreciation work and the updated remaining scope.
+
 This release extends the existing application and existing PostgreSQL database. It does not replace the public portal, create another application, seed business records, or change hosting configuration. The existing GitHub webhook remains the deployment mechanism.
 
 ## Implemented workflows

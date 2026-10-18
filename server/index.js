@@ -1,3 +1,5 @@
+import { sendSignedWebhook, validateWebhookConfiguration } from './integration-transport.js';
+import { registerEnterprise } from './enterprise.js';
 import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -40,17 +42,14 @@ async function deliverOutboxBatch() {
   if(!target||!secret)return;
   if(!target.startsWith('https://')||secret.length<32)return;
   const batch=await transaction(async(client)=>{
-    const claimed=await client.query(`SELECT id,event_type,aggregate_type,aggregate_id,payload,idempotency_key,attempts FROM integration_outbox WHERE delivered_at IS NULL AND next_attempt_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20`);
+    const claimed=await client.query(`SELECT id,event_type,aggregate_type,aggregate_id,payload,idempotency_key,attempts,created_at FROM integration_outbox WHERE delivered_at IS NULL AND next_attempt_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20`);
     if(!claimed.rowCount)return [];
     await client.query('UPDATE integration_outbox SET locked_until=now()+interval \'2 minutes\' WHERE id=ANY($1::uuid[])',[claimed.rows.map(row=>row.id)]);
     return claimed.rows;
   });
   for(const item of batch){
-    const body=JSON.stringify({id:item.id,eventType:item.event_type,aggregateType:item.aggregate_type,aggregateId:item.aggregate_id,payload:item.payload,occurredAt:new Date().toISOString()});
-    const signature=crypto.createHmac('sha256',secret).update(body).digest('hex');
     try{
-      const response=await fetch(target,{method:'POST',headers:{'content-type':'application/json','x-fda-signature':`sha256=${signature}`,'idempotency-key':item.idempotency_key},body,signal:AbortSignal.timeout(8000)});
-      if(!response.ok)throw new Error(`HTTP_${response.status}`);
+      await sendSignedWebhook(item,target,secret);
       await pool.query('UPDATE integration_outbox SET delivered_at=now(),locked_until=NULL,last_error=NULL WHERE id=$1',[item.id]);
     }catch(error){
       const attempts=Number(item.attempts)+1,delay=Math.min(43200,30*2**Math.min(attempts,10));
@@ -702,7 +701,7 @@ app.get('/api/audit-events',loadAuth,guard('audit.read.all'),route(async(req,res
 
 const allowedFiles={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.txt':'text/plain'};
 async function assertRecordAttachmentAccess(auth,type,id,capability) {
-  const extra={EMPLOYEE:['hr_employees',DEPARTMENT_ROLES.hr],LEAVE:['hr_leave_requests',DEPARTMENT_ROLES.hr],JOURNAL:['gl_journals',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],PROCUREMENT_PLAN:['procurement_plans',capability.includes('write')?DEPARTMENT_ROLES.planWrite:DEPARTMENT_ROLES.procurement]}[type];
+  const extra={PAYROLL:['payroll_runs',capability.includes('write')?[...DEPARTMENT_ROLES.hr,...DEPARTMENT_ROLES.financeWrite]:[...DEPARTMENT_ROLES.hr,...DEPARTMENT_ROLES.finance]],STOCKTAKE:['stocktakes',capability.includes('write')?DEPARTMENT_ROLES.assetWrite:DEPARTMENT_ROLES.assets],DEPRECIATION:['depreciation_runs',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],BANK_STATEMENT:['bank_statements',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],EVALUATION:['bid_evaluations',capability.includes('write')?['MANAGING_DIRECTOR','PROCUREMENT_OFFICER']:DEPARTMENT_ROLES.procurement],PROCUREMENT_CONTRACT:['procurement_contracts',capability.includes('write')?['MANAGING_DIRECTOR','PROCUREMENT_OFFICER']:DEPARTMENT_ROLES.procurement],EMPLOYEE:['hr_employees',DEPARTMENT_ROLES.hr],LEAVE:['hr_leave_requests',DEPARTMENT_ROLES.hr],JOURNAL:['gl_journals',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],PROCUREMENT_PLAN:['procurement_plans',capability.includes('write')?DEPARTMENT_ROLES.planWrite:DEPARTMENT_ROLES.procurement]}[type];
   if(extra){const scoped=departmentAuth(auth,extra[1]);const found=await pool.query(`SELECT id,org_unit_id FROM ${extra[0]} WHERE id=$1`,[requireUuid(id,'Record')]);if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});await assertOrgAccess(scoped,found.rows[0].org_unit_id);return found.rows[0];}
   const table={REQUISITION:'requisitions',PURCHASE_ORDER:'purchase_orders',RECEIPT:'goods_receipts',INVOICE:'invoices',ASSET:'assets'}[type];
   if(!table) throw Object.assign(new Error('Unsupported attachment record type.'),{status:422,code:'INVALID_INPUT'});
@@ -775,7 +774,8 @@ app.get('/api/records/:type/:id/attachments',loadAuth,route(async(req,res)=>{
   res.json(rows.rows);
 }));
 
-registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
+const departmentServices=registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
+registerEnterprise(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess, ...departmentServices });
 
 registerPublicPortal(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor });
 
@@ -804,7 +804,7 @@ async function start() {
   }
   await safeUploadsDirectory();
   if(process.env.INTEGRATION_WEBHOOK_URL&&process.env.INTEGRATION_WEBHOOK_SECRET){
-    if(!process.env.INTEGRATION_WEBHOOK_URL.startsWith('https://')||process.env.INTEGRATION_WEBHOOK_SECRET.length<32)throw new Error('Integration webhook must use HTTPS and a secret of at least 32 characters.');
+    validateWebhookConfiguration(process.env.INTEGRATION_WEBHOOK_URL,process.env.INTEGRATION_WEBHOOK_SECRET);
     const timer=setInterval(()=>deliverOutboxBatch().catch(error=>console.error(JSON.stringify({level:'error',event:'outbox_worker_error',message:error.message}))),5000);
     timer.unref();
   }

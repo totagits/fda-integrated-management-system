@@ -169,6 +169,7 @@ export function registerDepartments(app,deps){
   if(j.status!=='DRAFT'||p.status!=='OPEN')throw fail('Only a draft in an open period can be posted.',409);
   const totals=await db.query('SELECT count(*) AS lines,sum(debit_minor) AS debit,sum(credit_minor) AS credit FROM gl_journal_lines WHERE journal_id=$1',[j.id]);
   if(Number(totals.rows[0].lines)<2||BigInt(totals.rows[0].debit)!==BigInt(totals.rows[0].credit))throw fail('Journal is not balanced.',409);
+  const reconciled=await db.query("SELECT 1 FROM gl_journal_lines l JOIN bank_statements b ON b.account_id=l.account_id WHERE l.journal_id=$1 AND b.org_unit_id=$2 AND b.currency=$3 AND b.status='RECONCILED' AND $4::date<=b.end_date",[j.id,j.org_unit_id,j.currency,j.entry_date]);if(reconciled.rowCount)throw fail('Posting would alter an already reconciled bank balance. Use a later open period.',409);
   await db.query("UPDATE gl_journals SET status='POSTED',posted_by=$2,posted_at=now() WHERE id=$1",[j.id,req.auth.userId]);await audit(db,req,'finance.journal.posted','journal',j.id);return {id:j.id};
  });
  post('/api/finance/journals/:id/void',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
@@ -324,4 +325,5 @@ export function registerDepartments(app,deps){
   req.departmentAuth=departmentAuth(req.auth,config[1]);const r=await row(pool,config[0],req.params.id,false);await scope(req,r.org_unit_id);
   res.json((await pool.query('SELECT action,actor_role,event_data,created_at,event_hash FROM audit_events WHERE entity_type=$1 AND entity_id=$2 ORDER BY sequence DESC LIMIT 100',[req.params.type,r.id])).rows);
  }));
+ return {createJournal};
 }
