@@ -27,9 +27,9 @@ All new mutations use the existing serializable transaction wrapper and audit/ou
 
 ### Connected purchasing sequence
 
-Plan → draft requisition → submission/budget reservation → requisition approval → supplier qualification → optional contract approval → PO → receipt → independent inspection → capital asset → invoice match → independent payment authorization → separate payment recording → linked draft journal → independent posting → trial balance.
+Plan → draft requisition → submission/budget reservation → requisition approval → supplier qualification → optional contract approval → PO → one or more inspected goods receipts → capital asset registration or consumable stock posting → invoice match/correction against accepted value → independent payment authorization → installment payment recording → linked draft journal → independent posting → trial balance. Low-stock consumable requests can also create budgeted draft requisitions and return to the same flow.
 
-A contract is not required for every existing purchase. Where a contract has been entered, the PO route enforces its approval, supplier, amount and effective dates. The existing procurement workflow currently uses one PO and exact full-value invoice matching; partial deliveries, installments and contract amendments remain to be implemented.
+A contract is not required for every purchase. Where a contract has been entered, the PO route enforces its approval, supplier, amount and effective dates. Goods deliveries and invoices can be processed in stages and payment installments update budget balances transactionally. Capital-asset receipts still require complete-value acceptance. Contract amendments remain to be implemented.
 
 A supplier's `ACTIVE` status records an internal qualification decision. This is not external verification with PPCC or a tax authority. Evidence references must correspond to records checked by authorized staff.
 
@@ -53,9 +53,9 @@ The requested full enterprise scope is **not complete**. Remaining work is track
 | Area | Remaining implementation / verification |
 | --- | --- |
 | HR | Recruitment/applicant lifecycle, onboarding task plans, attendance and biometric interfaces, performance cycles, training, confidential disciplinary cases, payroll calculations and reconciliation, payslips and approved payroll-to-ledger posting; other leave types and FDA calendar/policy configuration |
-| Finance | AP/AR subledgers, bank statement import/reconciliation, advances/retirement, full financial statements, payroll postings, budget revisions and delegated approval thresholds; accountant-approved chart and reporting structure |
-| Procurement | Sourcing/e-GP workflows, sealed electronic bids, controlled opening, evaluations and conflicts, award workflow, contract amendments, supplier performance, partial receipts and installment matching |
-| Assets | Barcode/QR labels, stocktaking, depreciation and posting, loss/damage cases, disposal execution/proceeds, consumable stock and replenishment |
+| Finance | AP/AR subledgers, external bank settlement, advances/retirement, full financial statements, payroll filing/payments, budget revisions and delegated approval thresholds; accountant-approved chart and reporting structure |
+| Procurement | FDA/PPCC-approved sourcing rules, externally verified e-GP workflow, formal award publication, contract amendments and supplier performance |
+| Assets | Barcode/QR labels, loss/damage cases, disposal execution/proceeds, demand forecasting and inventory valuation policy |
 | Operations | Full role-specific work queues, reporting across all modules, controlled offline synchronization, concurrency and load assurance |
 | Production assurance | External independent audit storage, offsite backup/restore drill, alert delivery, recovery rehearsal, MFA/identity-provider and account recovery, security/accessibility assessment, verified FDA integrations |
 

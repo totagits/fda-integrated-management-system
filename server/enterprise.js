@@ -9,6 +9,8 @@ const currency=v=>{if(!['USD','LRD'].includes(v))throw fail('Select USD or LRD.'
 const rateInput=v=>{const n=Number(v);if(!Number.isInteger(n)||n<0||n>10000)throw fail('Enter a statutory rate in basis points from 0 to 10000.');return n;};
 const different=(req,id)=>{if(req.auth.userId===id)throw fail('A different authorized officer must approve.',403);};
 const integer=(v,min,max)=>{const n=Number(v);if(!Number.isInteger(n)||n<min||n>max)throw fail(`Enter a whole number between ${min} and ${max}.`);return n;};
+const stockQuantity=(v,allowZero=false)=>{const s=String(v??'').trim();if(!/^\d{1,11}(\.\d{1,3})?$/.test(s))throw fail('Enter a quantity with no more than three decimal places.');const [whole,frac='']=s.split('.'),milli=BigInt(whole)*1000n+BigInt((frac+'000').slice(0,3));if(!allowZero&&milli<=0n)throw fail('Quantity must be greater than zero.');return {milli,value:`${whole}.${(frac+'000').slice(0,3)}`};};
+const stockValue=(milli,unitCost)=>((milli*BigInt(unitCost)+500n)/1000n).toString();
 export function registerEnterprise(app,deps){
  const {pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess,createJournal}=deps;
  const guard=roles=>(req,_res,next)=>{try{req.departmentAuth=departmentAuth(req.auth,roles);next();}catch(e){next(e);}};
@@ -82,6 +84,51 @@ export function registerEnterprise(app,deps){
   const j=await journal(db,req,p,lines,`Payroll accrual ${p.reference}`);await db.query("UPDATE payroll_runs SET status='JOURNALED',journal_id=$2 WHERE id=$1",[p.id,j.id]);await audit(db,req,'payroll.journal_created','payroll',p.id,{journalId:j.id});return j;
  });
  app.get('/api/payroll/my-payslips',loadAuth,route(async(req,res)=>res.json((await pool.query("SELECT r.reference,r.start_date,r.end_date,r.currency,l.gross_minor,l.deduction_minor,(l.gross_minor-l.deduction_minor) AS net_minor,'ACCRUED_NOT_PAYMENT_CONFIRMATION' AS status FROM payroll_lines l JOIN payroll_runs r ON r.id=l.run_id JOIN hr_employees e ON e.id=l.employee_id JOIN gl_journals j ON j.id=r.journal_id WHERE e.user_id=$1 AND j.status='POSTED' ORDER BY r.end_date DESC LIMIT 100",[req.auth.userId])).rows)));
+ list('inventory_register',['sku','name','unit_of_measure','office_name'],R.assets,'/api/inventory/items');
+ post('/api/inventory/items',R.assetWrite,async(db,req)=>{
+  const b=req.body,unit=idValue(b.orgUnitId);await scope(req,unit,db);const opening=stockQuantity(b.openingQuantity||'0',true),reorder=stockQuantity(b.reorderPoint,true),cost=positive(b.estimatedUnitCost);
+  const id=randomUUID();await db.query('INSERT INTO inventory_items(id,org_unit_id,sku,name,unit_of_measure,quantity_on_hand,reorder_point,estimated_unit_cost_minor,currency,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,unit,required(b.sku,'Stock keeping unit',80),required(b.name,'Item name',200),required(b.unitOfMeasure,'Unit of measure',40),opening.value,reorder.value,cost.toString(),currency(b.currency),req.auth.userId]);
+  if(opening.milli>0n)await db.query("INSERT INTO inventory_movements(id,item_id,movement,quantity,value_minor,reference,reason,created_by) VALUES($1,$2,'OPENING',$3,$4,$5,$6,$7)",[randomUUID(),id,opening.value,stockValue(opening.milli,cost),required(b.reference,'Opening balance evidence reference',200),required(b.reason,'Opening balance basis'),req.auth.userId]);
+  await audit(db,req,'inventory.item_created','inventory_item',id,{sku:b.sku,openingQuantity:opening.value});return {id};
+ });
+ list('inventory_movement_directory',['sku','item_name','movement','reference','office_name'],R.assets,'/api/inventory/movements');
+ list('inventory_receipt_directory',['sku','item_name','reference','office_name'],R.assets,'/api/inventory/receipts');
+ list('accepted_goods_receipt_directory',['receipt_no','po_number','supplier_name','office_name'],R.assets,'/api/goods-receipts/accepted');
+ post('/api/inventory/items/:id/issue',R.assetWrite,async(db,req)=>{
+  const item=await row(db,'inventory_items',req.params.id);await scope(req,item.org_unit_id,db);if(!item.active)throw fail('This stock item is inactive.',409);
+  const qty=stockQuantity(req.body.quantity),onHand=stockQuantity(item.quantity_on_hand,true);if(qty.milli>onHand.milli)throw fail('Issue quantity exceeds available stock.',409);
+  const ref=required(req.body.reference,'Issue voucher / receiving officer reference',160),why=required(req.body.reason,'Issue purpose and receiving party');
+  await db.query('UPDATE inventory_items SET quantity_on_hand=quantity_on_hand-$2::numeric,updated_at=now() WHERE id=$1',[item.id,qty.value]);
+  const id=randomUUID();await db.query("INSERT INTO inventory_movements(id,item_id,movement,quantity,value_minor,reference,reason,created_by) VALUES($1,$2,'ISSUE',$3,$4,$5,$6,$7)",[id,item.id,qty.value,stockValue(qty.milli,item.estimated_unit_cost_minor),ref,why,req.auth.userId]);
+  await audit(db,req,'inventory.stock_issued','inventory_item',item.id,{movementId:id,quantity:qty.value,reference:ref});return {id};
+ });
+ post('/api/inventory/receipts',R.assetWrite,async(db,req)=>{
+  const item=await row(db,'inventory_items',req.body.itemId);await scope(req,item.org_unit_id,db);if(!item.active)throw fail('This stock item is inactive.',409);
+  const receipt=await db.query("SELECT gr.id,gr.receipt_no,gr.status,gr.accepted_amount_minor,r.org_unit_id,r.spend_type FROM goods_receipts gr JOIN purchase_orders po ON po.id=gr.purchase_order_id JOIN requisitions r ON r.id=po.requisition_id WHERE gr.id=$1 FOR UPDATE OF gr,po,r",[idValue(req.body.receiptId,'Accepted goods receipt')]);
+  if(!receipt.rowCount||receipt.rows[0].status!=='ACCEPTED'||receipt.rows[0].spend_type!=='GOODS')throw fail('Link stock receipts to an accepted goods delivery. Capital-asset receipts use the asset register.',409);
+  if(receipt.rows[0].org_unit_id!==item.org_unit_id)throw fail('The stock item and accepted delivery must belong to the same office.',403);
+  const qty=stockQuantity(req.body.quantity),value=BigInt(stockValue(qty.milli,item.estimated_unit_cost_minor));
+  const previous=await db.query("SELECT coalesce(sum(value_minor),0)::text AS value FROM inventory_movements WHERE goods_receipt_id=$1",[receipt.rows[0].id]);
+  if(BigInt(previous.rows[0].value)+value>BigInt(receipt.rows[0].accepted_amount_minor))throw fail('Stock value exceeds the accepted delivery value.',409);
+  const id=randomUUID();await db.query("INSERT INTO inventory_movements(id,item_id,movement,quantity,value_minor,goods_receipt_id,reference,reason,created_by) VALUES($1,$2,'RECEIPT',$3,$4,$5,$6,$7,$8)",[id,item.id,qty.value,value.toString(),receipt.rows[0].id,receipt.rows[0].receipt_no,required(req.body.reason,'Stock count and storage-location evidence'),req.auth.userId]);
+  await db.query('UPDATE inventory_items SET quantity_on_hand=quantity_on_hand+$2::numeric,updated_at=now() WHERE id=$1',[item.id,qty.value]);await audit(db,req,'inventory.goods_received','inventory_item',item.id,{movementId:id,goodsReceiptId:receipt.rows[0].id,quantity:qty.value});return {id};
+ });
+ list('inventory_replenishment_directory',['sku','item_name','office_name','status'],R.assets,'/api/inventory/replenishments');
+ post('/api/inventory/items/:id/replenishments',R.assetWrite,async(db,req)=>{
+  const item=await row(db,'inventory_items',req.params.id);await scope(req,item.org_unit_id,db);if(!item.active)throw fail('This stock item is inactive.',409);
+  if(stockQuantity(item.quantity_on_hand,true).milli>stockQuantity(item.reorder_point,true).milli)throw fail('Stock is above its configured reorder point.',409);
+  const qty=stockQuantity(req.body.quantity),reason=required(req.body.reason,'Replenishment justification');const id=randomUUID(),value=stockValue(qty.milli,item.estimated_unit_cost_minor);
+  await db.query("INSERT INTO inventory_replenishments(id,item_id,quantity,estimated_amount_minor,currency,reason,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7)",[id,item.id,qty.value,value,item.currency,reason,req.auth.userId]);await audit(db,req,'inventory.replenishment_requested','inventory_replenishment',id,{itemId:item.id,quantity:qty.value,estimatedAmountMinor:value});return {id};
+ });
+ post('/api/inventory/replenishments/:id/requisition',['MANAGING_DIRECTOR','PROCUREMENT_OFFICER'],async(db,req)=>{
+  const r=await row(db,'inventory_replenishments',req.params.id),item=await row(db,'inventory_items',r.item_id);await scope(req,item.org_unit_id,db);different(req,r.requested_by);if(r.status!=='SUBMITTED')throw fail('This replenishment request has already been processed.',409);
+  const budget=await row(db,'budget_accounts',req.body.budgetAccountId);await scope(req,budget.org_unit_id,db);
+  if(budget.org_unit_id!==item.org_unit_id||budget.currency!==item.currency)throw fail('Choose an office and currency matching the stock item.');
+  const available=BigInt(budget.allocated_minor)-BigInt(budget.reserved_minor)-BigInt(budget.spent_minor);if(available<BigInt(r.estimated_amount_minor))throw fail('Available budget does not cover this replenishment estimate.',409);
+  const id=randomUUID(),reference=`REQ-${id.slice(0,8).toUpperCase()}`;
+  await db.query("INSERT INTO requisitions(id,requisition_no,requester_id,org_unit_id,budget_account_id,title,description,procurement_method,spend_type,currency,amount_minor,status) VALUES($1,$2,$3,$4,$5,$6,$7,'RFQ','GOODS',$8,$9,'DRAFT')",[id,reference,req.auth.userId,item.org_unit_id,budget.id,`Replenish ${item.sku} — ${item.name}`,`${r.quantity} ${item.unit_of_measure}; ${r.reason}; replenishment record ${r.id}`,item.currency,r.estimated_amount_minor]);
+  await db.query("UPDATE inventory_replenishments SET status='REQUISITIONED',requisition_id=$2 WHERE id=$1",[r.id,id]);await audit(db,req,'inventory.replenishment_requisition_created','inventory_replenishment',r.id,{requisitionId:id,budgetAccountId:budget.id});return {id,requisitionNo:reference};
+ });
  list('stocktakes',['reference','status'],R.assets,'/api/stocktakes');
  post('/api/stocktakes',R.assetWrite,async(db,req)=>{
   const unit=idValue(req.body.orgUnitId);await scope(req,unit,db);const assets=await db.query("SELECT * FROM assets WHERE org_unit_id=$1 AND lifecycle_status='ACTIVE' ORDER BY id FOR UPDATE",[unit]);if(!assets.rowCount)throw fail('There are no active assets in this office.');

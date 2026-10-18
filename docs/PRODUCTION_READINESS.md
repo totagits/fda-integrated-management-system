@@ -2,7 +2,7 @@
 
 ## Latest enterprise increment
 
-See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for effective-dated payroll rules, sealed e-bidding, opened-bid evaluation, bank reconciliation, stocktaking, depreciation, integration diagnostics, and HR recruitment, onboarding, training and performance workflows. The current frontend build and 57 automated tests pass. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Automated bank payment initiation and settlement verification remain unavailable. Payroll rules require formal FDA approval and year-to-date, eligibility and filing controls remain incomplete. Full production readiness is not claimed.
+See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for effective-dated payroll rules, sealed e-bidding, bid evaluation, bank reconciliation, stocktaking, depreciation, integration diagnostics, inventory replenishment and HR workflows. The current frontend build and 59 automated tests pass, including staged goods settlement and replenishment into the procurement requisition process. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Automated bank payment initiation and settlement verification remain unavailable. Payroll rules require formal FDA approval and year-to-date, eligibility and filing controls remain incomplete. Full production readiness is not claimed.
 
 ## Earlier departmental release — 18 October 2026
 

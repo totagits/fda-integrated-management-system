@@ -20,7 +20,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
@@ -75,6 +75,31 @@ it('completes procurement → qualification → contract → inspection → capi
  const download=await fetch(origin+`/api/attachments/${attachment.id}`,{headers:{cookie:accounts[proc].cookie}});expect(download.status).toBe(200);expect(await download.text()).toBe('Isolated inspection evidence');
  expect((await call('HR_DIRECTOR',`/api/attachments/${attachment.id}`)).status).toBe(403);
  expect((await fetch(origin+`/api/attachments/${attachment.id}`)).status).toBe(401);
+},30000);
+it('matches staged goods invoices, records partial payments and replenishes low stock through the budgeted procurement queue',async()=>{
+ const md='MANAGING_DIRECTOR',proc='PROCUREMENT_OFFICER',finance='FINANCE_DIRECTOR',recorder='FINANCE_RECORDER',asset='ASSET_OFFICER',county='COUNTY_OFFICER';
+ const budget=await ok(md,'/api/admin/budgets',{orgUnitId:office,fiscalYear:2026,voteCode:'STOCK-E2E',title:'Office consumables',currency:'USD',allocatedAmount:'3000'});
+ const supplier=await ok(proc,'/api/admin/vendors',{legalName:'Staged goods supplier',registrationNo:'STOCK-SUP'});await ok(md,`/api/procurement/suppliers/${supplier.id}/qualify`,{status:'ACTIVE',taxClearanceExpires:'2099-12-31',ppccRegistrationNo:'STOCK-PPCC',reason:'Supplier documents checked'});
+ const item=await ok(asset,'/api/inventory/items',{orgUnitId:office,sku:'PAPER-TEST',name:'Printer paper',unitOfMeasure:'box',reorderPoint:'3',estimatedUnitCost:'100',currency:'USD',openingQuantity:'0'});
+ const plan=await ok(proc,'/api/procurement/plans',{reference:'STOCK-PLAN',budgetAccountId:budget.id,title:'Printer paper replenishment',description:'Staged goods and inventory integration',amount:'1000',procurementMethod:'RFQ',spendType:'GOODS',targetDate:'2026-12-01'});await ok(md,`/api/procurement/plans/${plan.id}/decide`,{status:'APPROVED',reason:'Consumables requirement verified'});
+ const req=await ok(proc,`/api/procurement/plans/${plan.id}/requisition`,{});await ok(proc,`/api/requisitions/${req.id}/submit`,{});await ok(md,`/api/requisitions/${req.id}/approve`,{});const po=await ok(proc,`/api/requisitions/${req.id}/purchase-order`,{vendorId:supplier.id,amount:'1000'});
+ const first=await ok(county,`/api/purchase-orders/${po.id}/receipt`,{conditionNotes:'First delivery counted'});await ok(asset,`/api/receipts/${first.id}/inspect`,{outcome:'ACCEPTED',acceptedAmount:'500',inspectionNotes:'Five boxes accepted'});
+ await ok(asset,'/api/inventory/receipts',{receiptId:first.id,itemId:item.id,quantity:'5',reason:'Five boxes counted into HQ store'});
+ const invoice1=await ok(finance,`/api/purchase-orders/${po.id}/invoice`,{invoiceNo:'STOCK-INV-1',amount:'400'});expect(invoice1.status).toBe('MATCHED');
+ const invoice2=await ok(finance,`/api/purchase-orders/${po.id}/invoice`,{invoiceNo:'STOCK-INV-2',amount:'600'});expect(invoice2.status).toBe('EXCEPTION');
+ const auth1=await ok(md,`/api/invoices/${invoice1.id}/authorize`,{});await ok(recorder,`/api/payments/${auth1.id}/record`,{paymentReference:'STOCK-BANK-1'});
+ const second=await ok(county,`/api/purchase-orders/${po.id}/receipt`,{conditionNotes:'Second delivery counted'});await ok(asset,`/api/receipts/${second.id}/inspect`,{outcome:'ACCEPTED',acceptedAmount:'500',inspectionNotes:'Second five boxes accepted'});
+ await ok(asset,'/api/inventory/receipts',{receiptId:second.id,itemId:item.id,quantity:'5',reason:'Second delivery counted into HQ store'});
+ expect((await ok(finance,`/api/invoices/${invoice2.id}/correct`,{amount:'600',reason:'Matched against cumulative inspected deliveries'})).status).toBe('MATCHED');
+ const auth2=await ok(md,`/api/invoices/${invoice2.id}/authorize`,{});await ok(recorder,`/api/payments/${auth2.id}/record`,{paymentReference:'STOCK-BANK-2'});
+ const issued=await ok(asset,`/api/inventory/items/${item.id}/issue`,{quantity:'8',reference:'ISSUE-STOCK-1',reason:'Issued to regional office'});expect(issued.id).toBeTruthy();
+ const register=await ok(asset,'/api/inventory/items');expect(register.rows.find((r:any)=>r.id===item.id).quantity_on_hand).toBe('2.000');
+ const replenishment=await ok(asset,`/api/inventory/items/${item.id}/replenishments`,{quantity:'5',reason:'Stock at reorder point; replenish paper for office operations'});
+ const created=await ok(proc,`/api/inventory/replenishments/${replenishment.id}/requisition`,{budgetAccountId:budget.id});expect(created.requisitionNo).toMatch(/^REQ-/);
+ const replenishmentQueue=await ok(asset,'/api/inventory/replenishments');expect(replenishmentQueue.rows.find((r:any)=>r.id===replenishment.id).status).toBe('REQUISITIONED');
+ const movement=await ok(asset,'/api/inventory/movements');expect(movement.rows.filter((r:any)=>r.item_id===item.id)).toHaveLength(3);
+ const acceptedLookup=await ok(asset,'/api/goods-receipts/accepted');expect(acceptedLookup.rows).toHaveLength(2);
+ const balances=await ok(finance,'/api/budgets');expect(Number(balances.find((r:any)=>r.id===budget.id).spent_minor)).toBe(100000);
 },30000);
 it('prepares payroll, prevents self-approval, posts accruals and limits employee statements to their owner',async()=>{
  const md='MANAGING_DIRECTOR',finance='FINANCE_DIRECTOR';

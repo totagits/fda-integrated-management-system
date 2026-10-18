@@ -556,13 +556,14 @@ app.post('/api/purchase-orders/:id/receipt', loadAuth, csrfRequired, guardAny('r
   const id = uuid();
   const receiptNo = `FDA-GR-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
   await transaction(async (client) => {
-    const result = await client.query("SELECT po.id,po.status,po.requisition_id,r.org_unit_id FROM purchase_orders po JOIN requisitions r ON r.id=po.requisition_id WHERE po.id=$1 FOR UPDATE OF po,r", [poId]);
+    const result = await client.query("SELECT po.id,po.status,po.amount_minor,po.received_amount_minor,po.requisition_id,r.org_unit_id FROM purchase_orders po JOIN requisitions r ON r.id=po.requisition_id WHERE po.id=$1 FOR UPDATE OF po,r", [poId]);
     if (!result.rowCount) throw Object.assign(new Error('Purchase order not found.'), { status: 404, code: 'NOT_FOUND' });
     const po = result.rows[0];
     await assertOrgAccess(req.auth, po.org_unit_id, client);
     if (!['ISSUED','RECEIVED'].includes(po.status)) throw Object.assign(new Error('This purchase order cannot receive a delivery.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
-    const prior=await client.query("SELECT 1 FROM goods_receipts WHERE purchase_order_id=$1 AND status IN ('PENDING','ACCEPTED')",[poId]);
-    if(prior.rowCount)throw Object.assign(new Error('Resolve the pending inspection first. An accepted delivery cannot be recorded twice.'),{status:409,code:'DELIVERY_ALREADY_RECORDED'});
+    if(BigInt(po.received_amount_minor)>=BigInt(po.amount_minor))throw Object.assign(new Error('The purchase order has no remaining unreceived value.'),{status:409,code:'PURCHASE_ORDER_FULLY_RECEIVED'});
+    const prior=await client.query("SELECT 1 FROM goods_receipts WHERE purchase_order_id=$1 AND status='PENDING'",[poId]);
+    if(prior.rowCount)throw Object.assign(new Error('Complete the pending delivery inspection before recording another receipt.'),{status:409,code:'DELIVERY_ALREADY_RECORDED'});
     await client.query("INSERT INTO goods_receipts(id,receipt_no,purchase_order_id,received_by,accepted_amount_minor,condition_notes,status) VALUES($1,$2,$3,$4,0,$5,'PENDING')", [id, receiptNo, poId, req.auth.userId, conditionNotes]);
     await client.query("UPDATE purchase_orders SET status='RECEIVED' WHERE id=$1", [poId]);
     await audit(client, req, 'asset.delivery_recorded', 'goods_receipt', id, { receiptNo, purchaseOrderId: poId });
@@ -580,9 +581,12 @@ app.post('/api/receipts/:id/inspect', loadAuth, csrfRequired, guard('receipt.ins
     await assertOrgAccess(req.auth, receipt.org_unit_id, client);
     if (receipt.status !== 'PENDING') throw Object.assign(new Error('This delivery was already inspected.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     if (receipt.received_by === req.auth.userId) throw Object.assign(new Error('The receiver cannot inspect the same delivery.'), { status: 403, code: 'SEGREGATION_OF_DUTIES' });
-    if (outcome === 'ACCEPTED' && (BigInt(accepted) > BigInt(receipt.po_amount_minor) || BigInt(accepted) > BigInt(receipt.requisition_amount_minor))) throw Object.assign(new Error('Accepted delivery value cannot exceed the purchase order.'), { status: 422, code: 'AMOUNT_MISMATCH' });
-    if(outcome==='ACCEPTED'&&BigInt(accepted)!==BigInt(receipt.po_amount_minor))throw Object.assign(new Error('This workflow requires full-value receipt acceptance. Reject incomplete delivery and record its replacement; partial receipts are not yet supported.'),{status:422,code:'PARTIAL_RECEIPT_UNSUPPORTED'});
+    const priorAccepted=await client.query("SELECT coalesce(sum(accepted_amount_minor),0)::text AS total FROM goods_receipts WHERE purchase_order_id=$1 AND status='ACCEPTED' AND id<>$2",[receipt.purchase_order_id,id]);
+    const remaining=BigInt(receipt.po_amount_minor)-BigInt(priorAccepted.rows[0].total);
+    if (outcome === 'ACCEPTED' && (BigInt(accepted) > remaining || BigInt(accepted) > BigInt(receipt.requisition_amount_minor))) throw Object.assign(new Error('Accepted delivery value exceeds the outstanding purchase-order balance.'), { status: 422, code: 'AMOUNT_MISMATCH' });
+    if(outcome==='ACCEPTED'&&receipt.spend_type==='CAPITAL'&&BigInt(accepted)!==BigInt(remaining))throw Object.assign(new Error('Capital-asset receipts must be accepted as a complete delivery so each asset can be registered against its full value.'),{status:422,code:'PARTIAL_CAPITAL_RECEIPT_UNSUPPORTED'});
     await client.query('UPDATE goods_receipts SET status=$2,accepted_amount_minor=$3,inspected_by=$4,inspected_at=now(),condition_notes=condition_notes || $5 WHERE id=$1', [id, outcome, accepted, req.auth.userId, `\nInspection: ${inspectionNotes}`]);
+    if(outcome==='ACCEPTED')await client.query("UPDATE purchase_orders SET received_amount_minor=received_amount_minor+$2::bigint,status='RECEIVED' WHERE id=$1",[receipt.purchase_order_id,accepted]);
     let asset = null;
     if (outcome === 'ACCEPTED' && receipt.spend_type === 'CAPITAL') {
       const category = text(req.body?.assetCategory || 'GENERAL', 'Asset category', 80);
@@ -598,12 +602,14 @@ app.post('/api/receipts/:id/inspect', loadAuth, csrfRequired, guard('receipt.ins
 }));
 
 async function matchInvoice(client, invoiceId) {
-  const invoice = await client.query(`SELECT i.id,i.vendor_id,i.amount_minor,i.currency,po.vendor_id AS po_vendor_id,po.amount_minor AS po_amount_minor,po.currency AS po_currency,
-    (SELECT accepted_amount_minor FROM goods_receipts WHERE purchase_order_id=po.id AND status='ACCEPTED' ORDER BY inspected_at DESC LIMIT 1) AS accepted_amount_minor
+  const invoice = await client.query(`SELECT i.id,po.id AS po_id,i.vendor_id,i.amount_minor,i.currency,po.vendor_id AS po_vendor_id,po.amount_minor AS po_amount_minor,po.currency AS po_currency,
+    coalesce((SELECT sum(accepted_amount_minor) FROM goods_receipts WHERE purchase_order_id=po.id AND status='ACCEPTED'),0)::text AS accepted_amount_minor,
+    coalesce((SELECT sum(amount_minor) FROM invoices prior WHERE prior.purchase_order_id=po.id AND prior.id<>i.id AND prior.status IN ('MATCHED','AUTHORIZED','PAID')),0)::text AS prior_billed_minor
     FROM invoices i JOIN purchase_orders po ON po.id=i.purchase_order_id WHERE i.id=$1`, [invoiceId]);
   const row = invoice.rows[0];
-  const matches = row && row.vendor_id === row.po_vendor_id && row.currency === row.po_currency && row.amount_minor === row.po_amount_minor && row.amount_minor === row.accepted_amount_minor;
+  const matches = row && row.vendor_id === row.po_vendor_id && row.currency === row.po_currency && BigInt(row.amount_minor)<=BigInt(row.accepted_amount_minor)-BigInt(row.prior_billed_minor);
   await client.query('UPDATE invoices SET status=$2 WHERE id=$1', [invoiceId, matches ? 'MATCHED' : 'EXCEPTION']);
+  if(row)await client.query("UPDATE purchase_orders SET billed_amount_minor=coalesce((SELECT sum(amount_minor) FROM invoices WHERE purchase_order_id=$1 AND status IN ('MATCHED','AUTHORIZED','PAID')),0) WHERE id=$1",[row.po_id]);
   return Boolean(matches);
 }
 
@@ -613,12 +619,13 @@ app.post('/api/purchase-orders/:id/invoice', loadAuth, csrfRequired, guard('invo
   const amount = positiveMinorUnits(req.body?.amount);
   const id = uuid();
   const result = await transaction(async (client) => {
-    const po = await client.query('SELECT po.id,po.vendor_id,po.amount_minor,po.currency,r.org_unit_id FROM purchase_orders po JOIN requisitions r ON r.id=po.requisition_id WHERE po.id=$1 FOR UPDATE OF po,r', [poId]);
+    const po = await client.query('SELECT po.id,po.vendor_id,po.amount_minor,po.billed_amount_minor,po.currency,r.org_unit_id FROM purchase_orders po JOIN requisitions r ON r.id=po.requisition_id WHERE po.id=$1 FOR UPDATE OF po,r', [poId]);
     if (!po.rowCount) throw Object.assign(new Error('Purchase order not found.'), { status: 404, code: 'NOT_FOUND' });
     await assertOrgAccess(req.auth, po.rows[0].org_unit_id, client);
-    const priorInvoice=await client.query('SELECT 1 FROM invoices WHERE purchase_order_id=$1',[poId]);
-    if(priorInvoice.rowCount)throw Object.assign(new Error('This purchase order already has an invoice. Correct the existing invoice instead.'),{status:409,code:'INVOICE_ALREADY_RECORDED'});
-    const accepted = await client.query("SELECT accepted_amount_minor FROM goods_receipts WHERE purchase_order_id=$1 AND status='ACCEPTED' ORDER BY inspected_at DESC LIMIT 1", [poId]);
+    if(BigInt(po.rows[0].billed_amount_minor)>=BigInt(po.rows[0].amount_minor))throw Object.assign(new Error('This purchase order has already been fully invoiced.'),{status:409,code:'PURCHASE_ORDER_FULLY_BILLED'});
+    const priorInvoice=await client.query('SELECT 1 FROM invoices WHERE vendor_id=$1 AND invoice_no=$2',[po.rows[0].vendor_id,invoiceNo]);
+    if(priorInvoice.rowCount)throw Object.assign(new Error('That supplier invoice number is already recorded.'),{status:409,code:'DUPLICATE_INVOICE'});
+    const accepted = await client.query("SELECT 1 FROM goods_receipts WHERE purchase_order_id=$1 AND status='ACCEPTED'", [poId]);
     if (!accepted.rowCount) throw Object.assign(new Error('An accepted delivery inspection is required before invoice entry.'), { status: 409, code: 'DELIVERY_NOT_ACCEPTED' });
     await client.query('INSERT INTO invoices(id,invoice_no,vendor_id,purchase_order_id,submitted_by,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7,\'EXCEPTION\')', [id, invoiceNo, po.rows[0].vendor_id, poId, req.auth.userId, amount, po.rows[0].currency]);
     const matched = await matchInvoice(client, id);
@@ -681,13 +688,15 @@ app.post('/api/payments/:id/record', loadAuth, csrfRequired, guard('payment.reco
     await assertOrgAccess(req.auth, p.org_unit_id, client);
     if (p.status !== 'AUTHORIZED') throw Object.assign(new Error('Only an authorized payment can be recorded.'), { status: 409, code: 'INVALID_STATE_TRANSITION' });
     if (p.authorized_by === req.auth.userId || p.submitted_by === req.auth.userId || p.requester_id === req.auth.userId) throw Object.assign(new Error('Payment recording must be completed by a different authorized officer.'), { status: 403, code: 'SEGREGATION_OF_DUTIES' });
-    if (String(p.amount_minor) !== String(p.requisition_amount_minor)) throw Object.assign(new Error('Payment amount does not match the reserved requisition value.'), { status: 409, code: 'AMOUNT_MISMATCH' });
+    const totals=await client.query("SELECT coalesce(sum(amount_minor),0)::text AS paid FROM payments WHERE invoice_id IN (SELECT id FROM invoices WHERE purchase_order_id=$1) AND status='PAID'",[p.purchase_order_id]);
+    if(BigInt(totals.rows[0].paid)+BigInt(p.amount_minor)>BigInt(p.requisition_amount_minor))throw Object.assign(new Error('Cumulative payments cannot exceed the approved requisition value.'),{status:409,code:'AMOUNT_MISMATCH'});
     await client.query("UPDATE payments SET payment_ref=$2,paid_by=$3,status='PAID',paid_at=now() WHERE id=$1", [p.id, paymentReference, req.auth.userId]);
     await client.query("UPDATE invoices SET status='PAID' WHERE id=$1", [p.invoice_id]);
     const budget = await client.query('UPDATE budget_accounts SET reserved_minor=reserved_minor-$2::bigint,spent_minor=spent_minor+$2::bigint,version=version+1 WHERE id=$1 AND reserved_minor >= $2::bigint RETURNING id', [p.budget_account_id, p.amount_minor]);
     if (!budget.rowCount) throw Object.assign(new Error('Reserved budget does not cover this payment; payment was not recorded.'), { status: 409, code: 'BUDGET_RESERVATION_MISMATCH' });
-    await client.query("UPDATE requisitions SET status='COMPLETE',updated_at=now(),version=version+1 WHERE id=$1", [p.requisition_id]);
-    await client.query("UPDATE purchase_orders SET status='CLOSED' WHERE id=$1", [p.purchase_order_id]);
+    const paidTotal=BigInt(totals.rows[0].paid)+BigInt(p.amount_minor);
+    await client.query('UPDATE purchase_orders SET paid_amount_minor=$2,status=CASE WHEN $2::bigint>=amount_minor AND received_amount_minor>=amount_minor THEN \'CLOSED\' ELSE status END WHERE id=$1',[p.purchase_order_id,paidTotal.toString()]);
+    if(paidTotal>=BigInt(p.requisition_amount_minor))await client.query("UPDATE requisitions SET status='COMPLETE',updated_at=now(),version=version+1 WHERE id=$1",[p.requisition_id]);
     await audit(client, req, 'finance.payment_recorded', 'payment', p.id, { paymentReference, amountMinor: p.amount_minor, invoiceId: p.invoice_id, requisitionId: p.requisition_id });
     return { id: p.id, status: 'PAID', payment_ref: paymentReference };
   });

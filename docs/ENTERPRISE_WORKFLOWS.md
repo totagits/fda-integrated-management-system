@@ -54,12 +54,18 @@ The Integration Status workspace reports actual audit-outbox counts, pending/ret
 
 **No FDA external business integration is verified.** The repository does not contain usable IFMIS, CSA/payroll, bank or PPCC API contracts and sandbox access. A successful generic webhook HTTP response is not evidence of business processing or durable independent audit storage. See `INTEGRATION_ACCEPTANCE.md` for concrete external requirements.
 
+## Procurement settlement and consumable replenishment
+
+Goods purchase orders can receive sequential inspected deliveries until the full approved value is accepted. A second receipt cannot be opened while the prior inspection is pending or after the order is fully received. Accepted goods invoices are matched against the total accepted delivery value less invoices already matched, authorized or paid. An over-value invoice remains an exception and can be corrected with a reason, then rechecked against later accepted deliveries. Duplicate supplier invoice numbers and billing beyond the purchase-order ceiling are rejected. Payments can be recorded in installments; each payment transaction reduces the reserved budget, increases expenditure, updates the linked purchase-order total and completes the requisition only when fully paid. Capital assets still require full-value acceptance before capitalization.
+
+Consumable items are office-scoped, use quantities precise to three decimal places, and have a movement ledger for opening balances, inspected receipts and issues. Receipt posting requires a selected accepted goods delivery from the same office and checks that stock value does not exceed that delivery's accepted value. Issue quantities cannot exceed available stock. When quantity on hand reaches the reorder point, an authorized stock officer can open one active replenishment request. Procurement converts it into a draft goods requisition only after confirming a matching office/currency budget with sufficient uncommitted balance. It then uses the normal sourcing, supplier, approval, purchase order, receipt and invoice workflow. Automatic buying, purchase suggestions based on forecast models, lot/expiry tracking and valuation methods beyond the configured unit estimate are not implemented.
+
 ## Verification and remaining assurance
 
-- Production frontend build and 54 automated tests pass.
+- Production frontend build and 59 automated tests pass.
 - Full application-route tests use named logins, real session cookies and CSRF, isolated PostgreSQL-compatible PGlite databases and real attachment files in a disposable test directory.
 - New tests exercise statutory arithmetic and approval, encrypted sealed-bid submission, receipt and two-officer opening with protected evidence, stocktake completeness, depreciation calculation/posting/duplicate prevention, reconciliation/matching/backdating controls, panel declarations/scoring/ranking/approval and truthful integration status.
-- Existing procure-to-pay, accounting, HR and asset tests continue to pass.
+- The integrated goods test exercises two staged accepted deliveries, an invoice exception/correction, two installments, stock receipt and issue, a low-stock request and conversion into a budgeted requisition. Existing capital procurement, accounting, HR and asset tests also pass.
 - No production records or external business systems are used by these tests.
 - Browser visual acceptance, real PostgreSQL concurrency/load testing, independent security review, restore drills and FDA process acceptance remain outstanding.
 
