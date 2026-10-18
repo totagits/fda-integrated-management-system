@@ -6,13 +6,13 @@ describe('authenticated staff navigation',()=>{
   expect(ids).toContain('workflow'); expect(ids).toContain('assets');
   expect(ids).not.toContain('setup'); expect(ids).not.toContain('publication'); expect(ids).not.toContain('audit');
  });
- it('does not send HR staff into procurement workspaces',()=>expect(staffSections(['HR_DIRECTOR']).map(s=>s.id)).toEqual(['overview','hr','payroll','account']));
+ it('does not send HR staff into procurement workspaces',()=>expect(staffSections(['HR_DIRECTOR']).map(s=>s.id)).toEqual(['overview','hr','payroll','account','support']));
  it('combines assigned roles without an impersonation selector',()=>{
   const ids=staffSections(['FINANCE_DIRECTOR','PROCUREMENT_OFFICER']).map(s=>s.id);
   expect(ids).toContain('finance');expect(ids).toContain('publication');expect(ids).not.toContain('setup');
  });
  it('gives the IT Director administration tools without business-module access',()=>{
   const ids=staffSections(['IT_DIRECTOR']).map(s=>s.id);
-  expect(ids).toEqual(['overview','integrations','account','setup']);
+  expect(ids).toEqual(['overview','integrations','account','support','setup']);
  });
 });

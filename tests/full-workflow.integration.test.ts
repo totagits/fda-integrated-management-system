@@ -22,7 +22,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
@@ -238,4 +238,21 @@ it('lets the MD appoint the IT Director, who provisions staff, while HR invites 
  const accepted=await call('anonymous','/api/auth/accept-invitation',{token:latestToken,password:'A-different-private-password-2026!'},false);expect(accepted.status).toBe(200);
  const staffHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.employee@example.test']);expect(await verifyPassword('A-different-private-password-2026!',staffHash.rows[0].password_hash)).toBe(true);
  const loginState=await ok('HR_DIRECTOR','/api/hr/employees?limit=25&offset=0&q=ONBOARD-EMP-1');expect(loginState.rows[0].login_status).toBe('ACTIVE');
+});
+
+it('provides global IT support without exposing other users’ tickets to staff',async()=>{
+ const created=await ok('HR_DIRECTOR','/api/support/tickets',{module:'HR',priority:'HIGH',subject:'Employee directory will not load',description:'The directory returns an error after I select my assigned office.'});
+ expect(created.ticketNumber).toMatch(/^FDA-IT-/);
+ expect((await ok('HR_DIRECTOR','/api/support/tickets')).tickets.map((t:any)=>t.id)).toContain(created.id);
+ expect((await ok('FINANCE_DIRECTOR','/api/support/tickets')).tickets.map((t:any)=>t.id)).not.toContain(created.id);
+ const queue=await ok('IT_DIRECTOR','/api/support/tickets');expect(queue.view).toBe('IT_QUEUE');expect(queue.tickets.map((t:any)=>t.id)).toContain(created.id);
+ expect((await call('HR_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'Please mark this resolved.',status:'RESOLVED'})).status).toBe(403);
+ await ok('IT_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'I am reviewing this request and will check the office access configuration.',status:'IN_PROGRESS'});
+ const conversation=await ok('HR_DIRECTOR',`/api/support/tickets/${created.id}/messages`);expect(conversation.ticket.status).toBe('IN_PROGRESS');expect(conversation.messages.at(-1).body).toContain('office access');
+ await ok('IT_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'The access configuration is corrected. Please retry and let me know if the issue continues.',status:'WAITING_USER'});
+ await ok('HR_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'Confirmed. The employee directory now loads.'});
+ await ok('IT_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'Closing this request after user confirmation.',status:'RESOLVED'});
+ expect((await ok('IT_DIRECTOR','/api/support/tickets?status=RESOLVED')).tickets.map((t:any)=>t.id)).toContain(created.id);
+ await ok('HR_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'The page stopped loading again this morning.'});
+ expect((await ok('IT_DIRECTOR','/api/support/tickets?status=OPEN')).tickets.map((t:any)=>t.id)).toContain(created.id);
 });
