@@ -402,7 +402,94 @@ export function registerDepartments(app,deps){
   checker(req,t.created_by);await db.query("UPDATE hr_onboarding_tasks SET status='WAIVED',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Waiver approval reason'),req.auth.userId]);
   await audit(db,req,'hr.onboarding.task_waived','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
  });
- const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets]};
+
+ get('/api/hr/training/programs',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_program_directory',['code','title','category','provider','description','status'],null));
+ post('/api/hr/training/programs',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,start=dateValue(b.startsOn),end=dateValue(b.endsOn);if(end<start)throw fail('Training end date must follow its start date.');
+  const capacity=numeric(b.capacity,1,10000);if(!Number.isInteger(capacity))throw fail('Capacity must be a whole number.');
+  const id=randomUUID();await db.query('INSERT INTO hr_training_programs(id,code,title,category,provider,description,starts_on,ends_on,capacity,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,required(b.code,'Course code',80),required(b.title,'Course title',200),required(b.category,'Course category',100),required(b.provider,'Training provider',200),required(b.description,'Course description'),start,end,capacity,req.auth.userId]);
+  await audit(db,req,'hr.training.program_created','training_program',id,{code:b.code});return {id};
+ });
+ post('/api/hr/training/programs/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const p=await row(db,'hr_training_programs',req.params.id);checker(req,p.created_by);if(p.status!=='DRAFT')throw fail('Only draft training programs can be published or cancelled.',409);
+  if(!['PUBLISHED','CANCELLED'].includes(req.body.status))throw fail('Select publish or cancel.');
+  if(req.body.status==='PUBLISHED'&&dbDate(p.ends_on)<new Date().toISOString().slice(0,10))throw fail('The training program has already ended.');
+  await db.query('UPDATE hr_training_programs SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[p.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent publication decision')]);await audit(db,req,`hr.training.program_${req.body.status.toLowerCase()}`,'training_program',p.id);return {id:p.id};
+ });
+ get('/api/hr/training/enrollments',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_enrollment_directory',['program_code','program_title','staff_number','employee_name','status','learning_objective','certificate_reference']));
+ post('/api/hr/training/enrollments',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,p=await row(db,'hr_training_programs',b.programId),e=await row(db,'hr_employees',b.employeeId);await scope(req,e.org_unit_id);
+  if(e.status!=='ACTIVE'||p.status!=='PUBLISHED')throw fail('Enroll active employees in published training programs only.',409);
+  if(dbDate(p.ends_on)<new Date().toISOString().slice(0,10))throw fail('The training program has ended.',409);
+  await db.query('SELECT id FROM hr_training_programs WHERE id=$1 FOR UPDATE',[p.id]);const count=await db.query("SELECT count(*)::integer AS total FROM hr_training_enrollments WHERE program_id=$1 AND status NOT IN ('REJECTED','WITHDRAWN')",[p.id]);if(Number(count.rows[0].total)>=p.capacity)throw fail('Training capacity has been reached.',409);
+  const id=randomUUID();await db.query('INSERT INTO hr_training_enrollments(id,program_id,employee_id,org_unit_id,learning_objective,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,p.id,e.id,e.org_unit_id,required(b.learningObjective,'Learning objective'),req.auth.userId]);await audit(db,req,'hr.training.employee_nominated','training_enrollment',id,{employeeId:e.id,programId:p.id});return {id};
+ });
+ post('/api/hr/training/enrollments/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const e=await row(db,'hr_training_enrollments',req.params.id);await scope(req,e.org_unit_id);checker(req,e.created_by);if(e.status!=='SUBMITTED')throw fail('Only a pending training nomination can be decided.',409);
+  if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Select approve or reject.');await db.query('UPDATE hr_training_enrollments SET status=$2,approved_by=$3,completion_note=$4,updated_at=now() WHERE id=$1',[e.id,req.body.status,req.auth.userId,required(req.body.reason,'Training nomination decision')]);await audit(db,req,`hr.training.nomination_${req.body.status.toLowerCase()}`,'training_enrollment',e.id);return {id:e.id};
+ });
+ app.post('/api/hr/training/enrollments/:id/start',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
+  const e=await row(db,'hr_training_enrollments',req.params.id),employee=await row(db,'hr_employees',e.employee_id,false);
+  if(employee.user_id!==req.auth.userId){req.departmentAuth=departmentAuth(req.auth,DEPARTMENT_ROLES.hr);await scope(req,e.org_unit_id);}
+  if(e.status!=='APPROVED')throw fail('Only an approved enrollment can be started.',409);await db.query("UPDATE hr_training_enrollments SET status='IN_PROGRESS',updated_at=now() WHERE id=$1",[e.id]);await writeAudit(db,req.departmentAuth||req.auth,'hr.training.started','training_enrollment',e.id,{employeeId:e.employee_id});return {id:e.id};
+ }))));
+ app.post('/api/hr/training/enrollments/:id/complete',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
+  const e=await row(db,'hr_training_enrollments',req.params.id),employee=await row(db,'hr_employees',e.employee_id,false);
+  if(employee.user_id!==req.auth.userId){req.departmentAuth=departmentAuth(req.auth,DEPARTMENT_ROLES.hr);await scope(req,e.org_unit_id);}
+  if(e.status!=='IN_PROGRESS')throw fail('Only an in-progress course can be submitted for completion.',409);
+  await db.query("UPDATE hr_training_enrollments SET status='COMPLETION_SUBMITTED',completion_note=$2,certificate_reference=$3,completed_by=$4,updated_at=now() WHERE id=$1",[e.id,required(req.body.reason,'Completion evidence / result'),String(req.body.certificateReference||'').trim().slice(0,200)||null,req.auth.userId]);await writeAudit(db,req.departmentAuth||req.auth,'hr.training.completion_submitted','training_enrollment',e.id,{employeeId:e.employee_id});return {id:e.id};
+ }))));
+ post('/api/hr/training/enrollments/:id/decide-completion',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const e=await row(db,'hr_training_enrollments',req.params.id);await scope(req,e.org_unit_id);checker(req,e.completed_by);if(e.status!=='COMPLETION_SUBMITTED')throw fail('Course completion is not awaiting verification.',409);
+  if(!['COMPLETED','FAILED'].includes(req.body.status))throw fail('Select completed or failed.');await db.query('UPDATE hr_training_enrollments SET status=$2,updated_at=now() WHERE id=$1',[e.id,req.body.status]);await audit(db,req,`hr.training.${req.body.status.toLowerCase()}`,'training_enrollment',e.id,{certificateReference:e.certificate_reference,verification:required(req.body.reason,'Independent certificate / result verification')});return {id:e.id};
+ });
+ get('/api/hr/training/my',Object.values(DEPARTMENT_ROLES).flat(),async(req,res)=>res.json((await pool.query('SELECT id,program_code,program_title,starts_on,ends_on,status,learning_objective,completion_note,certificate_reference FROM hr_training_enrollment_directory WHERE employee_user_id=$1 ORDER BY starts_on DESC',[req.auth.userId])).rows));
+
+ get('/api/hr/performance/cycles',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_performance_cycles',['reference','status','period_start','period_end']));
+ post('/api/hr/performance/cycles',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body;await office(db,req,b.orgUnitId);const start=dateValue(b.periodStart),end=dateValue(b.periodEnd);if(end<start)throw fail('Performance period end must follow its start.');let reviewerId=null;
+  if(b.reviewerId){const u=await row(db,'users',b.reviewerId,false);if(u.disabled_at)throw fail('Reviewer account is disabled.');const assigned=await db.query("SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2 AND role IN ('MANAGING_DIRECTOR','HR_DIRECTOR')",[u.id,b.orgUnitId]);if(!assigned.rowCount)throw fail('The reviewer must have an HR or MD role assigned to this office.');reviewerId=u.id;}
+  const id=randomUUID();await db.query('INSERT INTO hr_performance_cycles(id,reference,org_unit_id,period_start,period_end,reviewer_id,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,required(b.reference,'Review-cycle reference',100),b.orgUnitId,start,end,reviewerId,req.auth.userId]);await audit(db,req,'hr.performance.cycle_created','performance_cycle',id);return {id};
+ });
+ post('/api/hr/performance/cycles/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const c=await row(db,'hr_performance_cycles',req.params.id);await scope(req,c.org_unit_id);checker(req,c.created_by);if(c.status!=='DRAFT')throw fail('Only draft review cycles can be opened or cancelled.',409);
+  if(!['OPEN','CANCELLED'].includes(req.body.status))throw fail('Select open or cancel.');
+  if(req.body.status==='OPEN'){
+   const staff=await db.query("SELECT id FROM hr_employees WHERE org_unit_id=$1 AND status='ACTIVE' ORDER BY staff_number",[c.org_unit_id]);
+   for(const e of staff.rows)await db.query('INSERT INTO hr_performance_reviews(id,cycle_id,employee_id,org_unit_id,reviewer_id) VALUES($1,$2,$3,$4,$5)',[randomUUID(),c.id,e.id,c.org_unit_id,c.reviewer_id]);
+  }
+  await db.query('UPDATE hr_performance_cycles SET status=$2,opened_by=$3,decision_note=$4 WHERE id=$1',[c.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent cycle decision')]);await audit(db,req,`hr.performance.cycle_${req.body.status.toLowerCase()}`,'performance_cycle',c.id);return {id:c.id};
+ });
+ post('/api/hr/performance/cycles/:id/close',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const c=await row(db,'hr_performance_cycles',req.params.id);await scope(req,c.org_unit_id);checker(req,c.opened_by||c.created_by);if(c.status!=='OPEN')throw fail('Only an open performance cycle can be closed.',409);
+  const outstanding=await db.query("SELECT count(*)::integer AS total FROM hr_performance_reviews r JOIN hr_employees e ON e.id=r.employee_id WHERE r.cycle_id=$1 AND NOT (r.status='ACKNOWLEDGED' OR (e.user_id IS NULL AND r.status='REVIEWED'))",[c.id]);
+  if(Number(outstanding.rows[0].total)>0)throw fail('Complete manager reviews and employee acknowledgements before closing the cycle.',409);
+  await db.query("UPDATE hr_performance_cycles SET status='CLOSED',closed_by=$2,decision_note=$3 WHERE id=$1",[c.id,req.auth.userId,required(req.body.reason,'Cycle close / completion note')]);await audit(db,req,'hr.performance.cycle_closed','performance_cycle',c.id);return {id:c.id};
+ });
+ get('/api/hr/performance/reviews',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_performance_review_directory',['cycle_reference','staff_number','employee_name','status','self_assessment','manager_assessment']));
+ get('/api/hr/performance/my',Object.values(DEPARTMENT_ROLES).flat(),async(req,res)=>res.json((await pool.query('SELECT id,cycle_reference,period_start,period_end,status,self_assessment,manager_assessment,rating,reviewer_id FROM hr_performance_review_directory WHERE employee_user_id=$1 ORDER BY period_end DESC',[req.auth.userId])).rows));
+ app.post('/api/hr/performance/reviews/:id/self-submit',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
+  const r=await row(db,'hr_performance_reviews',req.params.id),e=await row(db,'hr_employees',r.employee_id,false);if(e.user_id!==req.auth.userId)throw fail('Only the employee can submit this self-assessment.',403);
+  const c=await row(db,'hr_performance_cycles',r.cycle_id,false);if(c.status!=='OPEN'||r.status!=='PENDING')throw fail('This review is not open for self-assessment.',409);
+  await db.query("UPDATE hr_performance_reviews SET status='SELF_SUBMITTED',self_assessment=$2,submitted_by=$3,submitted_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Employee accomplishments, objectives and development needs'),req.auth.userId]);await writeAudit(db,req.auth,'hr.performance.self_submitted','performance_review',r.id,{cycleId:c.id});return {id:r.id};
+ }))));
+ post('/api/hr/performance/reviews/:id/capture-self',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const r=await row(db,'hr_performance_reviews',req.params.id);await scope(req,r.org_unit_id);const e=await row(db,'hr_employees',r.employee_id,false);
+  if(e.user_id)throw fail('Use employee self-service when the employee has a linked login.');if(r.status!=='PENDING')throw fail('This review already has a self-assessment.',409);
+  const c=await row(db,'hr_performance_cycles',r.cycle_id,false);if(c.status!=='OPEN')throw fail('This performance cycle is not open.',409);
+  await db.query("UPDATE hr_performance_reviews SET status='SELF_SUBMITTED',self_assessment=$2,submitted_by=$3,submitted_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Employee interview / written self-assessment evidence'),req.auth.userId]);await audit(db,req,'hr.performance.self_assessment_captured','performance_review',r.id,{cycleId:c.id,employeeId:e.id});return {id:r.id};
+ });
+ post('/api/hr/performance/reviews/:id/review',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const r=await row(db,'hr_performance_reviews',req.params.id);await scope(req,r.org_unit_id);if(r.status!=='SELF_SUBMITTED')throw fail('Employee self-assessment is required before manager review.',409);if(r.reviewer_id&&r.reviewer_id!==req.auth.userId)throw fail('Only the assigned reviewer can complete this assessment.',403);
+  const employee=await row(db,'hr_employees',r.employee_id,false);if(employee.user_id===req.auth.userId)throw fail('Employees cannot approve their own performance review.',403);
+  checker(req,r.submitted_by||employee.user_id);
+  const rating=numeric(req.body.rating,1,5);if(!Number.isInteger(rating))throw fail('Select a whole-number rating from 1 to 5.');await db.query("UPDATE hr_performance_reviews SET status='REVIEWED',manager_assessment=$2,rating=$3,reviewed_by=$4,reviewed_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Manager review, goals and development actions'),rating,req.auth.userId]);await audit(db,req,'hr.performance.reviewed','performance_review',r.id,{rating});return {id:r.id};
+ });
+ app.post('/api/hr/performance/reviews/:id/acknowledge',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
+  const r=await row(db,'hr_performance_reviews',req.params.id),e=await row(db,'hr_employees',r.employee_id,false);if(e.user_id!==req.auth.userId)throw fail('Only the employee can acknowledge this review.',403);
+  if(r.status!=='REVIEWED')throw fail('A manager-reviewed assessment is required before acknowledgement.',409);await db.query("UPDATE hr_performance_reviews SET status='ACKNOWLEDGED',acknowledged_at=now() WHERE id=$1",[r.id]);await writeAudit(db,req.auth,'hr.performance.acknowledged','performance_review',r.id,{note:required(req.body.reason,'Acknowledgement / response')});return {id:r.id};
+ }))));
+ const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],training_program:['hr_training_programs',DEPARTMENT_ROLES.hr],training_enrollment:['hr_training_enrollments',DEPARTMENT_ROLES.hr],performance_cycle:['hr_performance_cycles',DEPARTMENT_ROLES.hr],performance_review:['hr_performance_review_directory',DEPARTMENT_ROLES.hr],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets]};
  app.get('/api/departments/:type/:id/history',loadAuth,route(async(req,res)=>{
   const config=histories[req.params.type];if(!config)throw fail('Unknown record type.',404);
   req.departmentAuth=departmentAuth(req.auth,config[1]);const r=await row(pool,config[0],req.params.id,false);await scope(req,r.org_unit_id);

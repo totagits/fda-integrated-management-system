@@ -17,7 +17,7 @@ async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
  for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
@@ -86,6 +86,34 @@ describe('HR records and employee self-service',()=>{
   expect((await request(`/api/hr/onboarding/${task.data.id}/complete-self`,{reason:'Issued under receipt ID ID-552'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
   expect((await request('/api/hr/onboarding',undefined,'HR_DIRECTOR')).data.rows[0].status).toBe('COMPLETE');
   expect((await request(`/api/departments/application/${app.data.id}/history`,undefined,'HR_DIRECTOR')).data.length).toBeGreaterThanOrEqual(6);
+ });
+ it('tracks training completion and employee-to-manager performance reviews',async()=>{
+  const program=await request('/api/hr/training/programs',{code:'SAFE-WORK',title:'Field safety',category:'Safety',provider:'FDA training unit',description:'Operational field safety course',startsOn:'2026-10-01',endsOn:'2026-12-31',capacity:5});expect(program.status,program.data.error).toBe(200);
+  expect((await request(`/api/hr/training/programs/${program.data.id}/decide`,{status:'PUBLISHED',reason:'Approved course plan'})).status).toBe(403);
+  expect((await request(`/api/hr/training/programs/${program.data.id}/decide`,{status:'PUBLISHED',reason:'Approved course plan'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const enrollment=await request('/api/hr/training/enrollments',{programId:program.data.id,employeeId,learningObjective:'Complete the annual safety course'});expect(enrollment.status,enrollment.data.error).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide`,{status:'APPROVED',reason:'Approved learning plan'})).status).toBe(403);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide`,{status:'APPROVED',reason:'Approved learning plan'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/start`,{},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/complete`,{reason:'Completed; assessment passed',certificateReference:'CERT-22'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide-completion`,{status:'COMPLETED',reason:'Certificate checked against register'},'HR_DIRECTOR',employeeUser)).status).toBe(403);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide-completion`,{status:'COMPLETED',reason:'Certificate checked against register'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const cycle=await request('/api/hr/performance/cycles',{orgUnitId:office,reference:'PERF-2026',periodStart:'2026-01-01',periodEnd:'2026-12-31'});expect(cycle.status,cycle.data.error).toBe(200);
+  expect((await request(`/api/hr/performance/cycles/${cycle.data.id}/decide`,{status:'OPEN',reason:'Approved annual review cycle'})).status).toBe(403);
+  expect((await request(`/api/hr/performance/cycles/${cycle.data.id}/decide`,{status:'OPEN',reason:'Approved annual review cycle'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const mine=await request('/api/hr/performance/my',undefined,'COUNTY_OFFICER',employeeUser);expect(mine.data).toHaveLength(1);
+  expect((await request(`/api/hr/performance/reviews/${mine.data[0].id}/self-submit`,{assessment:'Met field targets and request GIS training'},'COUNTY_OFFICER',checker)).status).toBe(403);
+  expect((await request(`/api/hr/performance/reviews/${mine.data[0].id}/self-submit`,{assessment:'Met field targets and request GIS training'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request(`/api/hr/performance/reviews/${mine.data[0].id}/review`,{rating:4,assessment:'Strong delivery; next period lead one regional mapping exercise'},'HR_DIRECTOR',employeeUser)).status).toBe(403);
+  expect((await request(`/api/hr/performance/reviews/${mine.data[0].id}/review`,{rating:4,assessment:'Strong delivery; next period lead one regional mapping exercise'},'HR_DIRECTOR',maker)).status).toBe(200);
+  expect((await request(`/api/hr/performance/reviews/${mine.data[0].id}/acknowledge`,{reason:'Reviewed and discussed with manager'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  const allReviews=(await request('/api/hr/performance/reviews',undefined,'HR_DIRECTOR')).data.rows;expect(allReviews.find((r:any)=>r.id===mine.data[0].id).status).toBe('ACKNOWLEDGED');
+  const noLogin=allReviews.find((r:any)=>!r.employee_user_id);expect(noLogin).toBeTruthy();
+  expect((await request(`/api/hr/performance/cycles/${cycle.data.id}/close`,{reason:'Attempted early close'})).status).toBe(409);
+  expect((await request(`/api/hr/performance/reviews/${noLogin.id}/capture-self`,{assessment:'Conducted documented review interview; employee discussed objectives'})).status).toBe(200);
+  expect((await request(`/api/hr/performance/reviews/${noLogin.id}/review`,{rating:3,assessment:'Meets baseline; plan quarterly coaching'},'HR_DIRECTOR',maker)).status).toBe(403);
+  expect((await request(`/api/hr/performance/reviews/${noLogin.id}/review`,{rating:3,assessment:'Meets baseline; plan quarterly coaching'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/performance/cycles/${cycle.data.id}/close`,{reason:'All assessments completed and acknowledged'},'HR_DIRECTOR',maker)).status).toBe(200);
  });
 });
 describe('double-entry ledger controls',()=>{
