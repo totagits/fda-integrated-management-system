@@ -1,7 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci
 COPY . .
 RUN node --check server/index.js
 RUN npm run build
@@ -13,7 +13,7 @@ RUN apk add --no-cache su-exec \
   && mkdir -p /data/uploads \
   && chown node:node /data/uploads
 COPY package.json package-lock.json ./
-RUN npm ci --only=production --no-audit --no-fund
+RUN npm ci --omit=dev
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
 COPY --chown=node:node server/start-api.sh ./start-api.sh
