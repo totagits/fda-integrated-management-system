@@ -215,6 +215,12 @@ it('lets the MD appoint the IT Director, who provisions staff, while HR invites 
  expect((await ok('IT_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(true);
  expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(false);
  expect((await call('MANAGING_DIRECTOR',`/api/admin/users/${created.user.id}/invitation/resend`,{})).status).toBe(403);
+ const pendingMD=randomUUID(),pendingMDInvite=randomUUID();
+ await query("INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,'pending.md@example.test','Pending MD','unused',true)",[pendingMD]);
+ await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'MANAGING_DIRECTOR',$3)",[randomUUID(),pendingMD,office]);
+ await query("INSERT INTO identity_invitations(id,user_id,email,token_hash,invitation_type,requested_by,org_unit_id,expires_at) VALUES($1,$2,'pending.md@example.test',$3,'MD_ROLE_ACCOUNT',$4,$5,now()+interval '1 day')",[pendingMDInvite,pendingMD,randomUUID(),accounts.MANAGING_DIRECTOR.id,office]);
+ expect((await ok('IT_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.role==='MANAGING_DIRECTOR')).toBe(false);
+ expect((await call('IT_DIRECTOR',`/api/admin/users/${pendingMD}/invitation/resend`,{})).status).toBe(403);
  const hrToken=sentInvitations.at(-1).token;
  const activated=await call('anonymous','/api/auth/accept-invitation',{token:hrToken,password:'A-long-private-password-2026!'},false);expect(activated.status).toBe(200);
  const hrHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.hr@example.test']);expect(await verifyPassword('A-long-private-password-2026!',hrHash.rows[0].password_hash)).toBe(true);

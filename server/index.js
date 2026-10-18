@@ -419,7 +419,7 @@ app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guard
     const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
     if (isMD && !isITDirector && user.role !== 'IT_DIRECTOR') throw Object.assign(new Error('The Managing Director may resend only the IT Director appointment invitation.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may manage account invitations.'), { status: 403, code: 'FORBIDDEN' });
-    if (isITDirector && user.role === 'IT_DIRECTOR') throw Object.assign(new Error('Only the Managing Director may manage the IT Director appointment invitation.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+    if (isITDirector && ['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(user.role)) throw Object.assign(new Error('Only the Managing Director may manage executive account invitations.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     const issued=await issueIdentityInvitation(client, { user, requestedBy: req.auth.userId, orgUnitId: user.org_unit_id, invitationType: 'MD_ROLE_ACCOUNT' });
     await audit(client,req,'identity.invitation_resent','user',id,{role:user.role,orgUnitId:user.org_unit_id});
     return issued;
@@ -441,7 +441,7 @@ app.get('/api/admin/user-invitations', loadAuth, guardAny('user.manage','it.admi
     WHERE u.must_change_password=true AND u.disabled_at IS NULL
     ORDER BY i.created_at DESC LIMIT 200`);
   const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
-  res.json(isITDirector ? rows.rows : rows.rows.filter((row) => row.role === 'IT_DIRECTOR'));
+  res.json(isITDirector ? rows.rows.filter((row) => !['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : rows.rows.filter((row) => row.role === 'IT_DIRECTOR'));
 }));
 
 app.post('/api/admin/budgets', loadAuth, csrfRequired, guard('budget.manage'), route(async (req, res) => {
