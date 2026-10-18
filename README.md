@@ -4,9 +4,9 @@ This repository contains the single full-stack FDA application deployed at `http
 
 ## Current implementation status
 
-The current operational workflow covers authentication and session management, organization and user administration, budgets, vendors, requisitions, approvals, purchase orders, goods receipt and inspection, asset registration from accepted capital deliveries, invoice matching, and payment authorization/recording. Those workflows require a configured PostgreSQL database and are unavailable if the database is not configured.
+The current operational workflow covers authentication and session management, organization and user administration, budgets, vendors, requisitions, approvals, purchase orders, goods receipt and inspection, asset registration from accepted capital deliveries, invoice matching, and payment authorization/recording. HR workflows now include establishment, employee transfers and exits, leave, scoped vacancy publishing, applicant selection, hiring into the employee register, and onboarding task tracking. Those workflows require a configured PostgreSQL database and are unavailable if the database is not configured.
 
-HR lifecycle, full general ledger and period close, end-to-end tendering and contract management, full asset custody/maintenance/disposal, verified FDA integrations, independent audit export, and proven backup recovery are not complete. Do not enter real operational data until the readiness gates in [Production readiness](docs/PRODUCTION_READINESS.md) have been passed.
+HR attendance, training, performance, disciplinary and final payroll/payment controls; full AP/AR and advances; end-to-end tendering and contract amendment workflows; full inventory/consumables; verified FDA integrations; independent audit export; and proven backup recovery are not complete. Do not enter real operational data until the readiness gates in [Production readiness](docs/PRODUCTION_READINESS.md) have been passed.
 
 ## Run locally
 

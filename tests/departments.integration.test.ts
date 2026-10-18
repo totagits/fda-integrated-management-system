@@ -17,7 +17,7 @@ async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
  for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
@@ -67,6 +67,25 @@ describe('HR records and employee self-service',()=>{
   expect((await request(`/api/hr/employees/${employeeId}/change`,{action:'exit',version:99,reason:'Exit'})).status).toBe(409);
   const p=await request('/api/hr/positions',{orgUnitId:otherOffice,code:'POS-OTHER',title:'Other role',grade:'B',capacity:1},'HR_DIRECTOR',checker,otherOffice);
   expect((await request(`/api/hr/employees/${employeeId}/change`,{action:'transfer',version:1,positionId:p.data.id,reason:'Transfer'})).status).toBe(403);
+ });
+ it('runs scoped recruitment through independently published vacancy, hiring and employee onboarding',async()=>{
+  const p=await request('/api/hr/positions',{orgUnitId:office,code:'POS-RECRUIT',title:'Recruitment Test Officer',grade:'B',capacity:1});expect(p.status,p.data.error).toBe(200);
+  const vacancy=await request('/api/hr/vacancies',{positionId:p.data.id,reference:'VAC-TEST',title:'Test Officer',description:'Published selection criteria',opensOn:'2026-01-01',closesOn:'2099-01-01'});expect(vacancy.status,vacancy.data.error).toBe(200);
+  expect((await request(`/api/hr/vacancies/${vacancy.data.id}/decide`,{status:'PUBLISHED',reason:'Approved staffing authorization'})).status).toBe(403);
+  expect((await request(`/api/hr/vacancies/${vacancy.data.id}/decide`,{status:'PUBLISHED',reason:'Approved staffing authorization'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request('/api/hr/applications',undefined,'HR_DIRECTOR',checker,otherOffice)).data.rows).toHaveLength(0);
+  const app=await request('/api/hr/applications',{vacancyId:vacancy.data.id,reference:'APP-TEST',applicantName:'Applicant Test',email:'applicant@example.test',contact:'555-0101'});expect(app.status,app.data.error).toBe(200);
+  expect((await request(`/api/hr/applications/${app.data.id}/advance`,{status:'OFFERED',reason:'Invalid skipped stages'})).status).toBe(409);
+  for(const [status,reason] of [['SCREENING','Eligibility checked'],['INTERVIEW','Shortlisted against criteria'],['RECOMMENDED','Panel recommendation'],['OFFERED','Offer reference OFFER-1']])expect((await request(`/api/hr/applications/${app.data.id}/advance`,{status,reason})).status).toBe(200);
+  expect((await request(`/api/hr/applications/${app.data.id}/hire`,{staffNumber:'NEW-STAFF-1',startDate:'2026-11-01',reason:'Approved appointment'})).status).toBe(403);
+  const hired=await request(`/api/hr/applications/${app.data.id}/hire`,{staffNumber:'NEW-STAFF-1',startDate:'2026-11-01',reason:'Approved appointment'},'HR_DIRECTOR',checker);expect(hired.status,hired.data.error).toBe(200);
+  expect((await request(`/api/hr/applications/${app.data.id}/hire`,{staffNumber:'DUPLICATE',startDate:'2026-11-01',reason:'Duplicate'},'HR_DIRECTOR',checker)).status).toBe(409);
+  const task=await request('/api/hr/onboarding',{employeeId:hired.data.employeeId,taskCode:'ID-001',title:'Issue staff identification',description:'Verify identity documents and record issuance',assignedTo:employeeUser,dueDate:'2026-11-15'});expect(task.status,task.data.error).toBe(200);
+  expect((await request('/api/hr/onboarding/my',undefined,'COUNTY_OFFICER',employeeUser)).data).toHaveLength(1);
+  expect((await request(`/api/hr/onboarding/${task.data.id}/complete-self`,{reason:'Completed'} ,'COUNTY_OFFICER',checker)).status).toBe(403);
+  expect((await request(`/api/hr/onboarding/${task.data.id}/complete-self`,{reason:'Issued under receipt ID ID-552'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request('/api/hr/onboarding',undefined,'HR_DIRECTOR')).data.rows[0].status).toBe('COMPLETE');
+  expect((await request(`/api/departments/application/${app.data.id}/history`,undefined,'HR_DIRECTOR')).data.length).toBeGreaterThanOrEqual(6);
  });
 });
 describe('double-entry ledger controls',()=>{

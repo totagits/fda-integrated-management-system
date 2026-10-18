@@ -63,4 +63,12 @@ The Integration Status workspace reports actual audit-outbox counts, pending/ret
 - No production records or external business systems are used by these tests.
 - Browser visual acceptance, real PostgreSQL concurrency/load testing, independent security review, restore drills and FDA process acceptance remain outstanding.
 
-The full enterprise requirement set remains larger than this increment. Recruitment, onboarding, attendance, training/performance/disciplinary workflows, full AP/AR, advances, sophisticated procurement sourcing, inventory/consumables, verified integrations and operational assurance still require implementation or validation. No full production-readiness certification is implied.
+## HR recruitment and onboarding — 19 October 2026
+
+Migration `006_hr_recruitment_onboarding.sql` adds scoped vacancies, applicant intake, hiring decisions and onboarding tasks without inserting sample records. A vacancy is tied to an approved establishment position; the API checks the approved position capacity both when drafting and publishing. A different HR officer must publish a vacancy. Applicant PII is only available through HR-authorized, office-scoped routes and record evidence is stored through the existing protected attachment service.
+
+Applications progress through documented screening, interview, recommendation and offer stages. Skipped stages, closed records and appointments without an issued offer are rejected. Hiring creates the employee record and changes the application to hired in one transaction; position limits and optional login-account office assignment are checked again at appointment. Onboarding tasks can be assigned to an employee account; the employee or named owner can complete them from self-service, while HR can record evidence or independently waive a task. All state changes create append-only audit entries.
+
+The integration test covers office isolation, independent vacancy publication, valid stage order, hire-to-employee creation, duplicate hire prevention, task assignment, employee self-service completion, and record history. It runs against an isolated PostgreSQL-compatible database and does not use production data.
+
+Attendance, training, performance, confidential disciplinary cases and final payroll/payment controls remain open HR scope. Full AP/AR, advances, contract amendments and partial matching, consumables and stock replenishment, verified FDA integrations and operational assurance also remain incomplete. No full production-readiness certification is implied.

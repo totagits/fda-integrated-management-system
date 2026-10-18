@@ -14,6 +14,7 @@ export const fail=(message,status=422)=>Object.assign(new Error(message),{status
 export const required=(value,label,max=2000)=>{if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw fail(`${label} is required (maximum ${max} characters).`);return value.trim();};
 export const idValue=(v)=>{if(typeof v!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v))throw fail('Select a valid record.');return v;};
 export const dateValue=(v)=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw fail('Enter a valid date.');return v;};
+const dbDate=v=>v instanceof Date?v.toISOString().slice(0,10):String(v||'').slice(0,10);
 const currencyValue=v=>{if(!['USD','LRD'].includes(v))throw fail('Select USD or LRD.');return v;};
 const amount=v=>{const n=parseMinorUnits(v);if(n<=0n)throw fail('Amount must be greater than zero.');return n.toString();};
 const numeric=(v,min,max)=>{const n=Number(v);if(v===''||!Number.isFinite(n)||n<min||n>max)throw fail(`Enter a number from ${min} to ${max}.`);return n;};
@@ -319,7 +320,89 @@ export function registerDepartments(app,deps){
   if(req.body.status==='APPROVED')await db.query("UPDATE assets SET lifecycle_status='DISPOSED',custodian_user_id=NULL,custodian=NULL,proposed_custodian_id=NULL,version=version+1 WHERE id=$1",[a.id]);
   await db.query('UPDATE asset_disposals SET status=$2,decided_by=$3,decision_note=$4 WHERE id=$1',[d.id,req.body.status,req.auth.userId,required(req.body.reason,'Decision note')]);await audit(db,req,`asset.disposal_${req.body.status.toLowerCase()}`,'asset',a.id,{disposalId:d.id});return {id:d.id};
  });
- const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets]};
+
+ // Recruitment intake and onboarding are backed by the same personnel register,
+ // office scope controls and append-only audit chain as the other HR records.
+ get('/api/hr/vacancies',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_vacancy_directory',['reference','title','description','position_code','office_name']));
+ post('/api/hr/vacancies',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,p=await row(db,'hr_positions',b.positionId);await office(db,req,p.org_unit_id);
+  const opens=dateValue(b.opensOn),closes=dateValue(b.closesOn);if(closes<opens)throw fail('Closing date must be on or after the opening date.');
+  const active=await db.query("SELECT count(*)::integer AS count FROM hr_employees WHERE position_id=$1 AND status='ACTIVE'",[p.id]);
+  if(Number(active.rows[0].count)>=p.capacity)throw fail('A vacancy cannot be opened for a position at its approved capacity.',409);
+  const id=randomUUID();await db.query('INSERT INTO hr_vacancies(id,reference,org_unit_id,position_id,title,description,opens_on,closes_on,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,required(b.reference,'Vacancy reference',100),p.org_unit_id,p.id,required(b.title,'Published title',200),required(b.description,'Role description and selection criteria'),opens,closes,req.auth.userId]);
+  await audit(db,req,'hr.vacancy.created','vacancy',id,{positionId:p.id,opensOn:opens,closesOn:closes});return {id};
+ });
+ post('/api/hr/vacancies/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const v=await row(db,'hr_vacancies',req.params.id);await scope(req,v.org_unit_id);
+  if(v.status!=='DRAFT')throw fail('Only draft vacancies can be independently published or cancelled.',409);
+  if(!['PUBLISHED','CANCELLED'].includes(req.body.status))throw fail('Select publish or cancel.');
+  if(req.body.status==='PUBLISHED'){
+   checker(req,v.created_by);
+   const today=new Date().toISOString().slice(0,10);if(dbDate(v.closes_on)<today)throw fail('The application closing date has passed.',409);
+   const p=await row(db,'hr_positions',v.position_id);const filled=await db.query("SELECT count(*)::integer AS count FROM hr_employees WHERE position_id=$1 AND status='ACTIVE'",[p.id]);
+   if(Number(filled.rows[0].count)>=p.capacity)throw fail('Position capacity was filled before publication.',409);
+  }
+  await db.query('UPDATE hr_vacancies SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[v.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent HR publication decision')]);
+  await audit(db,req,`hr.vacancy.${req.body.status.toLowerCase()}`,'vacancy',v.id);return {id:v.id};
+ });
+ get('/api/hr/applications',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_application_directory',['reference','applicant_name','email','contact','vacancy_reference','vacancy_title','status']));
+ post('/api/hr/applications',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,v=await row(db,'hr_vacancies',b.vacancyId);await scope(req,v.org_unit_id);
+  if(v.status!=='PUBLISHED')throw fail('Applications can only be registered against a published vacancy.',409);
+  const today=new Date().toISOString().slice(0,10);if(today<dbDate(v.opens_on)||today>dbDate(v.closes_on))throw fail('Application intake is outside the published dates.',409);
+  const email=required(b.email,'Applicant email',254).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw fail('Enter a valid applicant email.');
+  const id=randomUUID();await db.query('INSERT INTO hr_applications(id,vacancy_id,reference,applicant_name,email,contact,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,v.id,required(b.reference,'Application reference',100),required(b.applicantName,'Applicant full name',200),email,String(b.contact||'').trim().slice(0,120),req.auth.userId]);
+  await audit(db,req,'hr.application.received','application',id,{vacancyId:v.id});return {id};
+ });
+ post('/api/hr/applications/:id/advance',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const a=await row(db,'hr_applications',req.params.id);const v=await row(db,'hr_vacancies',a.vacancy_id);await scope(req,v.org_unit_id);
+  if(['HIRED','REJECTED','WITHDRAWN'].includes(a.status))throw fail('This application is closed.',409);
+  const allowed={RECEIVED:['SCREENING','REJECTED','WITHDRAWN'],SCREENING:['INTERVIEW','REJECTED','WITHDRAWN'],INTERVIEW:['RECOMMENDED','REJECTED','WITHDRAWN'],RECOMMENDED:['OFFERED','REJECTED','WITHDRAWN'],OFFERED:['REJECTED','WITHDRAWN']};
+  const next=req.body.status;if(!allowed[a.status]?.includes(next))throw fail('The requested application stage is not a valid next step.',409);
+  const note=required(req.body.reason,'Stage decision / evidence reference');
+  await db.query('UPDATE hr_applications SET status=$2,decision_note=$3,updated_by=$4,updated_at=now() WHERE id=$1',[a.id,next,note,req.auth.userId]);
+  await audit(db,req,`hr.application.${next.toLowerCase()}`,'application',a.id,{from:a.status,to:next,decisionNote:note});return {id:a.id};
+ });
+ post('/api/hr/applications/:id/hire',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const a=await row(db,'hr_applications',req.params.id);const v=await row(db,'hr_vacancies',a.vacancy_id);await scope(req,v.org_unit_id);
+  if(a.status!=='OFFERED')throw fail('A candidate must have an issued offer before hiring.',409);
+  checker(req,a.updated_by||a.created_by);
+  if(v.status!=='PUBLISHED')throw fail('The vacancy must remain active through appointment.',409);
+  const p=await checkPosition(db,req,v.position_id);let userId=null;
+  if(req.body.userId){const u=await row(db,'users',req.body.userId,false);if(u.disabled_at)throw fail('Staff account is disabled.');const assignments=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[u.id,v.org_unit_id]);if(!assignments.rowCount)throw fail('The linked staff account must be assigned to the employee office.');const already=await db.query('SELECT 1 FROM hr_employees WHERE user_id=$1',[u.id]);if(already.rowCount)throw fail('This login is already linked to an employee record.',409);userId=u.id;}
+  const employeeId=randomUUID();await db.query('INSERT INTO hr_employees(id,staff_number,full_name,email,user_id,org_unit_id,position_id,start_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[employeeId,required(req.body.staffNumber,'Staff number',80),a.applicant_name,a.email,userId,v.org_unit_id,p.id,dateValue(req.body.startDate)]);
+  await db.query("UPDATE hr_applications SET status='HIRED',employee_id=$2,decision_note=$3,updated_by=$4,updated_at=now() WHERE id=$1",[a.id,employeeId,required(req.body.reason,'Hiring authorization reference'),req.auth.userId]);
+  await audit(db,req,'hr.application.hired','application',a.id,{employeeId,positionId:p.id,staffNumber:req.body.staffNumber});
+  await audit(db,req,'hr.employee.created_from_recruitment','employee',employeeId,{applicationId:a.id,vacancyId:v.id,positionId:p.id});return {id:a.id,employeeId};
+ });
+ get('/api/hr/onboarding',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_onboarding_directory',['task_code','title','description','staff_number','employee_name','status','office_name']));
+ post('/api/hr/onboarding',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,e=await row(db,'hr_employees',b.employeeId);await scope(req,e.org_unit_id);if(e.status!=='ACTIVE')throw fail('Onboarding tasks require an active employee.');
+  let assignedTo=null;if(b.assignedTo){const u=await row(db,'users',b.assignedTo,false);if(u.disabled_at)throw fail('Assigned account is disabled.');const inOffice=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[u.id,e.org_unit_id]);if(!inOffice.rowCount)throw fail('The task owner must have an account assigned to this office.');assignedTo=u.id;}
+  const id=randomUUID();await db.query('INSERT INTO hr_onboarding_tasks(id,employee_id,org_unit_id,task_code,title,description,assigned_to,due_date,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,e.id,e.org_unit_id,required(b.taskCode,'Task code',80),required(b.title,'Task title',200),required(b.description,'Task instructions'),assignedTo,b.dueDate?dateValue(b.dueDate):null,req.auth.userId]);
+  await audit(db,req,'hr.onboarding.task_created','onboarding',id,{employeeId:e.id,assignedTo});return {id};
+ });
+ app.get('/api/hr/onboarding/my',loadAuth,route(async(req,res)=>{
+  res.json((await pool.query('SELECT id,task_code,title,description,due_date,status,completion_note,created_at FROM hr_onboarding_directory WHERE employee_user_id=$1 OR assigned_to=$1 ORDER BY due_date NULLS LAST,created_at',[req.auth.userId])).rows);
+ }));
+ post('/api/hr/onboarding/:id/complete',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const t=await row(db,'hr_onboarding_tasks',req.params.id);await scope(req,t.org_unit_id);if(t.status!=='OPEN')throw fail('Only open onboarding tasks can be completed.',409);
+  await db.query("UPDATE hr_onboarding_tasks SET status='COMPLETE',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Completion evidence / note'),req.auth.userId]);
+  await audit(db,req,'hr.onboarding.task_completed','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
+ });
+ app.post('/api/hr/onboarding/:id/complete-self',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
+  const t=await row(db,'hr_onboarding_tasks',req.params.id),e=await row(db,'hr_employees',t.employee_id,false);
+  if(t.assigned_to!==req.auth.userId&&e.user_id!==req.auth.userId)throw fail('Only the employee or assigned task owner can complete this task.',403);
+  if(t.status!=='OPEN')throw fail('Only open onboarding tasks can be completed.',409);
+  await db.query("UPDATE hr_onboarding_tasks SET status='COMPLETE',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Completion note'),req.auth.userId]);
+  await writeAudit(db,req.auth,'hr.onboarding.task_completed_self','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
+ }))));
+ post('/api/hr/onboarding/:id/waive',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const t=await row(db,'hr_onboarding_tasks',req.params.id);await scope(req,t.org_unit_id);if(t.status!=='OPEN')throw fail('Only open onboarding tasks can be waived.',409);
+  checker(req,t.created_by);await db.query("UPDATE hr_onboarding_tasks SET status='WAIVED',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Waiver approval reason'),req.auth.userId]);
+  await audit(db,req,'hr.onboarding.task_waived','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
+ });
+ const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets]};
  app.get('/api/departments/:type/:id/history',loadAuth,route(async(req,res)=>{
   const config=histories[req.params.type];if(!config)throw fail('Unknown record type.',404);
   req.departmentAuth=departmentAuth(req.auth,config[1]);const r=await row(pool,config[0],req.params.id,false);await scope(req,r.org_unit_id);
