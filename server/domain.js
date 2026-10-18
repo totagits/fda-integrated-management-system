@@ -6,6 +6,7 @@ export const ROLES = Object.freeze([
   'ASSET_OFFICER',
   'COUNTY_OFFICER',
   'INTERNAL_AUDITOR',
+  'EMPLOYEE',
 ]);
 
 export const ROLE_CAPABILITIES = Object.freeze({
@@ -16,6 +17,7 @@ export const ROLE_CAPABILITIES = Object.freeze({
   ASSET_OFFICER: ['workflow.read.scope', 'receipt.inspect', 'asset.read.scope', 'asset.manage.scope', 'attachment.read.scope', 'attachment.write.scope'],
   COUNTY_OFFICER: ['workflow.read.scope', 'requisition.create', 'requisition.submit.own', 'receipt.inspect', 'asset.read.scope', 'attachment.read.scope', 'attachment.write.scope'],
   INTERNAL_AUDITOR: ['workflow.read.all', 'budget.read.all', 'asset.read.all', 'audit.read.all', 'attachment.read.all'],
+  EMPLOYEE: ['employee.self'],
 });
 
 export const TRANSITIONS = Object.freeze({

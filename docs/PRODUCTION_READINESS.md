@@ -1,5 +1,11 @@
 # Production readiness status
 
+## Staff identity and onboarding increment — 18 October 2026
+
+The MD dashboard now exposes **Create HR login** and persistent pending-invitation tracking. Staff accounts are activated with single-use, 72-hour links; raw tokens are not stored, and administrators do not receive temporary passwords. HR can invite active existing employees and new hires from the scoped employee directory after confirming a work email. Employee accounts receive only the self-service role. Migration `010_identity_invitations.sql` adds invitation records and that restricted role. The release build and all 59 automated tests pass, including account activation, token replacement/revocation and office-scoped HR invitation tests.
+
+The SMTP sender is implemented, but live email delivery is not verified until FDA/TOTAG supplies an approved relay and a real message is tested. Configure the SMTP variables in the existing Coolify app as described in [PRODUCTION_OPERATIONS.md](PRODUCTION_OPERATIONS.md); `/api/health/ready` reports whether those settings and the public URL are present. External business integrations, production restore/security drills and overall production readiness remain unverified.
+
 ## Latest enterprise increment
 
 See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for effective-dated payroll rules, sealed e-bidding, bid evaluation, bank reconciliation, stocktaking, depreciation, integration diagnostics, inventory replenishment and HR workflows. The current frontend build and 59 automated tests pass, including staged goods settlement and replenishment into the procurement requisition process. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Automated bank payment initiation and settlement verification remain unavailable. Payroll rules require formal FDA approval and year-to-date, eligibility and filing controls remain incomplete. Full production readiness is not claimed.

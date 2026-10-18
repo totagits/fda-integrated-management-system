@@ -35,6 +35,12 @@ Open the **existing** FDA app, not a new one.
    - `INITIAL_ADMIN_NAME` = the FDA-approved first administrator's name
    - `INITIAL_ADMIN_EMAIL` = the approved administrator's work email
    - `INITIAL_ADMIN_PASSWORD` = a unique, one-time password with at least 16 characters
+   - `PUBLIC_APP_URL` = `https://fda.totag.network`
+   - `SMTP_HOST` = FDA/TOTAG-approved authenticated mail relay hostname
+   - `SMTP_PORT` = `587` for STARTTLS, or `465` for implicit TLS
+   - `SMTP_USER` and `SMTP_PASSWORD` = relay credentials (both or neither; store as secrets)
+   - `SMTP_FROM` = approved sender address, for example `FDA Staff Workspace <no-reply@totag.network>`
+   - `SMTP_SECURE` = `true` only for port `465`; for port `587`, use `false`
 
    Mark the database URL and initial password as secret in Coolify. Do not put passwords or connection URLs in GitHub or ChatGPT. Coolify's [environment variable guide](https://coolify.io/docs/applications/configuration/environment-variables) explains its secret setting.
 
@@ -50,6 +56,9 @@ Check these URLs after deployment:
 - `https://fda.totag.network/api/health/live` — should return `{"status":"live"}`
 - `https://fda.totag.network/api/health/ready` — should return `{"status":"ready"}` when PostgreSQL and the schema are ready
 - `https://fda.totag.network/secure` — named-user sign-in
+- `https://fda.totag.network/api/health/ready` — `email.configured` should be `true` after SMTP and the public app URL are set
+
+The Managing Director sees **Create HR login** on the role dashboard and **Staff Access & Setup** in the sidebar. Creating an account sends a single-use setup link that expires after 72 hours; passwords are never shown to administrators. HR can send or replace account setup invitations from the Employee Directory after adding a valid work email to the active employee record. After adding or rotating SMTP settings, use the on-screen **Resend invitation** action for an account still awaiting activation. Mail delivery and account activation are audited; raw invitation tokens are stored only as hashes.
 
 Do not enter real FDA records until FDA approves the user roles, approval controls, privacy rules and retention policy.
 

@@ -20,7 +20,7 @@ export const staffSections = (roles: string[]) => {
     {id:'assets',label:'Asset Register',icon:Box,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','ASSET_OFFICER','COUNTY_OFFICER','PROCUREMENT_OFFICER','INTERNAL_AUDITOR')},
     {id:'publication',label:'Public Procurement',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','PROCUREMENT_OFFICER')},
     {id:'audit',label:'Audit Trail',icon:History,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
-    {id:'setup',label:'Administration',icon:Settings,show:has('MANAGING_DIRECTOR')},
+    {id:'setup',label:'Staff Access & Setup',icon:Settings,show:has('MANAGING_DIRECTOR')},
   ].filter(item=>item.show);
 };
 export function StaffShell({name,roles,active,onSelect,onLogout,children}:{name:string;roles:string[];active:string;onSelect:(id:string)=>void;onLogout:()=>void;children:React.ReactNode}) {

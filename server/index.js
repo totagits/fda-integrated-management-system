@@ -14,6 +14,8 @@ import { pool, migrate, transaction, writeAudit, sha256, makeSessionToken, safeU
 import { ROLE_CAPABILITIES, parseMinorUnits, requireCapability, canTransition } from './domain.js';
 import { hashPassword, verifyPassword } from './security.js';
 import { registerPublicPortal } from './public-portal.js';
+import { deliverIdentityInvitation, issueIdentityInvitation, makeUnusablePasswordHash } from './identity-invitations.js';
+import { identityEmailConfigured, invitationLinkIsConfigured } from './identity-email.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
@@ -36,6 +38,7 @@ app.use((req, res, next) => {
 });
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
+const invitationLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
 
 async function deliverOutboxBatch() {
   const target=String(process.env.INTEGRATION_WEBHOOK_URL||'').trim();
@@ -65,7 +68,7 @@ app.get('/api/health/ready', route(async (_req, res) => {
   await pool.query('SELECT 1');
   const schema=await pool.query("SELECT to_regclass('public.users') AS users_table,to_regclass('public.audit_events') AS audit_table");
   if(!schema.rows[0]?.users_table||!schema.rows[0]?.audit_table)return res.status(503).json({status:'not_ready',reason:'schema_not_migrated'});
-  return res.json({ status: 'ready', checkedAt: new Date().toISOString(), integrations: { webhookConfigured: Boolean(process.env.INTEGRATION_WEBHOOK_URL&&process.env.INTEGRATION_WEBHOOK_SECRET) } });
+  return res.json({ status: 'ready', checkedAt: new Date().toISOString(), integrations: { webhookConfigured: Boolean(process.env.INTEGRATION_WEBHOOK_URL&&process.env.INTEGRATION_WEBHOOK_SECRET) }, email: { configured: identityEmailConfigured() && invitationLinkIsConfigured() } });
 }));
 
 function parseCookies(req) {
@@ -280,6 +283,39 @@ app.post('/api/auth/login', loginLimiter, route(async (req, res) => {
   res.json({ user: { id: user.id, email: user.email, fullName: user.full_name, mustChangePassword: user.must_change_password }, roles: assignments.rows.map((row) => ({ role: row.role, orgUnitId: row.org_unit_id })) });
 }));
 
+app.post('/api/auth/accept-invitation', invitationLimiter, route(async (req, res) => {
+  ensureDb();
+  const token = String(req.body?.token || '');
+  const password = String(req.body?.password || '');
+  if (!/^[A-Za-z0-9_-]{40,60}$/.test(token) || password.length < 12 || password.length > 1024) {
+    throw Object.assign(new Error('The invitation is invalid or expired, or the password does not meet the minimum length of 12 characters.'), { status: 422, code: 'INVALID_INVITATION' });
+  }
+  const passwordHash = await hashPassword(password);
+  const accepted = await transaction(async (client) => {
+    const found = await client.query(
+      `SELECT i.id,i.user_id,i.org_unit_id,i.expires_at,i.accepted_at,i.revoked_at,
+              u.email,u.full_name,u.disabled_at,r.role
+       FROM identity_invitations i JOIN users u ON u.id=i.user_id
+       JOIN user_roles r ON r.user_id=u.id
+       WHERE i.token_hash=$1 FOR UPDATE OF i,u`,
+      [crypto.createHash('sha256').update(token).digest('hex')],
+    );
+    const invitation = found.rows[0];
+    if (!invitation || invitation.disabled_at || invitation.accepted_at || invitation.revoked_at || new Date(invitation.expires_at) <= new Date()) {
+      throw Object.assign(new Error('The invitation is invalid or expired. Ask your FDA administrator to send a new invitation.'), { status: 410, code: 'INVITATION_EXPIRED' });
+    }
+    await client.query('UPDATE users SET password_hash=$2,must_change_password=false WHERE id=$1 AND disabled_at IS NULL', [invitation.user_id, passwordHash]);
+    await client.query('UPDATE identity_invitations SET accepted_at=now() WHERE id=$1', [invitation.id]);
+    await client.query('UPDATE identity_invitations SET revoked_at=now() WHERE user_id=$1 AND id<>$2 AND accepted_at IS NULL AND revoked_at IS NULL', [invitation.user_id, invitation.id]);
+    await client.query('DELETE FROM sessions WHERE user_id=$1', [invitation.user_id]);
+    const role = invitation.role;
+    const actor = { userId: invitation.user_id, email: invitation.email, fullName: invitation.full_name, role, orgUnitId: invitation.org_unit_id, requestId: req.requestId };
+    await writeAudit(client, actor, 'identity.invitation_accepted', 'user', invitation.user_id, { role });
+    return { email: invitation.email };
+  });
+  res.json({ status: 'activated', email: accepted.email });
+}));
+
 app.get('/api/auth/me', loadAuth, route(async (req, res) => {
   res.json({ user: { id: req.auth.userId, email: req.auth.email, fullName: req.auth.fullName, mustChangePassword: req.auth.mustChangePassword }, roles: req.auth.roles });
 }));
@@ -345,6 +381,7 @@ app.post('/api/admin/users', loadAuth, csrfRequired, guard('user.manage'), route
   const body = req.body || {};
   const email = text(body.email, 'Email', 254).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid work email.'), { status: 422, code: 'INVALID_INPUT' });
+  if ((await pool.query('SELECT 1 FROM users WHERE email=$1',[email])).rowCount) throw Object.assign(new Error('An account already uses this email address.'), { status: 409, code: 'ACCOUNT_EXISTS' });
   const fullName = text(body.fullName, 'Full name', 160);
   const role = validEnum(body.role, ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'], 'Role');
   const orgUnitId = body.orgUnitId ? requireUuid(body.orgUnitId, 'Office') : null;
@@ -354,13 +391,46 @@ app.post('/api/admin/users', loadAuth, csrfRequired, guard('user.manage'), route
     if (!office.rowCount) throw Object.assign(new Error('The selected office is not active.'), { status: 422, code: 'INVALID_OFFICE' });
   }
   const id = uuid();
-  const temporaryPassword = crypto.randomBytes(24).toString('base64url');
-  await transaction(async (client) => {
-    await client.query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,true)', [id, email, fullName, await hashPassword(temporaryPassword)]);
+  const invitation = await transaction(async (client) => {
+    await client.query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,true)', [id, email, fullName, await makeUnusablePasswordHash()]);
     await client.query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,$3,$4)', [uuid(), id, role, orgUnitId]);
     await audit(client, req, 'identity.user_created', 'user', id, { email, role, orgUnitId });
+    const issued=await issueIdentityInvitation(client, { user: { id, email, full_name: fullName }, requestedBy: req.auth.userId, orgUnitId, invitationType: 'MD_ROLE_ACCOUNT' });
+    await audit(client,req,'identity.invitation_issued','user',id,{role,orgUnitId});
+    return issued;
   });
-  res.status(201).json({ user: { id, email, fullName }, temporaryPassword });
+  const delivery = await deliverIdentityInvitation(pool, { invitation, role });
+  res.status(201).json({ user: { id, email, fullName }, ...delivery });
+}));
+
+app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guard('user.manage'), route(async (req, res) => {
+  const id = requireUuid(req.params.id, 'User');
+  const invitation = await transaction(async (client) => {
+    const found = await client.query(`SELECT u.id,u.email,u.full_name,u.must_change_password,u.disabled_at,r.role,r.org_unit_id
+      FROM users u JOIN user_roles r ON r.user_id=u.id WHERE u.id=$1 FOR UPDATE OF u`, [id]);
+    const user = found.rows[0];
+    if (!user || user.disabled_at || !user.must_change_password) throw Object.assign(new Error('This account has already been activated or is unavailable.'), { status: 409, code: 'INVITATION_NOT_AVAILABLE' });
+    const issued=await issueIdentityInvitation(client, { user, requestedBy: req.auth.userId, orgUnitId: user.org_unit_id, invitationType: 'MD_ROLE_ACCOUNT' });
+    await audit(client,req,'identity.invitation_resent','user',id,{role:user.role,orgUnitId:user.org_unit_id});
+    return issued;
+  });
+  const delivery = await deliverIdentityInvitation(pool, { invitation, role: invitation.user.role });
+  res.json(delivery);
+}));
+
+app.get('/api/admin/user-invitations', loadAuth, guard('user.manage'), route(async (_req, res) => {
+  const rows=await pool.query(`SELECT u.id AS user_id,u.email,u.full_name,r.role,o.name AS office_name,
+      i.id AS invitation_id,i.created_at,i.sent_at,i.expires_at,
+      CASE WHEN i.expires_at<=now() THEN 'EXPIRED'
+           WHEN i.sent_at IS NULL THEN 'PENDING_DELIVERY'
+           ELSE 'SENT' END AS invitation_status
+    FROM users u
+    JOIN LATERAL (SELECT role,org_unit_id FROM user_roles WHERE user_id=u.id ORDER BY created_at LIMIT 1) r ON true
+    LEFT JOIN org_units o ON o.id=r.org_unit_id
+    JOIN LATERAL (SELECT id,created_at,sent_at,expires_at FROM identity_invitations WHERE user_id=u.id AND accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1) i ON true
+    WHERE u.must_change_password=true AND u.disabled_at IS NULL
+    ORDER BY i.created_at DESC LIMIT 200`);
+  res.json(rows.rows);
 }));
 
 app.post('/api/admin/budgets', loadAuth, csrfRequired, guard('budget.manage'), route(async (req, res) => {

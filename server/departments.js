@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { parseMinorUnits } from './domain.js';
+import { deliverIdentityInvitation, issueIdentityInvitation, makeUnusablePasswordHash } from './identity-invitations.js';
 export const DEPARTMENT_ROLES = {
  hr: ['MANAGING_DIRECTOR','HR_DIRECTOR'],
  finance: ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'],
@@ -60,7 +61,36 @@ export function registerDepartments(app,deps){
   const id=randomUUID();await db.query('INSERT INTO hr_positions(id,org_unit_id,code,title,grade,capacity) VALUES($1,$2,$3,$4,$5,$6)',[id,b.orgUnitId,required(b.code,'Position code',80),required(b.title,'Title',200),required(b.grade,'Grade',80),capacity]);
   await audit(db,req,'hr.position.created','hr_position',id);return {id};
  });
- get('/api/hr/employees',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_employee_directory',['staff_number','full_name','position_title','office_name','status']));
+ get('/api/hr/employees',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_employee_access_directory',['staff_number','full_name','email','position_title','office_name','status','login_status']));
+ app.post('/api/hr/employees/:id/invite-login',loadAuth,csrfRequired,guard(DEPARTMENT_ROLES.hr),route(async(req,res)=>{
+  const invitation=await transaction(async db=>{
+   req.departmentDb=db;const employee=await row(db,'hr_employees',req.params.id);await scope(req,employee.org_unit_id);
+   if(employee.status!=='ACTIVE')throw fail('Only active employees can receive an account invitation.',409);
+   const email=String(employee.email||'').trim().toLowerCase();
+   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw fail('Add a valid work email to the employee record before inviting them.');
+   let user;
+   if(employee.user_id){
+    const found=await db.query(`SELECT u.id,u.email,u.full_name,u.must_change_password,u.disabled_at,r.role
+      FROM users u JOIN user_roles r ON r.user_id=u.id WHERE u.id=$1 FOR UPDATE OF u`,[employee.user_id]);
+    user=found.rows[0];
+    if(!user||user.disabled_at||user.email!==email||user.role!=='EMPLOYEE')throw fail('The linked account is not an eligible employee account. Ask the Managing Director to review the account linkage.',409);
+    if(!user.must_change_password)throw fail('This employee has already activated their account. Use the approved account recovery process if they need access help.',409);
+   }else{
+    const existing=await db.query('SELECT id FROM users WHERE email=$1',[email]);
+    if(existing.rowCount)throw fail('An account already uses this email. Ask the Managing Director to review and link the correct account before inviting.',409);
+    user={id:randomUUID(),email,full_name:employee.full_name};
+    await db.query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,true)',[user.id,email,employee.full_name,await makeUnusablePasswordHash()]);
+    await db.query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'EMPLOYEE',$3)",[randomUUID(),user.id,employee.org_unit_id]);
+    await db.query('UPDATE hr_employees SET user_id=$2,version=version+1 WHERE id=$1',[employee.id,user.id]);
+    await audit(db,req,'identity.employee_account_created','user',user.id,{employeeId:employee.id,orgUnitId:employee.org_unit_id});
+   }
+   const issued=await issueIdentityInvitation(db,{user,requestedBy:req.auth.userId,orgUnitId:employee.org_unit_id,invitationType:'HR_EMPLOYEE_ONBOARDING'});
+   await audit(db,req,'identity.employee_invitation_issued','employee',employee.id,{userId:user.id,orgUnitId:employee.org_unit_id});
+   return issued;
+  });
+  const delivery=await deliverIdentityInvitation(pool,{invitation,role:'FDA employee'});
+  res.status(202).json({employeeId:req.params.id,...delivery});
+ }));
  async function checkPosition(db,req,positionId,excludeId=null){
   const p=await row(db,'hr_positions',positionId);await office(db,req,p.org_unit_id);
   const count=await db.query("SELECT count(*) FROM hr_employees WHERE position_id=$1 AND status='ACTIVE' AND ($2::uuid IS NULL OR id<>$2)",[p.id,excludeId]);
@@ -71,6 +101,22 @@ export function registerDepartments(app,deps){
   let userId=null;if(b.userId){const u=await row(db,'users',b.userId,false);if(u.disabled_at)throw fail('Staff account is disabled.');const assignments=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[u.id,p.org_unit_id]);if(!assignments.rowCount)throw fail('Link a staff account assigned to the employee office.');userId=u.id;}
   await db.query('INSERT INTO hr_employees(id,staff_number,full_name,email,user_id,org_unit_id,position_id,start_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,required(b.staffNumber,'Staff number',80),required(b.fullName,'Full name',200),String(b.email||'').slice(0,254),userId,p.org_unit_id,p.id,dateValue(b.startDate)]);
   await audit(db,req,'hr.employee.created','employee',id,{positionId:p.id});return {id};
+ });
+ post('/api/hr/employees/:id/contact',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const employee=await row(db,'hr_employees',req.params.id);await scope(req,employee.org_unit_id);
+  if(employee.status!=='ACTIVE')throw fail('Only active employee records can be updated.',409);
+  const email=required(req.body?.email,'Work email',254).toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw fail('Enter a valid work email.');
+  const existing=await db.query('SELECT id FROM users WHERE email=$1 AND id IS DISTINCT FROM $2',[email,employee.user_id]);
+  if(existing.rowCount)throw fail('Another login account already uses this email. Ask the Managing Director to review the account before continuing.',409);
+  if(employee.user_id){
+   const linked=await db.query('SELECT must_change_password FROM users WHERE id=$1 AND disabled_at IS NULL FOR UPDATE',[employee.user_id]);
+   if(!linked.rowCount||!linked.rows[0].must_change_password)throw fail('The employee has an active login. Update active account email using the approved identity administration process.',409);
+   await db.query('UPDATE users SET email=$2 WHERE id=$1',[employee.user_id,email]);
+   await db.query('UPDATE identity_invitations SET revoked_at=now() WHERE user_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[employee.user_id]);
+  }
+  await db.query('UPDATE hr_employees SET email=$2,version=version+1 WHERE id=$1',[employee.id,email]);
+  await audit(db,req,'hr.employee.work_email_updated','employee',employee.id,{orgUnitId:employee.org_unit_id,linkedAccount:Boolean(employee.user_id)});return {id:employee.id};
  });
  post('/api/hr/employees/:id/change',DEPARTMENT_ROLES.hr,async(db,req)=>{
   const e=await row(db,'hr_employees',req.params.id);await scope(req,e.org_unit_id);

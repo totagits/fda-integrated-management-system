@@ -6,13 +6,15 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
-import { hashPassword } from '../server/security.js';
+import { hashPassword, verifyPassword } from '../server/security.js';
 const database=new PGlite();
 const transactionContext=new AsyncLocalStorage<any>();
+const sentInvitations=vi.hoisted(()=>[] as any[]);
 const query=async(sql:string,p?:unknown[])=>{const r=await (transactionContext.getStore()||database).query(sql,p);return {...r,rowCount:r.rows.length||r.affectedRows};};
 vi.mock('../server/db.js',async importOriginal=>{
  const original=await importOriginal<Record<string,unknown>>();return {...original,pool:{query:(s:string,p?:unknown[])=>query(s,p)},transaction:(fn:Function)=>database.transaction(async tx=>transactionContext.run(tx,()=>fn({query:async(s:string,p?:unknown[])=>{const r=await tx.query(s,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})))};
 });
+vi.mock('../server/identity-email.js',()=>({identityEmailConfigured:()=>true,invitationLinkIsConfigured:()=>true,sendIdentityInvitation:vi.fn(async(message:any)=>{sentInvitations.push(message);return {sent:true};})}));
 const office=randomUUID(),otherOffice=randomUUID(),accounts:Record<string,{id:string;cookie:string;csrf:string}>={};
 let server:Server,origin:string,uploads:string;
 const oldUrl=process.env.DATABASE_URL,oldUploads=process.env.UPLOADS_DIR;
@@ -20,7 +22,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
@@ -200,3 +202,27 @@ it('keeps supplier bid packets encrypted until a deadline and two assigned opene
  const opened=await ok(proc,`/api/evaluations/${evaluation.id}/bids`);expect(opened).toHaveLength(1);expect(Number(opened[0].amount_minor)).toBe(120000);expect(opened[0].technical_response).toContain('quality assurance');
  const attachments=await query("SELECT id,original_name FROM attachments WHERE record_type='EVALUATION' AND record_id=$1",[evaluation.id]);expect(attachments.rowCount||attachments.rows.length).toBeGreaterThan(0);
 },30000);
+
+it('lets the MD invite an HR Director and scoped HR invite employees without exposing passwords',async()=>{
+ const created=await ok('MANAGING_DIRECTOR','/api/admin/users',{email:'new.hr@example.test',fullName:'New HR Director',role:'HR_DIRECTOR',orgUnitId:otherOffice});
+ expect(created.temporaryPassword).toBeUndefined();expect(created.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.hr@example.test');
+ expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(true);
+ expect((await call('HR_DIRECTOR','/api/admin/user-invitations')).status).toBe(403);
+ const hrToken=sentInvitations.at(-1).token;
+ const activated=await call('anonymous','/api/auth/accept-invitation',{token:hrToken,password:'A-long-private-password-2026!'},false);expect(activated.status).toBe(200);
+ const hrHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.hr@example.test']);expect(await verifyPassword('A-long-private-password-2026!',hrHash.rows[0].password_hash)).toBe(true);
+
+ const position=await ok('HR_DIRECTOR','/api/hr/positions',{orgUnitId:otherOffice,code:'ONBOARD-1',title:'Field Officer',grade:'A',capacity:2});
+ const employee=await ok('HR_DIRECTOR','/api/hr/employees',{staffNumber:'ONBOARD-EMP-1',fullName:'New FDA Employee',positionId:position.id,startDate:'2026-10-18'});
+ expect((await call('HR_DIRECTOR',`/api/hr/employees/${employee.id}/invite-login`,{})).status).toBe(422);
+ await ok('HR_DIRECTOR',`/api/hr/employees/${employee.id}/contact`,{email:'new.employee@example.test'});
+ const invited=await ok('HR_DIRECTOR',`/api/hr/employees/${employee.id}/invite-login`,{});
+ expect(invited.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.employee@example.test');
+ const oldToken=sentInvitations.at(-1).token;
+ expect((await call('HR_DIRECTOR',`/api/hr/employees/${employee.id}/invite-login`,{})).status).toBe(202);
+ const oldLink=await call('anonymous','/api/auth/accept-invitation',{token:oldToken,password:'A-different-private-password-2026!'},false);expect(oldLink.status).toBe(410);
+ const latestToken=sentInvitations.at(-1).token;
+ const accepted=await call('anonymous','/api/auth/accept-invitation',{token:latestToken,password:'A-different-private-password-2026!'},false);expect(accepted.status).toBe(200);
+ const staffHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.employee@example.test']);expect(await verifyPassword('A-different-private-password-2026!',staffHash.rows[0].password_hash)).toBe(true);
+ const loginState=await ok('HR_DIRECTOR','/api/hr/employees?limit=25&offset=0&q=ONBOARD-EMP-1');expect(loginState.rows[0].login_status).toBe('ACTIVE');
+});
