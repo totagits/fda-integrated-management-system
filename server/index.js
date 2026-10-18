@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { pool, migrate, transaction, writeAudit, sha256, makeSessionToken, safeUploadsDirectory, uuid } from './db.js';
 import { ROLE_CAPABILITIES, parseMinorUnits, requireCapability, canTransition } from './domain.js';
 import { hashPassword, verifyPassword } from './security.js';
+import { registerPublicPortal } from './public-portal.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
@@ -759,6 +760,8 @@ app.get('/api/records/:type/:id/attachments',loadAuth,route(async(req,res)=>{
   const rows=await pool.query(`SELECT id,record_type,record_id,original_name,media_type,byte_size,sha256,created_at FROM attachments WHERE record_type=$1 AND record_id=$2 ORDER BY created_at DESC`,[type,req.params.id]);
   res.json(rows.rows);
 }));
+
+registerPublicPortal(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor });
 
 app.use('/api',(_req,res)=>res.status(404).json({error:'API route not found.',code:'API_NOT_FOUND'}));
 app.use(express.static(distDir,{index:false,etag:true,maxAge:'1h',setHeaders(res,file){if(file.includes(`${path.sep}assets${path.sep}`))res.setHeader('Cache-Control','public,max-age=31536000,immutable');}}));
