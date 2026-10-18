@@ -17,7 +17,7 @@ async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
  for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
@@ -114,6 +114,25 @@ describe('HR records and employee self-service',()=>{
   expect((await request(`/api/hr/performance/reviews/${noLogin.id}/review`,{rating:3,assessment:'Meets baseline; plan quarterly coaching'},'HR_DIRECTOR',maker)).status).toBe(403);
   expect((await request(`/api/hr/performance/reviews/${noLogin.id}/review`,{rating:3,assessment:'Meets baseline; plan quarterly coaching'},'HR_DIRECTOR',checker)).status).toBe(200);
   expect((await request(`/api/hr/performance/cycles/${cycle.data.id}/close`,{reason:'All assessments completed and acknowledged'},'HR_DIRECTOR',maker)).status).toBe(200);
+ });
+ it('records server-time attendance with reviewed corrections and restricts disciplinary cases',async()=>{
+  expect((await request('/api/hr/attendance/clock-in',{},'COUNTY_OFFICER',employeeUser)).status).toBe(201);
+  expect((await request('/api/hr/attendance/clock-in',{},'COUNTY_OFFICER',employeeUser)).status).toBe(409);
+  const mine=await request('/api/hr/attendance/my',undefined,'COUNTY_OFFICER',employeeUser);expect(mine.data.today).toBeTruthy();
+  expect((await request('/api/hr/attendance/clock-out',{},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request('/api/hr/attendance/clock-out',{},'COUNTY_OFFICER',employeeUser)).status).toBe(409);
+  const rows=await request('/api/hr/attendance',undefined,'HR_DIRECTOR');expect(rows.data.rows).toHaveLength(1);
+  const correction=await request(`/api/hr/attendance/${rows.data.rows[0].id}/corrections`,{clockedInAt:'2026-10-18T08:00',clockedOutAt:'2026-10-18T16:00',reason:'Approved signed attendance sheet reference ATT-1'});
+  expect(correction.status,correction.data.error).toBe(200);
+  expect((await request(`/api/hr/attendance/corrections/${correction.data.id}/decide`,{status:'APPROVED',reason:'Checked against signed attendance sheet'},'HR_DIRECTOR',maker)).status).toBe(403);
+  expect((await request(`/api/hr/attendance/corrections/${correction.data.id}/decide`,{status:'APPROVED',reason:'Checked against signed attendance sheet'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const c=await request('/api/hr/disciplinary-cases',{employeeId,caseReference:'CASE-TEST-1',allegationSummary:'Restricted procedural summary'});
+  expect(c.status,c.data.error).toBe(200);
+  expect((await request('/api/hr/disciplinary-cases',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
+  expect((await request('/api/hr/disciplinary-cases',undefined,'COUNTY_OFFICER',employeeUser)).status).toBe(403);
+  expect((await request(`/api/hr/disciplinary-cases/${c.data.id}/advance`,{status:'OPEN',reason:'Independent case intake check'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/disciplinary-cases/${c.data.id}/advance`,{status:'UNDER_REVIEW',reason:'Begin review'},'HR_DIRECTOR',checker)).status).toBe(403);
+  expect((await request(`/api/departments/disciplinary_case/${c.data.id}/history`,undefined,'COUNTY_OFFICER',employeeUser)).status).toBe(403);
  });
 });
 describe('double-entry ledger controls',()=>{

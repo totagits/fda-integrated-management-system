@@ -489,7 +489,61 @@ export function registerDepartments(app,deps){
   const r=await row(db,'hr_performance_reviews',req.params.id),e=await row(db,'hr_employees',r.employee_id,false);if(e.user_id!==req.auth.userId)throw fail('Only the employee can acknowledge this review.',403);
   if(r.status!=='REVIEWED')throw fail('A manager-reviewed assessment is required before acknowledgement.',409);await db.query("UPDATE hr_performance_reviews SET status='ACKNOWLEDGED',acknowledged_at=now() WHERE id=$1",[r.id]);await writeAudit(db,req.auth,'hr.performance.acknowledged','performance_review',r.id,{note:required(req.body.reason,'Acknowledgement / response')});return {id:r.id};
  }))));
- const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],training_program:['hr_training_programs',DEPARTMENT_ROLES.hr],training_enrollment:['hr_training_enrollments',DEPARTMENT_ROLES.hr],performance_cycle:['hr_performance_cycles',DEPARTMENT_ROLES.hr],performance_review:['hr_performance_review_directory',DEPARTMENT_ROLES.hr],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets]};
+ // Attendance relies on server timestamps; it does not claim biometric identity verification.
+ app.get('/api/hr/attendance/my',loadAuth,route(async(req,res)=>{
+  const e=await pool.query('SELECT id,full_name,status FROM hr_employees WHERE user_id=$1',[req.auth.userId]);
+  if(!e.rowCount)return res.json({employee:null,today:null,entries:[]});
+  const entries=await pool.query('SELECT id,work_date,clocked_in_at,clocked_out_at FROM hr_attendance WHERE employee_id=$1 ORDER BY work_date DESC LIMIT 60',[e.rows[0].id]);
+  res.json({employee:e.rows[0],today:entries.rows.find(r=>dbDate(r.work_date)===new Date().toISOString().slice(0,10))||null,entries:entries.rows});
+ }));
+ app.post('/api/hr/attendance/clock-in',loadAuth,csrfRequired,route(async(req,res)=>res.status(201).json(await transaction(async db=>{
+  const e=await db.query('SELECT * FROM hr_employees WHERE user_id=$1 FOR UPDATE',[req.auth.userId]);
+  if(!e.rowCount||e.rows[0].status!=='ACTIVE')throw fail('An active linked employee record is required.',403);
+  const id=randomUUID();
+  try{await db.query('INSERT INTO hr_attendance(id,employee_id,org_unit_id,work_date,clocked_in_at) VALUES($1,$2,$3,(now() AT TIME ZONE \'UTC\')::date,now())',[id,e.rows[0].id,e.rows[0].org_unit_id]);}
+  catch(err){if(err.code==='23505')throw fail('Attendance is already recorded for today.',409);throw err;}
+  await writeAudit(db,req.auth,'hr.attendance.clocked_in','attendance',id,{employeeId:e.rows[0].id});return {id};
+ }))));
+ app.post('/api/hr/attendance/clock-out',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
+  const e=await db.query('SELECT * FROM hr_employees WHERE user_id=$1',[req.auth.userId]);if(!e.rowCount||e.rows[0].status!=='ACTIVE')throw fail('An active linked employee record is required.',403);
+  const a=await db.query("SELECT * FROM hr_attendance WHERE employee_id=$1 AND work_date=(now() AT TIME ZONE 'UTC')::date FOR UPDATE",[e.rows[0].id]);
+  if(!a.rowCount||a.rows[0].clocked_out_at)throw fail('No open attendance entry exists for today.',409);
+  await db.query('UPDATE hr_attendance SET clocked_out_at=now(),updated_at=now() WHERE id=$1',[a.rows[0].id]);
+  await writeAudit(db,req.auth,'hr.attendance.clocked_out','attendance',a.rows[0].id,{employeeId:e.rows[0].id});return {id:a.rows[0].id};
+ }))));
+ get('/api/hr/attendance',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_attendance_directory',['staff_number','employee_name','office_name','work_date','clocked_in_at','clocked_out_at']));
+ post('/api/hr/attendance/:id/corrections',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const a=await row(db,'hr_attendance',req.params.id);await scope(req,a.org_unit_id);
+  const pending=await db.query("SELECT 1 FROM hr_attendance_corrections WHERE attendance_id=$1 AND status='SUBMITTED'",[a.id]);if(pending.rowCount)throw fail('Resolve the existing pending correction first.',409);
+  const start=new Date(req.body.clockedInAt),end=req.body.clockedOutAt?new Date(req.body.clockedOutAt):null;
+  if(!Number.isFinite(start.getTime())||(req.body.clockedOutAt&&!end)||end&&end<start)throw fail('Enter valid correction timestamps; clock-out must follow clock-in.');
+  const id=randomUUID();await db.query('INSERT INTO hr_attendance_corrections(id,attendance_id,requested_clock_in,requested_clock_out,reason,requested_by) VALUES($1,$2,$3,$4,$5,$6)',[id,a.id,start.toISOString(),end?.toISOString()||null,required(req.body.reason,'Correction reason'),req.auth.userId]);
+  await audit(db,req,'hr.attendance.correction_submitted','attendance',a.id,{correctionId:id});return {id};
+ });
+ post('/api/hr/attendance/corrections/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const c=await row(db,'hr_attendance_corrections',req.params.id);const a=await row(db,'hr_attendance',c.attendance_id);await scope(req,a.org_unit_id);checker(req,c.requested_by);
+  if(c.status!=='SUBMITTED')throw fail('This attendance correction has already been decided.',409);
+  if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Select approve or reject.');
+  if(req.body.status==='APPROVED')await db.query('UPDATE hr_attendance SET clocked_in_at=$2,clocked_out_at=$3,updated_at=now() WHERE id=$1',[a.id,c.requested_clock_in,c.requested_clock_out]);
+  await db.query('UPDATE hr_attendance_corrections SET status=$2,decided_by=$3,decision_note=$4 WHERE id=$1',[c.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent correction decision')]);
+  await audit(db,req,`hr.attendance.correction_${req.body.status.toLowerCase()}`,'attendance',a.id,{correctionId:c.id});return {id:c.id};
+ });
+ // Confidential cases are intentionally visible only to the HR Director and Managing Director.
+ const disciplineRoles=['HR_DIRECTOR','MANAGING_DIRECTOR'];
+ get('/api/hr/disciplinary-cases',disciplineRoles,(req,res)=>list(req,res,'hr_disciplinary_case_directory',['case_reference','staff_number','employee_name','office_name','allegation_summary','status']));
+ post('/api/hr/disciplinary-cases',disciplineRoles,async(db,req)=>{
+  const e=await row(db,'hr_employees',req.body.employeeId);await scope(req,e.org_unit_id);if(e.status!=='ACTIVE')throw fail('A case can only be opened for an active employee.');
+  const id=randomUUID();await db.query('INSERT INTO hr_disciplinary_cases(id,case_reference,employee_id,org_unit_id,allegation_summary,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,required(req.body.caseReference,'Case reference',100),e.id,e.org_unit_id,required(req.body.allegationSummary,'Confidential case summary'),req.auth.userId]);
+  await audit(db,req,'hr.disciplinary.draft_created','disciplinary_case',id,{employeeId:e.id});return {id};
+ });
+ post('/api/hr/disciplinary-cases/:id/advance',disciplineRoles,async(db,req)=>{
+  const c=await row(db,'hr_disciplinary_cases',req.params.id);await scope(req,c.org_unit_id);checker(req,c.last_action_by||c.created_by);
+  const next={DRAFT:['OPEN','CANCELLED'],OPEN:['UNDER_REVIEW'],UNDER_REVIEW:['HEARING','DECIDED'],HEARING:['DECIDED'],DECIDED:['CLOSED']}[c.status]||[];
+  if(!next.includes(req.body.status))throw fail('This case cannot move to the selected stage.',409);
+  await db.query('UPDATE hr_disciplinary_cases SET status=$2,last_action_by=$3,last_action_note=$4,updated_at=now() WHERE id=$1',[c.id,req.body.status,req.auth.userId,required(req.body.reason,'Procedural action and evidence reference')]);
+  await audit(db,req,`hr.disciplinary.${req.body.status.toLowerCase()}`,'disciplinary_case',c.id,{previousStatus:c.status});return {id:c.id};
+ });
+ const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],training_program:['hr_training_programs',DEPARTMENT_ROLES.hr],training_enrollment:['hr_training_enrollments',DEPARTMENT_ROLES.hr],performance_cycle:['hr_performance_cycles',DEPARTMENT_ROLES.hr],performance_review:['hr_performance_review_directory',DEPARTMENT_ROLES.hr],attendance:['hr_attendance',DEPARTMENT_ROLES.hr],disciplinary_case:['hr_disciplinary_cases',['HR_DIRECTOR','MANAGING_DIRECTOR']],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets]};
  app.get('/api/departments/:type/:id/history',loadAuth,route(async(req,res)=>{
   const config=histories[req.params.type];if(!config)throw fail('Unknown record type.',404);
   req.departmentAuth=departmentAuth(req.auth,config[1]);const r=await row(pool,config[0],req.params.id,false);await scope(req,r.org_unit_id);
