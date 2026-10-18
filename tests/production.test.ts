@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { canTransition, parseMinorUnits, requireCapability } from '../server/domain.js';
 import { hashPassword, verifyPassword } from '../server/security.js';
+import { registerSealedBidding } from '../server/sealed-bidding.js';
 
 describe('production workflow controls', () => {
   it('uses integer minor units and rejects malformed amounts', () => {
@@ -23,6 +24,10 @@ describe('production workflow controls', () => {
   it('enforces capabilities from server role policy', () => {
     expect(() => requireCapability('PROCUREMENT_OFFICER', 'purchase_order.create')).not.toThrow();
     expect(() => requireCapability('COUNTY_OFFICER', 'payment.record')).toThrow(/permission/i);
+  });
+
+  it('loads the sealed bidding route module in the production server', () => {
+    expect(registerSealedBidding).toBeTypeOf('function');
   });
 
   it('stores a salted password verifier and rejects incorrect passwords', async () => {

@@ -2,13 +2,13 @@ import { createHash,randomBytes,randomUUID,createPublicKey,createPrivateKey,priv
 import { mkdir,writeFile,rm } from 'node:fs/promises';
 import path from 'node:path';
 import rateLimit from 'express-rate-limit';
-import { departmentAuth,DEPARTMENT_ROLES as R,fail,required,idValue,scopedUnits } from './departments.js';
+import { departmentAuth,fail,required,idValue } from './departments.js';
 import { safeUploadsDirectory } from './db.js';
 const staff=['MANAGING_DIRECTOR','PROCUREMENT_OFFICER','FINANCE_DIRECTOR','INTERNAL_AUDITOR'];
 const openers=['MANAGING_DIRECTOR','PROCUREMENT_OFFICER','FINANCE_DIRECTOR'];
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const actor=req=>({...req.departmentAuth,userId:req.auth.userId,requestId:req.auth.requestId});
-export function registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,assertOrgAccess}){
+export function registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess}){
  const guard=roles=>(req,_res,next)=>{try{req.departmentAuth=departmentAuth(req.auth,roles);next();}catch(e){next(e);}};
  const post=(path,roles,fn)=>app.post(path,loadAuth,csrfRequired,guard(roles),route(async(req,res)=>res.json(await transaction(db=>fn(db,req)))));
  app.get('/api/sealed/tenders',loadAuth,guard(staff),route(async(req,res)=>{const units=await scopedUnits(req.departmentAuth);res.json((await pool.query(`SELECT s.id,s.reference,s.deadline,s.key_id,s.status,s.created_at,n.tender_ref,n.details FROM sealed_tenders s JOIN public_tender_notices n ON n.id=s.id WHERE ($1::uuid[] IS NULL OR s.org_unit_id=ANY($1::uuid[])) ORDER BY s.created_at DESC`,[units])).rows);}));
