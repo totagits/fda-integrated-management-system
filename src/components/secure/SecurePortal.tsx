@@ -3,6 +3,7 @@ import { StaffShell, staffSections } from './StaffShell';
 import { PublicProcurementAdmin } from './PublicProcurementAdmin';
 import { SupportCenter } from './SupportCenter';
 import { AnalyticsWorkspace } from './AnalyticsWorkspace';
+import { FinanceWorkspace } from './FinanceWorkspace';
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, CircleAlert, LoaderCircle, LogOut, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
 
@@ -168,7 +169,7 @@ export const SecurePortal:React.FC=()=>{
         <p className="text-sm text-slate-600 mb-6">Select a workspace to review records and complete authorized tasks. Counts reflect the records available to your account (up to 500 workflow records).</p></>}
         {section==='account'&&<section className="bg-white rounded-xl border p-6"><h3 className="font-bold">My account</h3><p className="mt-3">{user.fullName}</p><p>{user.email}</p><p className="text-sm text-slate-500 mt-3">Office assignments: {roles.map(r=>r.orgName||'Organization-wide').join(', ')}</p></section>}
         {section==='analytics'&&<AnalyticsWorkspace api={api}/>}
-        {section==='finance'&&<section className="bg-white rounded-xl border p-6 overflow-auto"><h3 className="font-bold mb-4">Budget vote book</h3><table className="w-full text-sm text-left"><thead><tr>{['Vote / year','Currency','Allocated','Reserved','Spent','Available'].map(h=><th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{budgets.map(b=><tr key={b.id} className="border-t"><td className="p-3">{b.vote_code} · {b.fiscal_year}<br/>{b.title}</td><td>{b.currency}</td>{[b.allocated_minor,b.reserved_minor,b.spent_minor,b.available_minor].map((v,i)=><td key={i}>{money(v,b.currency)}</td>)}</tr>)}</tbody></table>{!budgets.length&&<p>No budget accounts are available.</p>}</section>}
+        {section==='finance'&&<FinanceWorkspace api={api} roles={roles.map(r=>r.role)} userId={user.id}/>}
         {['hr','ethics','accounting','plans','assets','payroll','evaluation','reconciliation','stocktaking','depreciation','integrations','supplyChain'].includes(section)&&<DepartmentWorkspace key={section} module={section} api={api} roles={roles.map(r=>r.role)} userId={user.id}/>}
         {section==='account'&&<EmployeeSelfService api={api} userId={user.id}/>}
         {section==='support'&&<SupportCenter api={api} isITDirector={hasRole('IT_DIRECTOR')}/>}

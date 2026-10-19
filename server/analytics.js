@@ -37,6 +37,75 @@ const sumByCurrency = async (pool, units) => {
 };
 
 export function registerAnalytics(app, { pool, route, loadAuth, scopedUnits }) {
+  app.get('/api/finance/overview', loadAuth, route(async (req, res) => {
+    const roles = (req.auth.roles || []).map(item => item.role);
+    if (!has(roles, ...roleSets.finance)) return res.status(403).json({ error: 'Finance analytics access is not assigned to this account.' });
+    const units = await scopedUnits(req.auth);
+    const [freshness, budgets, offices, ledger, payables, approvals, banks, revisions] = await Promise.all([
+      pool.query('SELECT now() AS as_of'),
+      pool.query(`SELECT currency,count(*)::integer AS accounts,
+        coalesce(sum(allocated_minor),0)::text AS allocated,
+        coalesce(sum(reserved_minor),0)::text AS committed,
+        coalesce(sum(spent_minor),0)::text AS spent,
+        coalesce(sum(allocated_minor-reserved_minor-spent_minor),0)::text AS available
+        FROM budget_accounts WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))
+        GROUP BY currency ORDER BY currency`, [units]),
+      pool.query(`SELECT o.id,o.code,o.name,b.currency,count(b.id)::integer AS accounts,
+        coalesce(sum(b.allocated_minor),0)::text AS allocated,
+        coalesce(sum(b.reserved_minor),0)::text AS committed,
+        coalesce(sum(b.spent_minor),0)::text AS spent,
+        coalesce(sum(b.allocated_minor-b.reserved_minor-b.spent_minor),0)::text AS available
+        FROM budget_accounts b JOIN org_units o ON o.id=b.org_unit_id
+        WHERE ($1::uuid[] IS NULL OR b.org_unit_id=ANY($1::uuid[]))
+        GROUP BY o.id,o.code,o.name,b.currency ORDER BY o.name,b.currency LIMIT 200`, [units]),
+      pool.query(`SELECT j.currency,a.account_type,
+        coalesce(sum(l.debit_minor),0)::text AS debits,
+        coalesce(sum(l.credit_minor),0)::text AS credits,
+        coalesce(sum(CASE WHEN a.account_type IN ('ASSET','EXPENSE') THEN l.debit_minor-l.credit_minor ELSE l.credit_minor-l.debit_minor END),0)::text AS balance
+        FROM gl_journal_lines l JOIN gl_journals j ON j.id=l.journal_id JOIN gl_accounts a ON a.id=l.account_id
+        WHERE j.status='POSTED' AND ($1::uuid[] IS NULL OR j.org_unit_id=ANY($1::uuid[]))
+        GROUP BY j.currency,a.account_type ORDER BY j.currency,a.account_type`, [units]),
+      pool.query(`SELECT i.currency,
+        count(*) FILTER(WHERE i.status IN ('MATCHED','AUTHORIZED'))::integer AS awaiting_payment_count,
+        coalesce(sum(i.amount_minor-COALESCE(p.paid_minor,0)) FILTER(WHERE i.status IN ('MATCHED','AUTHORIZED')),0)::text AS awaiting_payment,
+        count(*) FILTER(WHERE i.status='EXCEPTION')::integer AS match_exceptions,
+        coalesce(sum(i.amount_minor-COALESCE(p.paid_minor,0)) FILTER(WHERE i.status='EXCEPTION'),0)::text AS exception_value,
+        count(*) FILTER(WHERE i.status='PAID')::integer AS fully_paid_count
+        FROM invoices i JOIN purchase_orders po ON po.id=i.purchase_order_id JOIN requisitions r ON r.id=po.requisition_id
+        LEFT JOIN LATERAL (SELECT sum(amount_minor)::bigint AS paid_minor FROM payments WHERE invoice_id=i.id AND status='PAID') p ON true
+        WHERE ($1::uuid[] IS NULL OR r.org_unit_id=ANY($1::uuid[]))
+        GROUP BY i.currency ORDER BY i.currency`, [units]),
+      pool.query(`SELECT
+        (SELECT count(*)::integer FROM requisitions WHERE status='SUBMITTED' AND ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))) AS requisitions,
+        (SELECT count(*)::integer FROM invoices i JOIN purchase_orders po ON po.id=i.purchase_order_id JOIN requisitions r ON r.id=po.requisition_id WHERE i.status='MATCHED' AND ($1::uuid[] IS NULL OR r.org_unit_id=ANY($1::uuid[]))) AS invoices,
+        (SELECT count(*)::integer FROM payroll_runs WHERE status='SUBMITTED' AND ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))) AS payroll,
+        (SELECT count(*)::integer FROM gl_journals WHERE status='DRAFT' AND ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))) AS journals`, [units]),
+      pool.query(`SELECT count(*) FILTER(WHERE status='OPEN')::integer AS open,
+        count(*) FILTER(WHERE status='RECONCILED')::integer AS reconciled,
+        count(*)::integer AS total
+        FROM bank_statements WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))`, [units]),
+      pool.query(`SELECT count(*) FILTER(WHERE status='PENDING')::integer AS pending
+        FROM finance_budget_revisions v JOIN budget_accounts b ON b.id=v.budget_account_id
+        WHERE ($1::uuid[] IS NULL OR b.org_unit_id=ANY($1::uuid[]))`, [units]),
+    ]);
+    res.json({
+      asOf: freshness.rows[0].as_of,
+      scope: 'FDA-wide (authorized finance / audit roles)',
+      currencyTotals: budgets.rows,
+      officeBudgets: offices.rows,
+      ledgerByType: ledger.rows,
+      accountsPayable: payables.rows,
+      pendingApprovals: approvals.rows[0],
+      bankReconciliation: banks.rows[0],
+      pendingBudgetRevisions: revisions.rows[0].pending,
+      limitations: {
+        cashPosition: 'Not calculated: no verified live bank balance feed is configured.',
+        forecast: 'Not calculated: approved forecast assumptions and schedule data are not configured.',
+        integrations: 'IFMIS, bank, payroll and e-procurement connections are not verified.',
+      },
+    });
+  }));
+
   app.get('/api/analytics/summary', loadAuth, route(async (req, res) => {
     const roles = (req.auth.roles || []).map(item => item.role);
     if (!roles.length) return res.status(403).json({ error: 'No analytics access is assigned to this account.' });

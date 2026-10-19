@@ -19,7 +19,7 @@ export const staffSections = (roles: string[]) => {
     {id:'integrations',label:'Integration Status',icon:Settings,show:has('MANAGING_DIRECTOR','IT_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'account',label:'My Account & Self-Service',icon:User,show:true},
     {id:'workflow',label:'Procurement & Approvals',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR')},
-    {id:'finance',label:'Finance & Vote Book',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
+    {id:'finance',label:'Finance Control Center',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'assets',label:'Asset Register',icon:Box,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','ASSET_OFFICER','COUNTY_OFFICER','PROCUREMENT_OFFICER','INTERNAL_AUDITOR')},
     {id:'publication',label:'Public Procurement',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','PROCUREMENT_OFFICER')},
     {id:'audit',label:'Audit Trail',icon:History,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},

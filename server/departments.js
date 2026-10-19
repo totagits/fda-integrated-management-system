@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 45905)
+Total output lines: 1287
+
 import { randomUUID } from 'node:crypto';
 import { parseMinorUnits } from './domain.js';
 import { deliverIdentityInvitation, issueIdentityInvitation, makeUnusablePasswordHash } from './identity-invitations.js';
@@ -248,6 +251,37 @@ export function registerDepartments(app,deps){
   await db.query('INSERT INTO gl_accounts(id,code,name,account_type) VALUES($1,$2,$3,$4)',[id,required(b.code,'Account code',60),required(b.name,'Account name',200),b.accountType]);await audit(db,req,'finance.account.created','gl_account',id);return {id};
  });
  get('/api/finance/periods',DEPARTMENT_ROLES.finance,async(_req,res)=>res.json((await pool.query('SELECT * FROM fiscal_periods ORDER BY start_date DESC')).rows));
+ get('/api/finance/budget-revisions',DEPARTMENT_ROLES.finance,async(req,res)=>{
+  const units=await scopedUnits(req.departmentAuth);
+  const rows=await pool.query(`SELECT v.*,b.fiscal_year,b.vote_code,b.title AS budget_title,b.currency,b.org_unit_id,o.name AS office_name
+   FROM finance_budget_revisions v JOIN budget_accounts b ON b.id=v.budget_account_id JOIN org_units o ON o.id=b.org_unit_id
+   WHERE ($1::uuid[] IS NULL OR b.org_unit_id=ANY($1::uuid[])) ORDER BY v.created_at DESC LIMIT 200`,[units]);
+  res.json(rows.rows);
+ });
+ post('/api/finance/budget-revisions',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
+  const b=req.body,budget=await row(db,'budget_accounts',b.budgetAccountId);await scope(req,budget.org_unit_id);
+  const proposed=BigInt(amount(b.proposedAllocation));
+  const reason=required(b.reason,'Budget revision justification');
+  const id=randomUUID();
+  await db.query('INSERT INTO finance_budget_revisions(id,budget_account_id,org_unit_id,base_version,previous_allocation_minor,proposed_allocation_minor,reason,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,budget.id,budget.org_unit_id,budget.version,budget.allocated_minor,proposed.toString(),reason,req.auth.userId]);
+  await audit(db,req,'finance.budget_revision_submitted','finance_budget_revision',id,{budgetAccountId:budget.id,baseVersion:budget.version,previousAllocationMinor:String(budget.allocated_minor),proposedAllocationMinor:proposed.toString()});
+  return {id,status:'PENDING'};
+ });
+ post('/api/finance/budget-revisions/:id/decide',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
+  const revision=await row(db,'finance_budget_revisions',req.params.id),budget=await row(db,'budget_accounts',revision.budget_account_id);
+  await scope(req,budget.org_unit_id);checker(req,revision.created_by);
+  if(revision.status!=='PENDING')throw fail('Only a pending budget revision can be decided.',409);
+  if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Choose approve or reject.');
+  const note=required(req.body.reason,'Independent decision rationale');
+  if(req.body.status==='APPROVED'){
+   if(Number(budget.version)!==Number(revision.base_version)||String(budget.allocated_minor)!==String(revision.previous_allocation_minor))throw fail('The budget changed after this revision was submitted. Create a fresh revision using the current allocation.',409);
+   if(BigInt(revision.proposed_allocation_minor)<BigInt(budget.reserved_minor)+BigInt(budget.spent_minor))throw fail('The proposed allocation cannot be lower than existing commitments and expenditure.');
+   await db.query('UPDATE budget_accounts SET allocated_minor=$2,version=version+1 WHERE id=$1',[budget.id,revision.proposed_allocation_minor]);
+  }
+  await db.query('UPDATE finance_budget_revisions SET status=$2,decided_by=$3,decision_note=$4,decided_at=now() WHERE id=$1',[revision.id,req.body.status,req.auth.userId,note]);
+  await audit(db,req,`finance.budget_revision_${req.body.status.toLowerCase()}`,'finance_budget_revision',revision.id,{budgetAccountId:budget.id,previousAllocationMinor:String(revision.previous_allocation_minor),proposedAllocationMinor:String(revision.proposed_allocation_minor)});
+  return {id:revision.id,status:req.body.status};
+ });
  post('/api/finance/periods',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
   const start=dateValue(req.body.startDate),end=dateValue(req.body.endDate);if(start>end)throw fail('Period end must follow its start.');
   const overlap=await db.query('SELECT 1 FROM fiscal_periods WHERE start_date<=$2::date AND end_date>=$1::date',[start,end]);if(overlap.rowCount)throw fail('Fiscal periods must not overlap.',409);
@@ -372,521 +406,7 @@ export function registerDepartments(app,deps){
   const acquisitionType=b.acquisitionType||'OPENING_BALANCE';if(!['DONATED','TRANSFERRED_IN','OPENING_BALANCE'].includes(acquisitionType))throw fail('Select donated, transferred-in, or opening-balance for manual registration. Purchased assets must come from an accepted procurement receipt.');
   const tag=required(b.assetTag,'Asset tag',100),serial=String(b.serialNumber||'').trim()||null,duplicate=await db.query('SELECT 1 FROM assets WHERE lower(asset_tag)=lower($1) OR ($2::text IS NOT NULL AND lower(serial_number)=lower($2))',[tag,serial]);if(duplicate.rowCount)throw fail('Asset tag or serial number is already registered.',409);
   const usefulMonths=b.usefulLifeMonths?numeric(b.usefulLifeMonths,1,1200):null;if(usefulMonths!==null&&!Number.isInteger(usefulMonths))throw fail('Useful life must be a whole number of months.');
-  await db.query('INSERT INTO assets(id,asset_tag,description,category,purchase_cost_minor,currency,org_unit_id,source_reference,location,acquisition_type,make,model,serial_number,purchase_date,funding_source,project_code,donor,warranty_expires_on,useful_life_months) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)',[id,tag,required(b.description,'Description'),required(b.category,'Category',100),amount(b.cost),currencyValue(b.currency),b.orgUnitId,required(b.sourceReference,'Acquisition / opening-register evidence reference',240),required(b.location,'Location',240),acquisitionType,String(b.make||'').trim()||null,String(b.model||'').trim()||null,serial,b.purchaseDate?dateValue(b.purchaseDate):null,String(b.fundingSource||'').trim()||null,String(b.projectCode||'').trim()||null,String(b.donor||'').trim()||null,b.warrantyExpiresOn?dateValue(b.warrantyExpiresOn):null,usefulMonths]);
-  await audit(db,req,'asset.registered','asset',id,{sourceReference:b.sourceReference});return {id};
- });
- const activeAsset=async(db,req,id)=>{const a=await row(db,'assets',id);await scope(req,a.org_unit_id);if(a.lifecycle_status!=='ACTIVE')throw fail('Only active assets can be changed.',409);return a;};
- const noPending=async(db,id)=>{const p=await db.query("SELECT id FROM asset_transfers WHERE asset_id=$1 AND status IN ('PENDING_APPROVAL','APPROVED','IN_TRANSIT','DELIVERY_EXCEPTION') UNION ALL SELECT id FROM asset_disposals WHERE asset_id=$1 AND status IN ('SUBMITTED','APPROVED','JOURNAL_PENDING')",[id]);if(p.rowCount)throw fail('Resolve the pending transfer or disposal first.',409);};
- post('/api/assets/register/:id/update',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const a=await activeAsset(db,req,req.params.id);if(a.version!==Number(req.body.version))throw fail('Asset changed. Refresh before updating.',409);
-  if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(req.body.condition))throw fail('Select an asset condition.');
-  const b=req.body,serial=String(b.serialNumber||'').trim()||null;
-  const duplicate=await db.query('SELECT 1 FROM assets WHERE id<>$1 AND $2::text IS NOT NULL AND lower(serial_number)=lower($2)',[a.id,serial]);if(duplicate.rowCount)throw fail('That serial number is already assigned to another registered asset.',409);
-  const usefulMonths=b.usefulLifeMonths?numeric(b.usefulLifeMonths,1,1200):null;if(usefulMonths!==null&&!Number.isInteger(usefulMonths))throw fail('Useful life must be a whole number of months.');
-  await db.query('UPDATE assets SET condition=$2,location=$3,make=$4,model=$5,serial_number=$6,purchase_date=$7,funding_source=$8,project_code=$9,donor=$10,warranty_expires_on=$11,useful_life_months=$12,version=version+1 WHERE id=$1',[a.id,b.condition,required(b.location,'Location',240),String(b.make||'').trim()||null,String(b.model||'').trim()||null,serial,b.purchaseDate?dateValue(b.purchaseDate):null,String(b.fundingSource||'').trim()||null,String(b.projectCode||'').trim()||null,String(b.donor||'').trim()||null,b.warrantyExpiresOn?dateValue(b.warrantyExpiresOn):null,usefulMonths]);await audit(db,req,'asset.record_updated','asset',a.id,{condition:b.condition,location:b.location,serialNumber:serial});return {id:a.id};
- });
- post('/api/assets/register/:id/assign',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const a=await activeAsset(db,req,req.params.id);await noPending(db,a.id);
-  if(a.proposed_custodian_id)throw fail('A custody acceptance is already pending.',409);
-  const u=await row(db,'users',req.body.userId,false),r=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[u.id,a.org_unit_id]);
-  if(u.disabled_at||!r.rowCount)throw fail('Custodian must have an active account assigned to the asset office.');
-  await db.query('UPDATE assets SET proposed_custodian_id=$2,version=version+1 WHERE id=$1',[a.id,u.id]);await audit(db,req,'asset.custody_proposed','asset',a.id,{userId:u.id});return {id:a.id};
- });
- app.get('/api/assets/my-custody',loadAuth,route(async(req,res)=>res.json((await pool.query("SELECT id,asset_tag,description,location,condition,custodian_user_id,proposed_custodian_id FROM assets WHERE lifecycle_status='ACTIVE' AND (custodian_user_id=$1 OR proposed_custodian_id=$1) ORDER BY asset_tag",[req.auth.userId])).rows)));
- app.post('/api/assets/register/:id/accept-custody',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
-  const a=await row(db,'assets',req.params.id);if(a.proposed_custodian_id!==req.auth.userId||a.lifecycle_status!=='ACTIVE')throw fail('You are not the proposed custodian of an active asset.',403);
-  if(req.body.accept!==true&&req.body.accept!==false)throw fail('Accept or decline custody.');
-  if(req.body.accept)await db.query('UPDATE assets SET custodian_user_id=$2,custodian=$3,proposed_custodian_id=NULL,version=version+1 WHERE id=$1',[a.id,req.auth.userId,req.auth.fullName]);
-  else await db.query('UPDATE assets SET proposed_custodian_id=NULL,version=version+1 WHERE id=$1',[a.id]);
-  await audit(db,req,req.body.accept?'asset.custody_accepted':'asset.custody_declined','asset',a.id);return {id:a.id};
- }))));
- get('/api/assets/transfers',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_transfer_directory',['status','reason','asset_tag','source_office','destination_office','tracking_reference','waybill_reference'],'from_org_unit_id'));
- get('/api/assets/incoming-transfers',DEPARTMENT_ROLES.assetWrite,(req,res)=>list(req,res,'asset_transfer_directory',['status','reason','asset_tag','source_office','destination_office','tracking_reference','waybill_reference','expected_delivery_date'],'to_org_unit_id',"AND status IN ('IN_TRANSIT','DELIVERY_EXCEPTION')"));
- post('/api/assets/register/:id/transfer',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const a=await activeAsset(db,req,req.params.id);await noPending(db,a.id);if(a.proposed_custodian_id)throw fail('Resolve custody acceptance before transfer.',409);
-  const work=await db.query("SELECT 1 FROM asset_maintenance WHERE asset_id=$1 AND status='OPEN'",[a.id]);if(work.rowCount)throw fail('Complete maintenance before transferring this asset.',409);
-  const to=await row(db,'org_units',req.body.toOrgUnitId,false);if(!to.active||to.id===a.org_unit_id)throw fail('Choose a different active destination office.');
-  const id=randomUUID(),note=required(req.body.reason,'Transfer reason');await db.query("INSERT INTO asset_transfers(id,asset_id,from_org_unit_id,to_org_unit_id,requested_by,reason,status) VALUES($1,$2,$3,$4,$5,$6,'PENDING_APPROVAL')",[id,a.id,a.org_unit_id,to.id,req.auth.userId,note]);
-  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'REQUESTED',$3,$4,$5)",[randomUUID(),id,req.auth.userId,a.org_unit_id,JSON.stringify({toOrgUnitId:to.id,reason:note})]);
-  await audit(db,req,'asset.transfer_requested','asset',a.id,{transferId:id,toOrgUnitId:to.id});return {id,status:'PENDING_APPROVAL'};
- });
- post('/api/assets/transfers/:id/approve',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
-  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.from_org_unit_id);checker(req,t.requested_by);
-  const a=await row(db,'assets',t.asset_id);if(t.status!=='PENDING_APPROVAL'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Transfer is no longer awaiting approval.',409);
-  const note=required(req.body.reason,'Approval rationale');
-  await db.query("UPDATE asset_transfers SET status='APPROVED',approved_by=$2,approved_at=now(),approval_note=$3 WHERE id=$1",[t.id,req.auth.userId,note]);
-  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'APPROVED',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.from_org_unit_id,JSON.stringify({reason:note})]);
-  await audit(db,req,'asset.transfer_approved','asset',a.id,{transferId:t.id});return {id:t.id,status:'APPROVED'};
- });
- post('/api/assets/transfers/:id/decide',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.from_org_unit_id);checker(req,t.requested_by);
-  const a=await row(db,'assets',t.asset_id);if(t.status!=='PENDING_APPROVAL'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Only an unapproved transfer can be rejected.',409);
-  if(req.body.status!=='REJECTED')throw fail('A transfer request can only be rejected here. Approval and receipt use separate controls.');
-  const note=required(req.body.reason,'Rejection rationale');
-  await db.query("UPDATE asset_transfers SET status='REJECTED',approved_by=$2,approved_at=now(),approval_note=$3 WHERE id=$1",[t.id,req.auth.userId,note]);
-  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'REJECTED',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.from_org_unit_id,JSON.stringify({reason:note})]);
-  await audit(db,req,'asset.transfer_rejected','asset',a.id,{transferId:t.id});return {id:t.id,status:'REJECTED'};
- });
- post('/api/assets/transfers/:id/dispatch',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
-  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.from_org_unit_id);checker(req,t.requested_by);checker(req,t.approved_by);
-  const a=await row(db,'assets',t.asset_id);if(t.status!=='APPROVED'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Only an approved asset transfer can be dispatched.',409);
-  const carrier=required(req.body.carrier,'Carrier / responsible driver',200),vehicle=required(req.body.vehicleReference,'Vehicle or dispatch reference',160),tracking=required(req.body.trackingReference,'Tracking reference',160),waybill=required(req.body.waybillReference,'Waybill / movement permit',160),planned=dateValue(req.body.plannedDispatchDate),expected=dateValue(req.body.expectedDeliveryDate);
-  if(expected<planned)throw fail('Expected delivery cannot be earlier than dispatch.');
-  const condition=req.body.condition||a.condition;if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(condition))throw fail('Record the asset condition at handover.');
-  const note=required(req.body.note,'Dispatch and handover record');
-  await db.query("UPDATE asset_transfers SET status='IN_TRANSIT',dispatch_carrier=$2,vehicle_reference=$3,tracking_reference=$4,waybill_reference=$5,planned_dispatch_date=$6,expected_delivery_date=$7,dispatch_condition=$8,dispatch_note=$9,dispatched_by=$10,dispatched_at=now() WHERE id=$1",[t.id,carrier,vehicle,tracking,waybill,planned,expected,condition,note,req.auth.userId]);
-  await db.query("UPDATE assets SET lifecycle_status='IN_TRANSIT',version=version+1 WHERE id=$1",[a.id]);
-  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'DISPATCHED',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.from_org_unit_id,JSON.stringify({carrier,vehicleReference:vehicle,trackingReference:tracking,waybillReference:waybill,plannedDispatchDate:planned,expectedDeliveryDate:expected,condition,note})]);
-  await audit(db,req,'asset.transfer_dispatched','asset',a.id,{transferId:t.id,trackingReference:tracking,waybillReference:waybill});return {id:t.id,status:'IN_TRANSIT'};
- });
- post('/api/assets/transfers/:id/receive',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.to_org_unit_id);
-  if(!['IN_TRANSIT','DELIVERY_EXCEPTION'].includes(t.status))throw fail('This transfer is not awaiting destination receipt.',409);
-  [t.requested_by,t.approved_by,t.dispatched_by].filter(Boolean).forEach(actorId=>checker(req,actorId));
-  const note=required(req.body.receiptNote,'Receiving inspection note');
-  if(req.body.received!==true){
-   const discrepancy=required(req.body.discrepancyNote,'Explain why the asset was not received');
-   await db.query("UPDATE asset_transfers SET status='DELIVERY_EXCEPTION',received_by=$2,received_at=now(),receipt_note=$3,discrepancy_note=$4 WHERE id=$1",[t.id,req.auth.userId,note,discrepancy]);
-   await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'DELIVERY_EXCEPTION',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.to_org_unit_id,JSON.stringify({receiptNote:note,discrepancyNote:discrepancy})]);
-   await audit(db,req,'asset.transfer_delivery_exception','asset',t.asset_id,{transferId:t.id,discrepancy});return {id:t.id,status:'DELIVERY_EXCEPTION'};
-  }
-  const condition=req.body.condition;if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(condition))throw fail('Record the observed condition.');
-  const location=required(req.body.location,'Receiving location',240),discrepancy=String(req.body.discrepancyNote||'').trim();
-  const variance=condition!==t.dispatch_condition||Boolean(discrepancy),status=variance?'RECEIVED_WITH_VARIANCE':'RECEIVED';
-  const a=await row(db,'assets',t.asset_id);if(a.lifecycle_status!=='IN_TRANSIT'||a.org_unit_id!==t.from_org_unit_id)throw fail('Asset register is not in the expected in-transit state.',409);
-  await db.query('UPDATE assets SET lifecycle_status=\'ACTIVE\',org_unit_id=$2,location=$3,condition=$4,custodian=NULL,custodian_user_id=NULL,proposed_custodian_id=NULL,version=version+1 WHERE id=$1',[a.id,t.to_org_unit_id,location,condition]);
-  await db.query('UPDATE asset_transfers SET status=$2,received_by=$3,received_at=now(),received_condition=$4,received_location=$5,receipt_note=$6,discrepancy_note=$7 WHERE id=$1',[t.id,status,req.auth.userId,condition,location,note,discrepancy||null]);
-  await db.query('INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),t.id,status,req.auth.userId,t.to_org_unit_id,JSON.stringify({condition,location,receiptNote:note,discrepancyNote:discrepancy||null})]);
-  await audit(db,req,variance?'asset.transfer_received_with_variance':'asset.transfer_received','asset',a.id,{transferId:t.id,fromOffice:t.from_org_unit_id,toOffice:t.to_org_unit_id,condition,location,discrepancyNote:discrepancy||null});return {id:t.id,status};
- });
- get('/api/assets/transfers/:id/history',DEPARTMENT_ROLES.assets,async(req,res)=>{
-  const t=await row(pool,'asset_transfers',req.params.id,false),units=await scopedUnits(req.departmentAuth);if(units&&!units.includes(t.from_org_unit_id)&&!units.includes(t.to_org_unit_id))throw fail('This transfer is outside your assigned offices.',403);
-  res.json((await pool.query('SELECT e.id,e.action,e.actor_id,u.full_name AS actor_name,e.org_unit_id,o.name AS office_name,e.event_data,e.created_at FROM asset_transfer_events e LEFT JOIN users u ON u.id=e.actor_id LEFT JOIN org_units o ON o.id=e.org_unit_id WHERE e.transfer_id=$1 ORDER BY e.created_at,e.id',[t.id])).rows);
- });
- get('/api/assets/maintenance',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_maintenance_directory',['description','status','asset_tag']));
- post('/api/assets/register/:id/maintenance',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const a=await activeAsset(db,req,req.params.id);await noPending(db,a.id);const id=randomUUID();
-  await db.query('INSERT INTO asset_maintenance(id,asset_id,org_unit_id,description,due_date) VALUES($1,$2,$3,$4,$5)',[id,a.id,a.org_unit_id,required(req.body.description,'Work description'),dateValue(req.body.dueDate)]);await audit(db,req,'asset.maintenance_scheduled','asset',a.id,{maintenanceId:id});return {id};
- });
- post('/api/assets/maintenance/:id/complete',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const m=await row(db,'asset_maintenance',req.params.id);await scope(req,m.org_unit_id);if(m.status!=='OPEN')throw fail('Maintenance is already complete.',409);
-  const cost=parseMinorUnits(req.body.cost||'0').toString();await db.query("UPDATE asset_maintenance SET status='COMPLETE',cost_minor=$2,completion_note=$3,completed_at=now() WHERE id=$1",[m.id,cost,required(req.body.note,'Completion note')]);await audit(db,req,'asset.maintenance_completed','asset',m.asset_id,{maintenanceId:m.id,cost});return {id:m.id};
- });
- get('/api/assets/disposals',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_disposal_directory',['reason','status','asset_tag']));
- post('/api/assets/register/:id/dispose',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const a=await activeAsset(db,req,req.params.id);await noPending(db,a.id);
-  if(a.proposed_custodian_id)throw fail('Resolve custody acceptance before disposal.',409);
-  const work=await db.query("SELECT 1 FROM asset_maintenance WHERE asset_id=$1 AND status='OPEN'",[a.id]);if(work.rowCount)throw fail('Complete open maintenance before disposal.',409);
-  const id=randomUUID();await db.query('INSERT INTO asset_disposals(id,asset_id,org_unit_id,reason,requested_by) VALUES($1,$2,$3,$4,$5)',[id,a.id,a.org_unit_id,required(req.body.reason,'Disposal justification'),req.auth.userId]);await audit(db,req,'asset.disposal_requested','asset',a.id,{disposalId:id});return {id};
- });
- post('/api/assets/disposals/:id/decide',['MANAGING_DIRECTOR'],async(db,req)=>{
-  const d=await row(db,'asset_disposals',req.params.id);await scope(req,d.org_unit_id);checker(req,d.requested_by);const a=await row(db,'assets',d.asset_id);
-  if(d.status!=='SUBMITTED'||a.lifecycle_status!=='ACTIVE')throw fail('Disposal is not pending.',409);if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Select approve or reject.');
-  // Approval authorizes disposal processing only; the asset remains active until proceeds and a posted accounting journal are verified.
-  await db.query('UPDATE asset_disposals SET status=$2,decided_by=$3,decision_note=$4 WHERE id=$1',[d.id,req.body.status,req.auth.userId,required(req.body.reason,'Decision note')]);await audit(db,req,`asset.disposal_${req.body.status.toLowerCase()}`,'asset',a.id,{disposalId:d.id});return {id:d.id};
- });
-
- // Fleet is a distinct controlled register; vehicle servicing is recorded separately from fixed-asset maintenance.
- get('/api/fleet/vehicles',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'fleet_vehicle_directory',['vehicle_code','registration_number','vin','make','model','status','office_name','location']));
- post('/api/fleet/vehicles',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const b=req.body;await office(db,req,idValue(b.orgUnitId));const id=randomUUID();
-  const userId=b.custodianUserId?idValue(b.custodianUserId):null;if(userId){const r=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[userId,b.orgUnitId]);if(!r.rowCount)throw fail('Vehicle custodian must have an account in this office.');}
-  const odometer=b.odometerKm===''||b.odometerKm==null?null:numeric(b.odometerKm,0,2000000);if(odometer!==null&&!Number.isInteger(odometer))throw fail('Odometer must be a whole number of kilometres.');
-  const cost=b.purchaseCost?parseMinorUnits(b.purchaseCost):null;if(cost!==null&&cost<0n)throw fail('Purchase cost cannot be negative.');
-  const assetId=b.assetId?idValue(b.assetId):null;if(assetId){const asset=await row(db,'assets',assetId,false);if(asset.org_unit_id!==b.orgUnitId||asset.lifecycle_status==='DISPOSED')throw fail('Linked vehicle asset must be active and registered in the same office.',409);}
-  await db.query('INSERT INTO fleet_vehicles(id,org_unit_id,vehicle_code,registration_number,vin,make,model,model_year,location,custodian_user_id,odometer_km,fuel_type,purchase_date,purchase_cost_minor,currency,next_roadworthiness_on,created_by,asset_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',[id,b.orgUnitId,required(b.vehicleCode,'Vehicle code',100),required(b.registrationNumber,'Registration number',100),String(b.vin||'').trim()||null,required(b.make,'Make',100),required(b.model,'Model',100),b.modelYear?numeric(b.modelYear,1900,2200):null,required(b.location,'Vehicle base / location',240),userId,odometer,String(b.fuelType||'').trim()||null,b.purchaseDate?dateValue(b.purchaseDate):null,cost?.toString()??null,cost===null?null:currencyValue(b.currency),b.roadworthinessExpiresOn?dateValue(b.roadworthinessExpiresOn):null,req.auth.userId,assetId]);
-  await audit(db,req,'fleet.vehicle_registered','fleet_vehicle',id,{vehicleCode:b.vehicleCode,registrationNumber:b.registrationNumber});return {id};
- });
- post('/api/fleet/vehicles/:id/service',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const v=await row(db,'fleet_vehicles',req.params.id);await scope(req,v.org_unit_id);if(v.status==='DISPOSED')throw fail('Disposed vehicles cannot receive service work.',409);
-  const b=req.body,cost=parseMinorUnits(b.cost||'0');if(cost<0n)throw fail('Service cost cannot be negative.');const odometer=b.odometerKm?numeric(b.odometerKm,0,2000000):null;if(odometer!==null&&!Number.isInteger(odometer))throw fail('Odometer must be a whole number.');
-  const serviceType=req.body.serviceType||'OTHER';if(!['PREVENTIVE','REPAIR','INSPECTION','ACCIDENT_REPAIR','OTHER'].includes(serviceType))throw fail('Select a valid fleet service type.');const id=randomUUID();await db.query("INSERT INTO fleet_service_events(id,vehicle_id,org_unit_id,service_type,description,provider,odometer_km,cost_minor,currency,next_service_on,evidence_reference,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,0,NULL,$8,$9,'OPEN',$10)",[id,v.id,v.org_unit_id,serviceType,required(b.description,'Service description'),String(b.provider||'').trim()||null,odometer,b.nextServiceOn?dateValue(b.nextServiceOn):null,String(b.evidenceReference||'').trim()||null,req.auth.userId]);
-  await db.query("UPDATE fleet_vehicles SET status='IN_MAINTENANCE',odometer_km=coalesce($2,odometer_km),updated_at=now() WHERE id=$1",[v.id,odometer]);await audit(db,req,'fleet.service_recorded','fleet_vehicle',v.id,{serviceId:id,status:'OPEN'});return {id};
- });
- post('/api/fleet/service/:id/complete',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const s=await row(db,'fleet_service_events',req.params.id);await scope(req,s.org_unit_id);checker(req,s.created_by);if(s.status!=='OPEN')throw fail('Only open fleet service work can be completed.',409);const v=await row(db,'fleet_vehicles',s.vehicle_id);const cost=parseMinorUnits(req.body.cost||'0');if(cost<0n)throw fail('Service cost cannot be negative.');const odometer=req.body.odometerKm?numeric(req.body.odometerKm,0,2000000):s.odometer_km;if(odometer!==null&&!Number.isInteger(odometer))throw fail('Odometer must be a whole number.');await db.query("UPDATE fleet_service_events SET status='COMPLETE',cost_minor=$2,currency=$3,completed_on=$4,next_service_on=$5,evidence_reference=$6,completed_by=$7 WHERE id=$1",[s.id,cost.toString(),cost?currencyValue(req.body.currency||s.currency||v.currency||'USD'):s.currency,req.body.completedOn?dateValue(req.body.completedOn):dateValue(new Date().toISOString().slice(0,10)),req.body.nextServiceOn?dateValue(req.body.nextServiceOn):null,String(req.body.evidenceReference||s.evidence_reference||'').trim()||null,req.auth.userId]);await db.query("UPDATE fleet_vehicles SET status='ACTIVE',odometer_km=coalesce($2,odometer_km),updated_at=now() WHERE id=$1",[v.id,odometer]);await audit(db,req,'fleet.service_completed','fleet_vehicle',v.id,{serviceId:s.id,costMinor:cost.toString()});return {id:s.id,status:'COMPLETE'};
- });
- get('/api/fleet/service',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'fleet_service_events',['description','provider','service_type','status'],'org_unit_id'));
-
- get('/api/facilities',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_facility_directory',['facility_code','facility_type','name','address','status','office_name','reference_number']));
- post('/api/facilities',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const b=req.body;await office(db,req,idValue(b.orgUnitId));const id=randomUUID();const area=b.areaSqm?Number(b.areaSqm):null;if(area!==null&&(!Number.isFinite(area)||area<0))throw fail('Enter a valid area in square metres.');const cost=b.annualCost?parseMinorUnits(b.annualCost):null;if(cost!==null&&cost<0n)throw fail('Annual cost cannot be negative.');
-  const assetId=b.assetId?idValue(b.assetId):null;if(assetId){const asset=await row(db,'assets',assetId,false);if(asset.org_unit_id!==b.orgUnitId||asset.lifecycle_status==='DISPOSED')throw fail('Linked property asset must be active and registered in the same office.',409);}
-  await db.query('INSERT INTO asset_facilities(id,org_unit_id,facility_code,facility_type,name,address,tenure,reference_number,area_sqm,condition,lease_expires_on,next_inspection_on,annual_cost_minor,currency,evidence_reference,notes,created_by,asset_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',[id,b.orgUnitId,required(b.facilityCode,'Facility code',100),b.facilityType,required(b.name,'Facility name',240),required(b.address,'Address / location',500),b.tenure, String(b.referenceNumber||'').trim()||null,area,b.condition||'GOOD',b.leaseExpiresOn?dateValue(b.leaseExpiresOn):null,b.nextInspectionOn?dateValue(b.nextInspectionOn):null,cost?.toString()??null,cost===null?null:currencyValue(b.currency),String(b.evidenceReference||'').trim()||null,String(b.notes||'').trim()||null,req.auth.userId,assetId]);
-  await audit(db,req,'facility.registered','facility',id,{facilityCode:b.facilityCode,tenure:b.tenure});return {id};
- });
- post('/api/facilities/:id/inspection',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const f=await row(db,'asset_facilities',req.params.id);await scope(req,f.org_unit_id);const id=randomUUID(),date=dateValue(req.body.inspectionDate);if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(req.body.condition))throw fail('Select the observed condition.');await db.query('INSERT INTO facility_inspections(id,facility_id,org_unit_id,inspection_date,condition,findings,actions_required,next_inspection_on,evidence_reference,inspected_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,f.id,f.org_unit_id,date,req.body.condition,required(req.body.findings,'Inspection findings'),String(req.body.actionsRequired||'').trim()||null,req.body.nextInspectionOn?dateValue(req.body.nextInspectionOn):null,String(req.body.evidenceReference||'').trim()||null,req.auth.userId]);await db.query(`UPDATE asset_facilities SET condition=$2,next_inspection_on=$3,status=CASE WHEN $2='UNSERVICEABLE' THEN 'UNDER_MAINTENANCE' ELSE status END,updated_at=now() WHERE id=$1`,[f.id,req.body.condition,req.body.nextInspectionOn?dateValue(req.body.nextInspectionOn):null]);await audit(db,req,'facility.inspected','facility',f.id,{inspectionId:id,condition:req.body.condition});return {id};
- });
- get('/api/facilities/inspections',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'facility_inspections',['findings','actions_required','evidence_reference','condition'],'org_unit_id'));
-
- get('/api/assets/insurance',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_insurance_directory',['insurer','policy_number','coverage_type','status','asset_tag','registration_number','facility_code']));
- get('/api/assets/insurance/alerts',DEPARTMENT_ROLES.assets,async(req,res)=>{const units=await scopedUnits(req.departmentAuth),days=numeric(req.query.days||30,1,365);res.json((await pool.query("SELECT * FROM asset_insurance_directory WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[])) AND effective_status IN ('ACTIVE','EXPIRED','CLAIM_OPEN') AND expires_on<=CURRENT_DATE+($2::int) ORDER BY expires_on",[units,days])).rows);});
- post('/api/assets/insurance',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const b=req.body,unit=idValue(b.orgUnitId);await office(db,req,unit);const refs=[b.assetId,b.vehicleId,b.facilityId].filter(Boolean);if(refs.length!==1)throw fail('Select exactly one fixed asset, vehicle or facility.');let query,owner;
-  if(b.assetId){owner=await row(db,'assets',b.assetId);query={assetId:owner.id,vehicleId:null,facilityId:null};}else if(b.vehicleId){owner=await row(db,'fleet_vehicles',b.vehicleId);query={assetId:null,vehicleId:owner.id,facilityId:null};}else{owner=await row(db,'asset_facilities',b.facilityId);query={assetId:null,vehicleId:null,facilityId:owner.id};}
-  if(owner.org_unit_id!==unit)throw fail('Insurance and insured record must belong to the same office.',403);const start=dateValue(b.startsOn),end=dateValue(b.expiresOn);if(end<start)throw fail('Policy expiry must follow its start date.');const id=randomUUID();await db.query('INSERT INTO asset_insurance_policies(id,org_unit_id,asset_id,vehicle_id,facility_id,insurer,policy_number,coverage_type,insured_value_minor,currency,starts_on,expires_on,evidence_reference,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',[id,unit,query.assetId,query.vehicleId,query.facilityId,required(b.insurer,'Insurer',200),required(b.policyNumber,'Policy number',120),required(b.coverageType,'Coverage type',200),parseMinorUnits(b.insuredValue||'0').toString(),currencyValue(b.currency),start,end,required(b.evidenceReference,'Protected policy document reference',240),req.auth.userId]);await audit(db,req,'asset.insurance_registered','insurance_policy',id,{expiresOn:end,insuredRecord:owner.id});return {id};
- });
- get('/api/assets/insurance-claims',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_insurance_claim_directory',['claim_reference','policy_number','insurer','incident_reference','status','claim_summary','settlement_reference']));
- post('/api/assets/insurance-claims',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const b=req.body,p=await row(db,'asset_insurance_policies',idValue(b.policyId));await scope(req,p.org_unit_id);if(!['ACTIVE','CLAIM_OPEN'].includes(p.status))throw fail('Claims require a current active policy record.',409);const amount=parseMinorUnits(b.amount);if(amount<=0n||amount>BigInt(p.insured_value_minor))throw fail('Claim amount must be positive and no greater than the recorded insured value.');let incident=null;
-  if(b.incidentId){incident=await row(db,'asset_incidents',idValue(b.incidentId));if(incident.org_unit_id!==p.org_unit_id)throw fail('Claim and incident must belong to the same office.',403);const linked=(p.asset_id&&incident.asset_id===p.asset_id)||(p.vehicle_id&&incident.vehicle_id===p.vehicle_id)||(p.facility_id&&incident.facility_id===p.facility_id);if(!linked)throw fail('The incident must concern the item insured by this policy.');if(incident.occurred_on<p.starts_on||incident.occurred_on>p.expires_on)throw fail('Incident date is outside the recorded policy period.');}
-  const id=randomUUID();await db.query('INSERT INTO asset_insurance_claims(id,policy_id,incident_id,org_unit_id,claim_reference,claim_amount_minor,currency,claim_summary,evidence_reference,submitted_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,p.id,incident?.id||null,p.org_unit_id,required(b.claimReference,'Claim reference',100),amount.toString(),p.currency,required(b.summary,'Claim summary',3000),required(b.evidenceReference,'Claim evidence reference',240),req.auth.userId]);await db.query("UPDATE asset_insurance_policies SET status='CLAIM_OPEN' WHERE id=$1",[p.id]);await audit(db,req,'asset.insurance_claim_submitted','insurance_claim',id,{policyId:p.id,incidentId:incident?.id||null,amountMinor:amount.toString()});return {id,status:'SUBMITTED'};
- });
- post('/api/assets/insurance-claims/:id/decide',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
-  const c=await row(db,'asset_insurance_claims',req.params.id);await scope(req,c.org_unit_id);checker(req,c.submitted_by);if(c.status!=='SUBMITTED')throw fail('Claim is not awaiting an internal decision.',409);if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Choose approve or reject.');const note=required(req.body.reason,'Independent internal claim review');await db.query('UPDATE asset_insurance_claims SET status=$2,decided_by=$3,decision_note=$4,decided_at=now() WHERE id=$1',[c.id,req.body.status,req.auth.userId,note]);if(req.body.status==='REJECTED'){const open=await db.query("SELECT 1 FROM asset_insurance_claims WHERE policy_id=$1 AND id<>$2 AND status IN ('SUBMITTED','APPROVED')",[c.policy_id,c.id]);if(!open.rowCount)await db.query("UPDATE asset_insurance_policies SET status=CASE WHEN expires_on<CURRENT_DATE THEN 'EXPIRED' ELSE 'ACTIVE' END WHERE id=$1",[c.policy_id]);}await audit(db,req,`asset.insurance_claim_${req.body.status.toLowerCase()}`,'insurance_claim',c.id);return {id:c.id,status:req.body.status};
- });
- post('/api/assets/insurance-claims/:id/record-settlement',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
-  const c=await row(db,'asset_insurance_claims',req.params.id);await scope(req,c.org_unit_id);if(c.status!=='APPROVED')throw fail('Only an internally approved claim can record insurer settlement.',409);checker(req,c.submitted_by);checker(req,c.decided_by);const amount=parseMinorUnits(req.body.amount);if(amount<0n||amount>BigInt(c.claim_amount_minor))throw fail('Settlement must be between zero and the claimed amount.');await db.query("UPDATE asset_insurance_claims SET status='SETTLED',settlement_minor=$2,settlement_reference=$3,settlement_evidence_reference=$4,settled_at=now() WHERE id=$1",[c.id,amount.toString(),required(req.body.settlementReference,'Insurer settlement advice reference',160),required(req.body.evidenceReference,'Settlement evidence reference',240)]);await audit(db,req,'asset.insurance_claim_settlement_recorded','insurance_claim',c.id,{settlementMinor:amount.toString()});return {id:c.id,status:'SETTLED'};
- });
- post('/api/assets/insurance-claims/:id/close',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
-  const c=await row(db,'asset_insurance_claims',req.params.id);await scope(req,c.org_unit_id);if(!['REJECTED','SETTLED'].includes(c.status))throw fail('Only a rejected or externally settled claim can close.',409);checker(req,c.submitted_by);await db.query("UPDATE asset_insurance_claims SET status='CLOSED' WHERE id=$1",[c.id]);const open=await db.query("SELECT 1 FROM asset_insurance_claims WHERE policy_id=$1 AND id<>$2 AND status IN ('SUBMITTED','APPROVED')",[c.policy_id,c.id]);if(!open.rowCount)await db.query("UPDATE asset_insurance_policies SET status=CASE WHEN expires_on<CURRENT_DATE THEN 'EXPIRED' ELSE 'ACTIVE' END WHERE id=$1",[c.policy_id]);await audit(db,req,'asset.insurance_claim_closed','insurance_claim',c.id,{reason:required(req.body.reason,'Claim closure note')});return {id:c.id,status:'CLOSED'};
- });
-
- // Loss cases contain restricted narratives and are visible only to asset investigators, management and auditors.
- const incidentRoles=['MANAGING_DIRECTOR','ASSET_OFFICER','INTERNAL_AUDITOR'];
- get('/api/assets/incidents',incidentRoles,(req,res)=>list(req,res,'asset_incidents',['case_reference','incident_type','severity','status','narrative','investigation_findings'],'org_unit_id'));
- post('/api/assets/incidents',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const b=req.body,unit=idValue(b.orgUnitId);await office(db,req,unit);const refs=[b.assetId,b.vehicleId,b.facilityId].filter(Boolean);if(refs.length!==1)throw fail('Select exactly one affected asset, vehicle or facility.');const table=b.assetId?'assets':b.vehicleId?'fleet_vehicles':'asset_facilities',record=await row(db,table,refs[0],false);if(record.org_unit_id!==unit)throw fail('Incident and affected record must be in the same office.',403);if(!['LOSS','THEFT','DAMAGE','ACCIDENT','FRAUD_SUSPECTED','OTHER'].includes(b.incidentType)||!['LOW','MEDIUM','HIGH','CRITICAL'].includes(b.severity))throw fail('Choose an incident type and severity.');const id=randomUUID();await db.query('INSERT INTO asset_incidents(id,org_unit_id,asset_id,vehicle_id,facility_id,case_reference,incident_type,occurred_on,severity,narrative,reported_by,due_on) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,unit,b.assetId||null,b.vehicleId||null,b.facilityId||null,required(b.caseReference,'Case reference',100),b.incidentType,dateValue(b.occurredOn),b.severity,required(b.narrative,'Incident narrative',5000),req.auth.userId,b.dueOn?dateValue(b.dueOn):null]);await audit(db,req,'asset.incident_reported','asset_incident',id,{caseReference:b.caseReference,severity:b.severity});return {id,status:'SUBMITTED'};
- });
- post('/api/assets/incidents/:id/assign', ['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
-  const c=await row(db,'asset_incidents',req.params.id);await scope(req,c.org_unit_id);checker(req,c.reported_by);if(!['SUBMITTED','ASSIGNED'].includes(c.status))throw fail('Only a new case can be assigned.',409);const investigator=idValue(req.body.investigatorId);checker(req,investigator);const role=await db.query("SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2 AND role IN ('ASSET_OFFICER','MANAGING_DIRECTOR')",[investigator,c.org_unit_id]);if(!role.rowCount)throw fail('Investigator must be an asset officer or manager assigned to this office.');const due=dateValue(req.body.dueOn);await db.query("UPDATE asset_incidents SET investigator_id=$2,status='ASSIGNED',due_on=$3,conflict_check=NULL,conflict_note=NULL WHERE id=$1",[c.id,investigator,due]);await audit(db,req,'asset.incident_assigned','asset_incident',c.id,{investigatorId:investigator,dueOn:due});return {id:c.id,status:'ASSIGNED'};
- });
- post('/api/assets/incidents/:id/conflict-check',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
-  const c=await row(db,'asset_incidents',req.params.id);await scope(req,c.org_unit_id);if(c.investigator_id!==req.auth.userId)throw fail('Only the assigned investigator can record this conflict check.',403);if(!['ASSIGNED','INVESTIGATING'].includes(c.status))throw fail('Case is not at investigator conflict review.',409);if(!['CLEAR','CONFLICT'].includes(req.body.result))throw fail('Choose clear or conflict.');const note=required(req.body.reason,'Conflict-of-interest declaration');await db.query('UPDATE asset_incidents SET conflict_check=$2,conflict_note=$3,status=CASE WHEN $2=\'CLEAR\' THEN \'INVESTIGATING\' ELSE \'ASSIGNED\' END,investigator_id=CASE WHEN $2=\'CONFLICT\' THEN NULL ELSE investigator_id END WHERE id=$1',[c.id,req.body.result,note]);await audit(db,req,`asset.incident_conflict_${req.body.result.toLowerCase()}`,'asset_incident',c.id);return {id:c.id,status:req.body.result==='CLEAR'?'INVESTIGATING':'REASSIGN_REQUIRED'};
- });
- post('/api/assets/incidents/:id/findings',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
-  const c=await row(db,'asset_incidents',req.params.id);await scope(req,c.org_unit_id);if(c.investigator_id!==req.auth.userId||c.conflict_check!=='CLEAR')throw fail('Only the assigned, cleared investigator can update findings.',403);if(!['INVESTIGATING','AWAITING_EVIDENCE'].includes(c.status))throw fail('Case is not under investigation.',409);const state=req.body.status;if(!['INVESTIGATING','AWAITING_EVIDENCE','RESOLVED'].includes(state))throw fail('Choose an allowed investigation stage.');const findings=required(req.body.findings,'Investigation findings',6000);await db.query('UPDATE asset_incidents SET investigation_findings=$2,resolution=$3,claim_reference=$4,status=$5 WHERE id=$1',[c.id,findings,String(req.body.resolution||'').trim()||null,String(req.body.claimReference||'').trim()||null,state]);await audit(db,req,'asset.incident_findings_updated','asset_incident',c.id,{status:state});return {id:c.id,status:state};
- });
- post('/api/assets/incidents/:id/close',['MANAGING_DIRECTOR'],async(db,req)=>{
-  const c=await row(db,'asset_incidents',req.params.id);await scope(req,c.org_unit_id);checker(req,c.investigator_id);if(c.status!=='RESOLVED'||!c.investigation_findings)throw fail('Only a documented resolved investigation can be independently closed.',409);const note=required(req.body.reason,'Independent closure review');await db.query("UPDATE asset_incidents SET status='CLOSED',closed_by=$2,closed_at=now(),resolution=concat(coalesce(resolution,''),E'\\nClosure review: ',$3::text) WHERE id=$1",[c.id,req.auth.userId,note]);await audit(db,req,'asset.incident_closed','asset_incident',c.id);return {id:c.id,status:'CLOSED'};
- });
-
- get('/api/assets/accounting-policies',['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'],async(_req,res)=>res.json((await pool.query('SELECT * FROM asset_accounting_policies ORDER BY policy_code,version DESC')).rows));
- post('/api/assets/accounting-policies',DEPARTMENT_ROLES.financeWrite,async(db,req)=>{
-  const b=req.body,start=dateValue(b.effectiveFrom),end=dateValue(b.effectiveTo);if(end<start)throw fail('Policy effective period is invalid.');if(b.depreciationMethod!=='STRAIGHT_LINE')throw fail('The currently supported depreciation engine is straight-line. Other methods cannot be approved until implemented and independently validated.');const id=randomUUID(),version=Number(b.version);if(!Number.isInteger(version)||version<1)throw fail('Enter a positive policy version.');await db.query('INSERT INTO asset_accounting_policies(id,policy_code,version,title,effective_from,effective_to,depreciation_method,capitalization_threshold_minor,default_useful_months,residual_value_basis,impairment_treatment,revaluation_treatment,disposal_treatment,authority_reference,evidence_reference,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',[id,required(b.policyCode,'Policy code',100),version,required(b.title,'Policy title',240),start,end,b.depreciationMethod,parseMinorUnits(b.capitalizationThreshold||'0').toString(),numeric(b.defaultUsefulMonths,1,1200),required(b.residualValueBasis,'Residual-value rule',1000),required(b.impairmentTreatment,'Impairment treatment',2000),required(b.revaluationTreatment,'Revaluation treatment',2000),required(b.disposalTreatment,'Disposal accounting treatment',2000),required(b.authorityReference,'FDA policy / approval reference',240),required(b.evidenceReference,'Signed policy evidence reference',240),req.auth.userId]);await audit(db,req,'asset.accounting_policy_created','asset_accounting_policy',id,{policyCode:b.policyCode,version});return {id,status:'DRAFT'};
- });
- post('/api/assets/accounting-policies/:id/decide',['MANAGING_DIRECTOR','FINANCE_DIRECTOR'],async(db,req)=>{
-  const p=await row(db,'asset_accounting_policies',req.params.id);checker(req,p.created_by);if(p.status!=='DRAFT')throw fail('Only a draft policy may be decided.',409);if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Choose approve or reject.');if(req.body.status==='APPROVED'){const overlap=await db.query("SELECT 1 FROM asset_accounting_policies WHERE policy_code=$1 AND status='APPROVED' AND id<>$2 AND effective_from<=$4::date AND effective_to>=$3::date",[p.policy_code,p.id,p.effective_from,p.effective_to]);if(overlap.rowCount)throw fail('An approved version of this policy overlaps the effective dates.',409);await db.query("UPDATE asset_accounting_policies SET status='SUPERSEDED' WHERE policy_code=$1 AND status='APPROVED' AND effective_from<=$3::date AND effective_to>=$2::date",[p.policy_code,p.effective_from,p.effective_to]);}await db.query('UPDATE asset_accounting_policies SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[p.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent policy review note')]);await audit(db,req,`asset.accounting_policy_${req.body.status.toLowerCase()}`,'asset_accounting_policy',p.id);return {id:p.id,status:req.body.status};
- });
-
- get('/api/field-device-acceptance',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'field_device_acceptance',['reference','device_type','device_make_model','device_identifier','application_version','outcome','evidence_reference'],'org_unit_id'));
- post('/api/field-device-acceptance',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const b=req.body;await office(db,req,idValue(b.orgUnitId));const requiredChecks=['qr_scan','barcode_scan','offline_capture','sync_after_reconnect','office_scope','protected_evidence','login_timeout','audit_event'];let checks=b.checks||Object.fromEntries(requiredChecks.map(k=>[k,b[`${k}Status`]==='PASS']));if(typeof checks==='string'){try{checks=JSON.parse(checks);}catch{throw fail('Enter valid field-device test results.');}}if(!checks||typeof checks!=='object'||requiredChecks.some(k=>checks[k]!==true))throw fail('Complete and pass every field-device acceptance check before submission.');const id=randomUUID();await db.query("INSERT INTO field_device_acceptance(id,reference,org_unit_id,device_type,device_make_model,device_identifier,os_version,browser_version,application_version,network_profile,checks,outcome,tester_id,evidence_reference) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'SUBMITTED',$12,$13)",[id,required(b.reference,'Acceptance reference',100),b.orgUnitId,b.deviceType,required(b.deviceMakeModel,'Device make/model',160),required(b.deviceIdentifier,'FDA asset tag or test-device identifier',160),required(b.osVersion,'Operating-system version',120),required(b.browserVersion,'Browser version',120),required(b.applicationVersion,'Application build / commit',160),required(b.networkProfile,'Field connectivity profile',240),JSON.stringify(checks),req.auth.userId,required(b.evidenceReference,'Test evidence reference',240)]);await audit(db,req,'field_device.acceptance_submitted','field_device_acceptance',id,{deviceIdentifier:b.deviceIdentifier,applicationVersion:b.applicationVersion});return {id,status:'SUBMITTED'};
- });
- post('/api/field-device-acceptance/:id/decide',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
-  const c=await row(db,'field_device_acceptance',req.params.id);await scope(req,c.org_unit_id);checker(req,c.tester_id);if(c.outcome!=='SUBMITTED')throw fail('Acceptance record is not awaiting review.',409);if(!['ACCEPTED','REJECTED'].includes(req.body.outcome))throw fail('Choose accepted or rejected.');await db.query('UPDATE field_device_acceptance SET outcome=$2,reviewer_id=$3,review_note=$4,reviewed_at=now() WHERE id=$1',[c.id,req.body.outcome,req.auth.userId,required(req.body.reason,'Independent field-device review')]);await audit(db,req,`field_device.${req.body.outcome.toLowerCase()}`,'field_device_acceptance',c.id,{deviceIdentifier:c.device_identifier});return {id:c.id,outcome:req.body.outcome};
- });
-
- // Recruitment intake and onboarding are backed by the same personnel register,
- // office scope controls and append-only audit chain as the other HR records.
- get('/api/hr/vacancies',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_vacancy_directory',['reference','title','description','position_code','office_name']));
- post('/api/hr/vacancies',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,p=await row(db,'hr_positions',b.positionId);await office(db,req,p.org_unit_id);
-  const opens=dateValue(b.opensOn),closes=dateValue(b.closesOn);if(closes<opens)throw fail('Closing date must be on or after the opening date.');
-  const active=await db.query("SELECT count(*)::integer AS count FROM hr_employees WHERE position_id=$1 AND status='ACTIVE'",[p.id]);
-  if(Number(active.rows[0].count)>=p.capacity)throw fail('A vacancy cannot be opened for a position at its approved capacity.',409);
-  const id=randomUUID();await db.query('INSERT INTO hr_vacancies(id,reference,org_unit_id,position_id,title,description,opens_on,closes_on,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,required(b.reference,'Vacancy reference',100),p.org_unit_id,p.id,required(b.title,'Published title',200),required(b.description,'Role description and selection criteria'),opens,closes,req.auth.userId]);
-  await audit(db,req,'hr.vacancy.created','vacancy',id,{positionId:p.id,opensOn:opens,closesOn:closes});return {id};
- });
- post('/api/hr/vacancies/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const v=await row(db,'hr_vacancies',req.params.id);await scope(req,v.org_unit_id);
-  if(v.status!=='DRAFT')throw fail('Only draft vacancies can be independently published or cancelled.',409);
-  if(!['PUBLISHED','CANCELLED'].includes(req.body.status))throw fail('Select publish or cancel.');
-  if(req.body.status==='PUBLISHED'){
-   checker(req,v.created_by);
-   const today=new Date().toISOString().slice(0,10);if(dbDate(v.closes_on)<today)throw fail('The application closing date has passed.',409);
-   const p=await row(db,'hr_positions',v.position_id);const filled=await db.query("SELECT count(*)::integer AS count FROM hr_employees WHERE position_id=$1 AND status='ACTIVE'",[p.id]);
-   if(Number(filled.rows[0].count)>=p.capacity)throw fail('Position capacity was filled before publication.',409);
-  }
-  await db.query('UPDATE hr_vacancies SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[v.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent HR publication decision')]);
-  await audit(db,req,`hr.vacancy.${req.body.status.toLowerCase()}`,'vacancy',v.id);return {id:v.id};
- });
- get('/api/hr/applications',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_application_directory',['reference','applicant_name','email','contact','vacancy_reference','vacancy_title','status']));
- post('/api/hr/applications',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,v=await row(db,'hr_vacancies',b.vacancyId);await scope(req,v.org_unit_id);
-  if(v.status!=='PUBLISHED')throw fail('Applications can only be registered against a published vacancy.',409);
-  const today=new Date().toISOString().slice(0,10);if(today<dbDate(v.opens_on)||today>dbDate(v.closes_on))throw fail('Application intake is outside the published dates.',409);
-  const email=required(b.email,'Applicant email',254).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw fail('Enter a valid applicant email.');
-  const id=randomUUID();await db.query('INSERT INTO hr_applications(id,vacancy_id,reference,applicant_name,email,contact,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,v.id,required(b.reference,'Application reference',100),required(b.applicantName,'Applicant full name',200),email,String(b.contact||'').trim().slice(0,120),req.auth.userId]);
-  await audit(db,req,'hr.application.received','application',id,{vacancyId:v.id});return {id};
- });
- post('/api/hr/applications/:id/advance',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const a=await row(db,'hr_applications',req.params.id);const v=await row(db,'hr_vacancies',a.vacancy_id);await scope(req,v.org_unit_id);
-  if(['HIRED','REJECTED','WITHDRAWN'].includes(a.status))throw fail('This application is closed.',409);
-  const allowed={RECEIVED:['SCREENING','REJECTED','WITHDRAWN'],SCREENING:['INTERVIEW','REJECTED','WITHDRAWN'],INTERVIEW:['RECOMMENDED','REJECTED','WITHDRAWN'],RECOMMENDED:['OFFERED','REJECTED','WITHDRAWN'],OFFERED:['REJECTED','WITHDRAWN']};
-  const next=req.body.status;if(!allowed[a.status]?.includes(next))throw fail('The requested application stage is not a valid next step.',409);
-  const note=required(req.body.reason,'Stage decision / evidence reference');
-  await db.query('UPDATE hr_applications SET status=$2,decision_note=$3,updated_by=$4,updated_at=now() WHERE id=$1',[a.id,next,note,req.auth.userId]);
-  await audit(db,req,`hr.application.${next.toLowerCase()}`,'application',a.id,{from:a.status,to:next,decisionNote:note});return {id:a.id};
- });
- post('/api/hr/applications/:id/hire',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const a=await row(db,'hr_applications',req.params.id);const v=await row(db,'hr_vacancies',a.vacancy_id);await scope(req,v.org_unit_id);
-  if(a.status!=='OFFERED')throw fail('A candidate must have an issued offer before hiring.',409);
-  checker(req,a.updated_by||a.created_by);
-  if(v.status!=='PUBLISHED')throw fail('The vacancy must remain active through appointment.',409);
-  const p=await checkPosition(db,req,v.position_id);let userId=null;
-  if(req.body.userId){const u=await row(db,'users',req.body.userId,false);if(u.disabled_at)throw fail('Staff account is disabled.');const assignments=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[u.id,v.org_unit_id]);if(!assignments.rowCount)throw fail('The linked staff account must be assigned to the employee office.');const already=await db.query('SELECT 1 FROM hr_employees WHERE user_id=$1',[u.id]);if(already.rowCount)throw fail('This login is already linked to an employee record.',409);userId=u.id;}
-  const employeeId=randomUUID();await db.query('INSERT INTO hr_employees(id,staff_number,full_name,email,user_id,org_unit_id,position_id,start_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[employeeId,required(req.body.staffNumber,'Staff number',80),a.applicant_name,a.email,userId,v.org_unit_id,p.id,dateValue(req.body.startDate)]);
-  await db.query("UPDATE hr_applications SET status='HIRED',employee_id=$2,decision_note=$3,updated_by=$4,updated_at=now() WHERE id=$1",[a.id,employeeId,required(req.body.reason,'Hiring authorization reference'),req.auth.userId]);
-  await audit(db,req,'hr.application.hired','application',a.id,{employeeId,positionId:p.id,staffNumber:req.body.staffNumber});
-  await audit(db,req,'hr.employee.created_from_recruitment','employee',employeeId,{applicationId:a.id,vacancyId:v.id,positionId:p.id});return {id:a.id,employeeId};
- });
- get('/api/hr/onboarding',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_onboarding_directory',['task_code','title','description','staff_number','employee_name','status','office_name']));
- post('/api/hr/onboarding',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,e=await row(db,'hr_employees',b.employeeId);await scope(req,e.org_unit_id);if(e.status!=='ACTIVE')throw fail('Onboarding tasks require an active employee.');
-  let assignedTo=null;if(b.assignedTo){const u=await row(db,'users',b.assignedTo,false);if(u.disabled_at)throw fail('Assigned account is disabled.');const inOffice=await db.query('SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2',[u.id,e.org_unit_id]);if(!inOffice.rowCount)throw fail('The task owner must have an account assigned to this office.');assignedTo=u.id;}
-  const id=randomUUID();await db.query('INSERT INTO hr_onboarding_tasks(id,employee_id,org_unit_id,task_code,title,description,assigned_to,due_date,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,e.id,e.org_unit_id,required(b.taskCode,'Task code',80),required(b.title,'Task title',200),required(b.description,'Task instructions'),assignedTo,b.dueDate?dateValue(b.dueDate):null,req.auth.userId]);
-  await audit(db,req,'hr.onboarding.task_created','onboarding',id,{employeeId:e.id,assignedTo});return {id};
- });
- app.get('/api/hr/onboarding/my',loadAuth,route(async(req,res)=>{
-  res.json((await pool.query('SELECT id,task_code,title,description,due_date,status,completion_note,created_at FROM hr_onboarding_directory WHERE employee_user_id=$1 OR assigned_to=$1 ORDER BY due_date NULLS LAST,created_at',[req.auth.userId])).rows);
- }));
- post('/api/hr/onboarding/:id/complete',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const t=await row(db,'hr_onboarding_tasks',req.params.id);await scope(req,t.org_unit_id);if(t.status!=='OPEN')throw fail('Only open onboarding tasks can be completed.',409);
-  await db.query("UPDATE hr_onboarding_tasks SET status='COMPLETE',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Completion evidence / note'),req.auth.userId]);
-  await audit(db,req,'hr.onboarding.task_completed','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
- });
- app.post('/api/hr/onboarding/:id/complete-self',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
-  const t=await row(db,'hr_onboarding_tasks',req.params.id),e=await row(db,'hr_employees',t.employee_id,false);
-  if(t.assigned_to!==req.auth.userId&&e.user_id!==req.auth.userId)throw fail('Only the employee or assigned task owner can complete this task.',403);
-  if(t.status!=='OPEN')throw fail('Only open onboarding tasks can be completed.',409);
-  await db.query("UPDATE hr_onboarding_tasks SET status='COMPLETE',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Completion note'),req.auth.userId]);
-  await writeAudit(db,req.auth,'hr.onboarding.task_completed_self','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
- }))));
- post('/api/hr/onboarding/:id/waive',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const t=await row(db,'hr_onboarding_tasks',req.params.id);await scope(req,t.org_unit_id);if(t.status!=='OPEN')throw fail('Only open onboarding tasks can be waived.',409);
-  checker(req,t.created_by);await db.query("UPDATE hr_onboarding_tasks SET status='WAIVED',completion_note=$2,completed_by=$3,completed_at=now() WHERE id=$1",[t.id,required(req.body.reason,'Waiver approval reason'),req.auth.userId]);
-  await audit(db,req,'hr.onboarding.task_waived','onboarding',t.id,{employeeId:t.employee_id});return {id:t.id};
- });
-
- get('/api/hr/training/programs',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_program_directory',['code','title','category','provider','description','status'],null));
- post('/api/hr/training/programs',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,start=dateValue(b.startsOn),end=dateValue(b.endsOn);if(end<start)throw fail('Training end date must follow its start date.');
-  const capacity=numeric(b.capacity,1,10000);if(!Number.isInteger(capacity))throw fail('Capacity must be a whole number.');
-  const costMinor=b.estimatedCost?parseMinorUnits(String(b.estimatedCost)):0n;if(costMinor<0n||costMinor>9000000000000000n)throw fail('Enter a valid estimated training cost.');
-  const currency=currencyValue(b.currency||'USD');
-  const id=randomUUID();await db.query('INSERT INTO hr_training_programs(id,code,title,category,provider,description,starts_on,ends_on,capacity,created_by,estimated_cost_minor,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,required(b.code,'Course code',80),required(b.title,'Course title',200),required(b.category,'Course category',100),required(b.provider,'Training provider',200),required(b.description,'Course description'),start,end,capacity,req.auth.userId,costMinor.toString(),currency]);
-  await audit(db,req,'hr.training.program_created','training_program',id,{code:b.code,estimatedCostMinor:costMinor.toString(),currency});return {id};
- });
- post('/api/hr/training/programs/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const p=await row(db,'hr_training_programs',req.params.id);checker(req,p.created_by);if(p.status!=='DRAFT')throw fail('Only draft training programs can be published or cancelled.',409);
-  if(!['PUBLISHED','CANCELLED'].includes(req.body.status))throw fail('Select publish or cancel.');
-  if(req.body.status==='PUBLISHED'&&dbDate(p.ends_on)<new Date().toISOString().slice(0,10))throw fail('The training program has already ended.');
-  await db.query('UPDATE hr_training_programs SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[p.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent publication decision')]);await audit(db,req,`hr.training.program_${req.body.status.toLowerCase()}`,'training_program',p.id);return {id:p.id};
- });
- get('/api/hr/training/enrollments',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_enrollment_directory',['program_code','program_title','staff_number','employee_name','status','learning_objective','certificate_reference']));
- post('/api/hr/training/enrollments',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,p=await row(db,'hr_training_programs',b.programId),e=await row(db,'hr_employees',b.employeeId);await scope(req,e.org_unit_id);
-  if(e.status!=='ACTIVE'||p.status!=='PUBLISHED')throw fail('Enroll active employees in published training programs only.',409);
-  if(dbDate(p.ends_on)<new Date().toISOString().slice(0,10))throw fail('The training program has ended.',409);
-  await db.query('SELECT id FROM hr_training_programs WHERE id=$1 FOR UPDATE',[p.id]);const count=await db.query("SELECT count(*)::integer AS total FROM hr_training_enrollments WHERE program_id=$1 AND status NOT IN ('REJECTED','WITHDRAWN')",[p.id]);if(Number(count.rows[0].total)>=p.capacity)throw fail('Training capacity has been reached.',409);
-  const id=randomUUID();await db.query('INSERT INTO hr_training_enrollments(id,program_id,employee_id,org_unit_id,learning_objective,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,p.id,e.id,e.org_unit_id,required(b.learningObjective,'Learning objective'),req.auth.userId]);await audit(db,req,'hr.training.employee_nominated','training_enrollment',id,{employeeId:e.id,programId:p.id});return {id};
- });
- post('/api/hr/training/enrollments/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const e=await row(db,'hr_training_enrollments',req.params.id);await scope(req,e.org_unit_id);checker(req,e.created_by);if(e.status!=='SUBMITTED')throw fail('Only a pending training nomination can be decided.',409);
-  if(!['APPROVED','REJECTED'].includes(req.body.status))throw fail('Select approve or reject.');await db.query('UPDATE hr_training_enrollments SET status=$2,approved_by=$3,completion_note=$4,updated_at=now() WHERE id=$1',[e.id,req.body.status,req.auth.userId,required(req.body.reason,'Training nomination decision')]);await audit(db,req,`hr.training.nomination_${req.body.status.toLowerCase()}`,'training_enrollment',e.id);return {id:e.id};
- });
- app.post('/api/hr/training/enrollments/:id/start',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
-  const e=await row(db,'hr_training_enrollments',req.params.id),employee=await row(db,'hr_employees',e.employee_id,false);
-  if(employee.user_id!==req.auth.userId){req.departmentAuth=departmentAuth(req.auth,DEPARTMENT_ROLES.hr);await scope(req,e.org_unit_id);}
-  if(e.status!=='APPROVED')throw fail('Only an approved enrollment can be started.',409);await db.query("UPDATE hr_training_enrollments SET status='IN_PROGRESS',updated_at=now() WHERE id=$1",[e.id]);await writeAudit(db,req.departmentAuth||req.auth,'hr.training.started','training_enrollment',e.id,{employeeId:e.employee_id});return {id:e.id};
- }))));
- app.post('/api/hr/training/enrollments/:id/complete',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
-  const e=await row(db,'hr_training_enrollments',req.params.id),employee=await row(db,'hr_employees',e.employee_id,false);
-  if(employee.user_id!==req.auth.userId){req.departmentAuth=departmentAuth(req.auth,DEPARTMENT_ROLES.hr);await scope(req,e.org_unit_id);}
-  if(e.status!=='IN_PROGRESS')throw fail('Only an in-progress course can be submitted for completion.',409);
-  await db.query("UPDATE hr_training_enrollments SET status='COMPLETION_SUBMITTED',completion_note=$2,certificate_reference=$3,completed_by=$4,updated_at=now() WHERE id=$1",[e.id,required(req.body.reason,'Completion evidence / result'),String(req.body.certificateReference||'').trim().slice(0,200)||null,req.auth.userId]);await writeAudit(db,req.departmentAuth||req.auth,'hr.training.completion_submitted','training_enrollment',e.id,{employeeId:e.employee_id});return {id:e.id};
- }))));
- post('/api/hr/training/enrollments/:id/decide-completion',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const e=await row(db,'hr_training_enrollments',req.params.id);await scope(req,e.org_unit_id);checker(req,e.completed_by);if(e.status!=='COMPLETION_SUBMITTED')throw fail('Course completion is not awaiting verification.',409);
-  if(!['COMPLETED','FAILED'].includes(req.body.status))throw fail('Select completed or failed.');await db.query('UPDATE hr_training_enrollments SET status=$2,updated_at=now() WHERE id=$1',[e.id,req.body.status]);await audit(db,req,`hr.training.${req.body.status.toLowerCase()}`,'training_enrollment',e.id,{certificateReference:e.certificate_reference,verification:required(req.body.reason,'Independent certificate / result verification')});return {id:e.id};
- });
- get('/api/hr/training/my',Object.values(DEPARTMENT_ROLES).flat(),async(req,res)=>res.json((await pool.query('SELECT id,program_code,program_title,starts_on,ends_on,status,learning_objective,completion_note,certificate_reference FROM hr_training_enrollment_directory WHERE employee_user_id=$1 ORDER BY starts_on DESC',[req.auth.userId])).rows));
-
- // Shared competency framework, reviewed evidence and office-scoped skills analysis.
- get('/api/hr/competencies',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_competencies',['code','name','competency_group','description','status'],'',`AND status='ACTIVE'`));
- post('/api/hr/competencies',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,id=randomUUID();await db.query('INSERT INTO hr_competencies(id,code,name,competency_group,description,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,required(b.code,'Competency code',80).toUpperCase(),required(b.name,'Competency name',160),required(b.group,'Competency group',100),required(b.description,'Observable competency description'),req.auth.userId]);
-  await audit(db,req,'hr.competency.created','competency',id,{code:b.code});return {id};
- });
- post('/api/hr/competencies/:id/retire',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const c=await row(db,'hr_competencies',req.params.id);if(c.status!=='ACTIVE')throw fail('Only an active competency can be retired.',409);
-  await db.query("UPDATE hr_competencies SET status='RETIRED' WHERE id=$1",[c.id]);await audit(db,req,'hr.competency.retired','competency',c.id,{reason:required(req.body.reason,'Retirement rationale')});return {id:c.id};
- });
- post('/api/hr/positions/:id/competencies',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const p=await row(db,'hr_positions',req.params.id),c=await row(db,'hr_competencies',req.body.competencyId,false);await office(db,req,p.org_unit_id);
-  if(c.status!=='ACTIVE')throw fail('Position requirements must use an active competency.');const level=numeric(req.body.requiredLevel,1,5);if(!Number.isInteger(level))throw fail('Required proficiency level must be a whole number from 1 to 5.');
-  await db.query(`INSERT INTO hr_position_competencies(position_id,competency_id,required_level,rationale,set_by) VALUES($1,$2,$3,$4,$5)
-   ON CONFLICT(position_id,competency_id) DO UPDATE SET required_level=$3,rationale=$4,set_by=$5,set_at=now()`,[p.id,c.id,level,required(req.body.rationale,'Position requirement rationale'),req.auth.userId]);
-  await audit(db,req,'hr.position.competency_set','hr_position',p.id,{competencyId:c.id,requiredLevel:level});return {id:p.id,competencyId:c.id};
- });
- get('/api/hr/competency-assessments',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_competency_assessment_directory',['staff_number','employee_name','position_title','office_name','competency_code','competency_name','assessed_level','required_level','gap_status','review_note']));
- post('/api/hr/competency-assessments',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,e=await row(db,'hr_employees',b.employeeId),c=await row(db,'hr_competencies',b.competencyId,false);await scope(req,e.org_unit_id);
-  if(e.status!=='ACTIVE'||c.status!=='ACTIVE')throw fail('Assess active employees against active competencies only.');
-  const level=numeric(b.assessedLevel,1,5);if(!Number.isInteger(level))throw fail('Assessed proficiency must be a whole number from 1 to 5.');
-  const validUntil=b.validUntil?dateValue(b.validUntil):null,id=randomUUID();
-  await db.query('INSERT INTO hr_employee_competency_assessments(id,employee_id,competency_id,org_unit_id,assessed_level,evidence_reference,assessed_by,valid_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,e.id,c.id,e.org_unit_id,level,required(b.evidenceReference,'Assessment evidence reference'),req.auth.userId,validUntil]);
-  await audit(db,req,'hr.competency.assessed','competency_assessment',id,{employeeId:e.id,competencyId:c.id,level});return {id};
- });
- post('/api/hr/competency-assessments/:id/review',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const a=await row(db,'hr_employee_competency_assessments',req.params.id);await scope(req,a.org_unit_id);checker(req,a.assessed_by);
-  if(a.reviewed_by)throw fail('This assessment has already been independently reviewed.',409);
-  await db.query('UPDATE hr_employee_competency_assessments SET reviewed_by=$2,review_note=$3 WHERE id=$1',[a.id,req.auth.userId,required(req.body.reason,'Independent evidence review')]);
-  await audit(db,req,'hr.competency.assessment_reviewed','competency_assessment',a.id,{employeeId:a.employee_id,competencyId:a.competency_id});return {id:a.id};
- });
- post('/api/hr/competency-assessments/:id/training-need',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const a=await row(db,'hr_employee_competency_assessments',req.params.id);await scope(req,a.org_unit_id);
-  if(!a.reviewed_by)throw fail('Independently review the competency evidence before creating a training need.',409);
-  if(a.valid_until&&dbDate(a.valid_until)<new Date().toISOString().slice(0,10))throw fail('This competency assessment has expired; reassess it before linking training.');
-  const requirement=await db.query('SELECT required_level FROM hr_position_competencies WHERE position_id=(SELECT position_id FROM hr_employees WHERE id=$1) AND competency_id=$2',[a.employee_id,a.competency_id]);
-  if(!requirement.rowCount||a.assessed_level>=requirement.rows[0].required_level)throw fail('A training need can be generated only for a reviewed competency gap against an approved position requirement.',409);
-  if(!['LOW','MEDIUM','HIGH','CRITICAL'].includes(req.body.priority))throw fail('Select a training need priority.');
-  if((await db.query('SELECT 1 FROM hr_training_needs WHERE source_assessment_id=$1',[a.id])).rowCount)throw fail('A training need already exists for this assessment.',409);
-  const id=randomUUID();await db.query(`INSERT INTO hr_training_needs(id,employee_id,org_unit_id,competency,competency_id,current_level,required_level,assessment_source,priority,rationale,created_by,source_assessment_id)
-   SELECT $1,e.id,e.org_unit_id,c.name,c.id,'Level '||$2::text,'Level '||$3::text,'SUPERVISOR_ASSESSMENT',$4,$5,$6,$7
-   FROM hr_employees e JOIN hr_competencies c ON c.id=$8 WHERE e.id=$9`,[id,a.assessed_level,requirement.rows[0].required_level,req.body.priority,required(req.body.rationale,'Training need rationale'),req.auth.userId,a.id,a.competency_id,a.employee_id]);
-  await audit(db,req,'hr.training_need.created_from_competency_gap','training_need',id,{assessmentId:a.id,competencyId:a.competency_id,employeeId:a.employee_id});return {id};
- });
- get('/api/hr/skills-analysis',DEPARTMENT_ROLES.hr,async(req,res)=>{
-  const units=await scopedUnits(req.departmentAuth),limit=Math.min(100,Math.max(1,Number(req.query.limit)||25)),offset=Math.max(0,Number(req.query.offset)||0),q=String(req.query.q||'').slice(0,200);
-  const grouped=`SELECT competency_group,competency_code,competency_name,office_name,
-    count(*)::integer AS assessed_positions,
-    count(*) FILTER(WHERE gap_status='MEETS')::integer AS meets_required,
-    count(*) FILTER(WHERE gap_status='GAP')::integer AS identified_gaps,
-    count(*) FILTER(WHERE gap_status='UNASSESSED')::integer AS unassessed,
-    max(assessed_at) AS last_evidence_date
-   FROM hr_competency_gap_directory WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))
-   GROUP BY competency_group,competency_code,competency_name,office_name`;
-  const filter=`competency_group ILIKE $2 OR competency_code ILIKE $2 OR competency_name ILIKE $2 OR office_name ILIKE $2`;
-  const total=await pool.query(`WITH grouped AS (${grouped}) SELECT count(*) FROM grouped WHERE ${filter}`,[units,`%${q}%`]);
-  const result=await pool.query(`WITH grouped AS (${grouped}) SELECT * FROM grouped WHERE ${filter} ORDER BY competency_group,competency_name,office_name LIMIT $3 OFFSET $4`,[units,`%${q}%`,limit,offset]);
-  res.json({rows:result.rows,total:Number(total.rows[0].count),limit,offset,asOf:new Date().toISOString(),scope:req.departmentAuth.roles.some(r=>r.role==='MANAGING_DIRECTOR')?'FDA-wide':'assigned offices'});
- });
-
- // Succession readiness is a reviewable estimate; milestones need evidence and a separate verifier.
- post('/api/hr/succession/candidates/:id/readiness-review',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const c=await row(db,'hr_succession_candidates',req.params.id);await scope(req,c.org_unit_id);checker(req,c.nominated_by);
-  const e=await row(db,'hr_employees',c.employee_id,false);if(e.user_id===req.auth.userId)throw fail('A candidate cannot review their own succession readiness.',403);
-  if(!['READY_NOW','WITHIN_1_2_YEARS','WITHIN_3_5_YEARS','DEVELOPMENT_REQUIRED'].includes(req.body.readiness))throw fail('Select a valid readiness horizon.');
-  const next=req.body.nextReviewDate?dateValue(req.body.nextReviewDate):null;if(next&&next<new Date().toISOString().slice(0,10))throw fail('Next review date cannot be in the past.');
-  await db.query('UPDATE hr_succession_candidates SET readiness=$2,readiness_reviewed_by=$3,readiness_assessment_note=$4,readiness_reviewed_at=now(),next_review_date=$5 WHERE id=$1',[c.id,req.body.readiness,req.auth.userId,required(req.body.reason,'Readiness evidence and review basis'),next]);
-  await audit(db,req,'hr.succession.readiness_reviewed','succession_candidate',c.id,{readiness:req.body.readiness,nextReviewDate:next});return {id:c.id};
- });
- get('/api/hr/succession/milestones',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_succession_milestone_directory',['candidate_name','staff_number','plan_reference','title','status','target_date','office_name']));
- post('/api/hr/succession/milestones',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body,c=await row(db,'hr_succession_candidates',b.candidateId),e=await row(db,'hr_employees',c.employee_id,false);await scope(req,c.org_unit_id);
-  if(c.status!=='ACTIVE')throw fail('Development milestones require an active succession candidate.');
-  const assigned=await db.query('SELECT 1 FROM user_roles r JOIN users u ON u.id=r.user_id WHERE r.user_id=$1 AND u.disabled_at IS NULL AND r.org_unit_id=$2',[idValue(b.assignedTo),c.org_unit_id]);
-  if(!assigned.rowCount)throw fail('Assign this milestone to an active account in the candidate office.');
-  const id=randomUUID();await db.query('INSERT INTO hr_succession_development_milestones(id,candidate_id,org_unit_id,title,measurable_outcome,assigned_to,target_date,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,c.id,c.org_unit_id,required(b.title,'Milestone title',200),required(b.measurableOutcome,'Measurable development outcome'),b.assignedTo,dateValue(b.targetDate),req.auth.userId]);
-  await audit(db,req,'hr.succession.milestone_created','succession_milestone',id,{candidateId:c.id,assignedTo:b.assignedTo});return {id};
- });
- post('/api/hr/succession/milestones/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const m=await row(db,'hr_succession_development_milestones',req.params.id);await scope(req,m.org_unit_id);
-  const state=req.body.status;if(state==='VERIFIED')checker(req,m.assigned_to);
-  const allowed={PLANNED:['IN_PROGRESS','CANCELLED'],IN_PROGRESS:['SUBMITTED','DEFERRED','CANCELLED'],SUBMITTED:['VERIFIED','IN_PROGRESS'],DEFERRED:['IN_PROGRESS','CANCELLED']}[m.status]||[];
-  if(!allowed.includes(state))throw fail('This development milestone cannot move to the selected stage.',409);
-  const evidence=required(req.body.reason,'Milestone progress evidence and decision note');
-  await db.query('UPDATE hr_succession_development_milestones SET status=$2,evidence_reference=CASE WHEN $3::text IS NULL THEN evidence_reference ELSE $3::text END,completion_note=$4,verified_by=CASE WHEN $2=\'VERIFIED\' THEN $5 ELSE verified_by END WHERE id=$1',[m.id,state,req.body.evidenceReference?required(req.body.evidenceReference,'Evidence reference'):null,evidence,req.auth.userId]);
-  await audit(db,req,`hr.succession.milestone_${state.toLowerCase()}`,'succession_milestone',m.id,{candidateId:m.candidate_id});return {id:m.id};
- });
- app.get('/api/hr/development-milestones/my',loadAuth,route(async(req,res)=>{
-  res.json((await pool.query(`SELECT id,title,measurable_outcome,target_date,status,evidence_reference,completion_note
-   FROM hr_succession_development_milestones WHERE assigned_to=$1 AND status NOT IN ('VERIFIED','CANCELLED') ORDER BY target_date,id`,[req.auth.userId])).rows);
- }));
- app.post('/api/hr/development-milestones/:id/start',loadAuth,csrfRequired,route(async(req,res)=>{
-  const result=await transaction(async db=>{
-   const m=await row(db,'hr_succession_development_milestones',req.params.id);if(m.assigned_to!==req.auth.userId)throw fail('Only the assigned employee can start this development activity.',403);
-   if(m.status!=='PLANNED')throw fail('Only a planned activity can be started.',409);
-   await db.query("UPDATE hr_succession_development_milestones SET status='IN_PROGRESS',completion_note=$2 WHERE id=$1",[m.id,required(req.body.reason,'Development activity start note')]);
-   await writeAudit(db,req.auth,'hr.development_milestone.started','succession_milestone',m.id,{targetDate:m.target_date});return {id:m.id};
-  });res.json(result);
- }));
- app.post('/api/hr/development-milestones/:id/submit',loadAuth,csrfRequired,route(async(req,res)=>{
-  const result=await transaction(async db=>{
-   const m=await row(db,'hr_succession_development_milestones',req.params.id);if(m.assigned_to!==req.auth.userId)throw fail('Only the assigned employee can submit this development evidence.',403);
-   if(m.status!=='IN_PROGRESS')throw fail('Start this development activity before submitting evidence.',409);
-   await db.query("UPDATE hr_succession_development_milestones SET status='SUBMITTED',evidence_reference=$2,completion_note=$3 WHERE id=$1",[m.id,required(req.body.evidenceReference,'Evidence reference'),required(req.body.reason,'Outcome and completion note')]);
-   await writeAudit(db,req.auth,'hr.development_milestone.submitted','succession_milestone',m.id,{targetDate:m.target_date});return {id:m.id};
-  });res.json(result);
- }));
-
- // Approved annual training budgets, program commitments and measured training impact.
- get('/api/hr/training/budgets',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_budget_directory',['fiscal_year','office_name','currency','allocated_minor','committed_minor','remaining_minor','status']));
- post('/api/hr/training/budgets',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body;await office(db,req,b.orgUnitId);const year=numeric(b.fiscalYear,2000,2200),allocated=parseMinorUnits(String(b.allocated));if(!Number.isInteger(year)||allocated<0n||allocated>9000000000000000n)throw fail('Enter a valid annual allocation.');
-  const id=randomUUID();await db.query('INSERT INTO hr_training_budgets(id,fiscal_year,org_unit_id,currency,allocated_minor,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,year,b.orgUnitId,currencyValue(b.currency),allocated.toString(),req.auth.userId]);
-  await audit(db,req,'hr.training.budget_drafted','training_budget',id,{fiscalYear:year,orgUnitId:b.orgUnitId,currency:b.currency,allocatedMinor:allocated.toString()});return {id};
- });
- post('/api/hr/training/budgets/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=await row(db,'hr_training_budgets',req.params.id);await scope(req,b.org_unit_id);checker(req,b.created_by);
-  if(b.status!=='DRAFT'||req.body.status!=='APPROVED')throw fail('Only draft training budgets can be independently approved.',409);
-  await db.query("UPDATE hr_training_budgets SET status='APPROVED',approved_by=$2,decision_note=$3 WHERE id=$1",[b.id,req.auth.userId,required(req.body.reason,'Budget approval basis')]);
-  await audit(db,req,'hr.training.budget_approved','training_budget',b.id,{fiscalYear:b.fiscal_year,currency:b.currency});return {id:b.id};
- });
- post('/api/hr/training/budgets/:id/commit',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=await row(db,'hr_training_budgets',req.params.id),p=await row(db,'hr_training_programs',req.body.programId);await scope(req,b.org_unit_id);
-  if(b.status!=='APPROVED'||p.status==='CANCELLED'||p.status==='CLOSED')throw fail('Commitments require an approved budget and an active training program.',409);
-  if(p.currency!==b.currency)throw fail('Program and budget currencies must match.');
-  if((await db.query('SELECT 1 FROM hr_training_budget_commitments WHERE program_id=$1',[p.id])).rowCount)throw fail('This training program already has an approved budget commitment.',409);
-  const used=await db.query('SELECT coalesce(sum(amount_minor),0)::bigint AS total FROM hr_training_budget_commitments WHERE budget_id=$1',[b.id]);
-  const cost=BigInt(p.estimated_cost_minor);if(BigInt(used.rows[0].total)+cost>BigInt(b.allocated_minor))throw fail('This commitment exceeds the remaining approved training budget.',409);
-  const id=randomUUID();await db.query('INSERT INTO hr_training_budget_commitments(id,budget_id,program_id,amount_minor,committed_by) VALUES($1,$2,$3,$4,$5)',[id,b.id,p.id,cost.toString(),req.auth.userId]);
-  await audit(db,req,'hr.training.budget_committed','training_budget',b.id,{programId:p.id,amountMinor:cost.toString()});return {id};
- });
- get('/api/hr/policy-compliance-summary',DEPARTMENT_ROLES.hr,async(req,res)=>{
-  const units=await scopedUnits(req.departmentAuth);const summary=await pool.query(`SELECT status,count(*)::integer AS total,
-    count(*) FILTER(WHERE status='PENDING' AND due_date<current_date)::integer AS overdue
-   FROM hr_policy_compliance WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[])) GROUP BY status ORDER BY status`,[units]);
-  const reviews=await pool.query(`SELECT p.policy_code,p.version,p.title,p.authority_reference,p.review_date,p.status,
-    count(c.id)::integer AS assigned_checks,count(c.id) FILTER(WHERE c.status='PENDING')::integer AS pending_checks,
-    count(c.id) FILTER(WHERE c.status='NON_COMPLIANT')::integer AS open_gaps
-   FROM hr_employment_policies p LEFT JOIN hr_policy_compliance c ON c.policy_id=p.id AND ($1::uuid[] IS NULL OR c.org_unit_id=ANY($1::uuid[]))
-   GROUP BY p.id ORDER BY p.review_date`,[units]);
-  res.json({asOf:new Date().toISOString(),scope:req.departmentAuth.roles.some(r=>r.role==='MANAGING_DIRECTOR')?'FDA-wide':'assigned offices',totals:summary.rows,policies:reviews.rows});
- });
-
- get('/api/hr/performance/cycles',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_performance_cycles',['reference','status','period_start','period_end']));
- post('/api/hr/performance/cycles',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const b=req.body;await office(db,req,b.orgUnitId);const start=dateValue(b.periodStart),end=dateValue(b.periodEnd);if(end<start)throw fail('Performance period end must follow its start.');let reviewerId=null;
-  if(b.reviewerId){const u=await row(db,'users',b.reviewerId,false);if(u.disabled_at)throw fail('Reviewer account is disabled.');const assigned=await db.query("SELECT 1 FROM user_roles WHERE user_id=$1 AND org_unit_id=$2 AND role IN ('MANAGING_DIRECTOR','HR_DIRECTOR')",[u.id,b.orgUnitId]);if(!assigned.rowCount)throw fail('The reviewer must have an HR or MD role assigned to this office.');reviewerId=u.id;}
-  const id=randomUUID();await db.query('INSERT INTO hr_performance_cycles(id,reference,org_unit_id,period_start,period_end,reviewer_id,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,required(b.reference,'Review-cycle reference',100),b.orgUnitId,start,end,reviewerId,req.auth.userId]);await audit(db,req,'hr.performance.cycle_created','performance_cycle',id);return {id};
- });
- post('/api/hr/performance/cycles/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const c=await row(db,'hr_performance_cycles',req.params.id);await scope(req,c.org_unit_id);checker(req,c.created_by);if(c.status!=='DRAFT')throw fail('Only draft review cycles can be opened or cancelled.',409);
-  if(!['OPEN','CANCELLED'].includes(req.body.status))throw fail('Select open or cancel.');
-  if(req.body.status==='OPEN'){
-   const staff=await db.query("SELECT id FROM hr_employees WHERE org_unit_id=$1 AND status='ACTIVE' ORDER BY staff_number",[c.org_unit_id]);
-   for(const e of staff.rows)await db.query('INSERT INTO hr_performance_reviews(id,cycle_id,employee_id,org_unit_id,reviewer_id) VALUES($1,$2,$3,$4,$5)',[randomUUID(),c.id,e.id,c.org_unit_id,c.reviewer_id]);
-  }
-  await db.query('UPDATE hr_performance_cycles SET status=$2,opened_by=$3,decision_note=$4 WHERE id=$1',[c.id,req.body.status,req.auth.userId,required(req.body.reason,'Independent cycle decision')]);await audit(db,req,`hr.performance.cycle_${req.body.status.toLowerCase()}`,'performance_cycle',c.id);return {id:c.id};
- });
- post('/api/hr/performance/cycles/:id/close',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const c=await row(db,'hr_performance_cycles',req.params.id);await scope(req,c.org_unit_id);checker(req,c.opened_by||c.created_by);if(c.status!=='OPEN')throw fail('Only an open performance cycle can be closed.',409);
-  const outstanding=await db.query("SELECT count(*)::integer AS total FROM hr_performance_reviews r JOIN hr_employees e ON e.id=r.employee_id WHERE r.cycle_id=$1 AND NOT (r.status='ACKNOWLEDGED' OR (e.user_id IS NULL AND r.status='REVIEWED'))",[c.id]);
-  if(Number(outstanding.rows[0].total)>0)throw fail('Complete manager reviews and employee acknowledgements before closing the cycle.',409);
-  await db.query("UPDATE hr_performance_cycles SET status='CLOSED',closed_by=$2,decision_note=$3 WHERE id=$1",[c.id,req.auth.userId,required(req.body.reason,'Cycle close / completion note')]);await audit(db,req,'hr.performance.cycle_closed','performance_cycle',c.id);return {id:c.id};
- });
- get('/api/hr/performance/reviews',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_performance_review_directory',['cycle_reference','staff_number','employee_name','status','self_assessment','manager_assessment']));
- get('/api/hr/performance/my',Object.values(DEPARTMENT_ROLES).flat(),async(req,res)=>res.json((await pool.query('SELECT id,cycle_reference,period_start,period_end,status,self_assessment,manager_assessment,rating,reviewer_id FROM hr_performance_review_directory WHERE employee_user_id=$1 ORDER BY period_end DESC',[req.auth.userId])).rows));
- app.post('/api/hr/performance/reviews/:id/self-submit',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
-  const r=await row(db,'hr_performance_reviews',req.params.id),e=await row(db,'hr_employees',r.employee_id,false);if(e.user_id!==req.auth.userId)throw fail('Only the employee can submit this self-assessment.',403);
-  const c=await row(db,'hr_performance_cycles',r.cycle_id,false);if(c.status!=='OPEN'||r.status!=='PENDING')throw fail('This review is not open for self-assessment.',409);
-  await db.query("UPDATE hr_performance_reviews SET status='SELF_SUBMITTED',self_assessment=$2,submitted_by=$3,submitted_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Employee accomplishments, objectives and development needs'),req.auth.userId]);await writeAudit(db,req.auth,'hr.performance.self_submitted','performance_review',r.id,{cycleId:c.id});return {id:r.id};
- }))));
- post('/api/hr/performance/reviews/:id/capture-self',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const r=await row(db,'hr_performance_reviews',req.params.id);await scope(req,r.org_unit_id);const e=await row(db,'hr_employees',r.employee_id,false);
-  if(e.user_id)throw fail('Use employee self-service when the employee has a linked login.');if(r.status!=='PENDING')throw fail('This review already has a self-assessment.',409);
-  const c=await row(db,'hr_performance_cycles',r.cycle_id,false);if(c.status!=='OPEN')throw fail('This performance cycle is not open.',409);
-  await db.query("UPDATE hr_performance_reviews SET status='SELF_SUBMITTED',self_assessment=$2,submitted_by=$3,submitted_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Employee interview / written self-assessment evidence'),req.auth.userId]);await audit(db,req,'hr.performance.self_assessment_captured','performance_review',r.id,{cycleId:c.id,employeeId:e.id});return {id:r.id};
- });
- post('/api/hr/performance/reviews/:id/review',DEPARTMENT_ROLES.hr,async(db,req)=>{
-  const r=await row(db,'hr_performance_reviews',req.params.id);await scope(req,r.org_unit_id);if(r.status!=='SELF_SUBMITTED')throw fail('Employee self-assessment is required before manager review.',409);if(r.reviewer_id&&r.reviewer_id!==req.auth.userId)throw fail('Only the assigned reviewer can complete this assessment.',403);
-  const employee=await row(db,'hr_employees',r.employee_id,false);if(employee.user_id===req.auth.userId)throw fail('Employees cannot approve their own performance review.',403);
-  checker(req,r.submitted_by||employee.user_id);
-  const rating=numeric(req.body.rating,1,5);if(!Number.isInteger(rating))throw fail('Select a whole-number rating from 1 to 5.');await db.query("UPDATE hr_performance_reviews SET status='REVIEWED',manager_assessment=$2,rating=$3,reviewed_by=$4,reviewed_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Manager review, goals and development actions'),rating,req.auth.userId]);await audit(db,req,'hr.performance.reviewed','performance_review',r.id,{rating});return {id:r.id};
+  await db.query('INSERT INTO assets(id,asset_tag,description,category,purchase_cost_minor,currency,org_unit_id,source_reference,location,acquisition_type,make,model,serial_number,purchase_date,funding_source,project_code,donor,warranty_expires_on,useful_life_months) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)',[id,tag,required(b.description,'Description'),required(b.category…21905 tokens truncated…uery("UPDATE hr_performance_reviews SET status='REVIEWED',manager_assessment=$2,rating=$3,reviewed_by=$4,reviewed_at=now() WHERE id=$1",[r.id,required(req.body.assessment,'Manager review, goals and development actions'),rating,req.auth.userId]);await audit(db,req,'hr.performance.reviewed','performance_review',r.id,{rating});return {id:r.id};
  });
  app.post('/api/hr/performance/reviews/:id/acknowledge',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
   const r=await row(db,'hr_performance_reviews',req.params.id),e=await row(db,'hr_employees',r.employee_id,false);if(e.user_id!==req.auth.userId)throw fail('Only the employee can acknowledge this review.',403);
@@ -1245,7 +765,7 @@ export function registerDepartments(app,deps){
   await audit(db,req,`hr.policy_compliance.${req.body.status.toLowerCase()}`,'policy_compliance',c.id,{policyId:c.policy_id,employeeId:c.employee_id});return {id:c.id};
  });
 
- const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],employment_contract:['hr_employment_contracts',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],training_program:['hr_training_programs',DEPARTMENT_ROLES.hr],training_enrollment:['hr_training_enrollments',DEPARTMENT_ROLES.hr],performance_cycle:['hr_performance_cycles',DEPARTMENT_ROLES.hr],performance_review:['hr_performance_review_directory',DEPARTMENT_ROLES.hr],attendance:['hr_attendance',DEPARTMENT_ROLES.hr],disciplinary_case:['hr_disciplinary_cases',['HR_DIRECTOR','MANAGING_DIRECTOR']],grievance:['hr_grievances',['HR_DIRECTOR','MANAGING_DIRECTOR']],succession_plan:['hr_succession_plans',['HR_DIRECTOR','MANAGING_DIRECTOR']],succession_candidate:['hr_succession_candidates',['HR_DIRECTOR','MANAGING_DIRECTOR']],training_need:['hr_training_needs',DEPARTMENT_ROLES.hr],training_impact:['hr_training_impact_assessments',DEPARTMENT_ROLES.hr],policy_compliance:['hr_policy_compliance',DEPARTMENT_ROLES.hr],hr_position:['hr_positions',DEPARTMENT_ROLES.hr],competency:['hr_competencies',DEPARTMENT_ROLES.hr,true],competency_assessment:['hr_employee_competency_assessments',DEPARTMENT_ROLES.hr],succession_milestone:['hr_succession_development_milestones',DEPARTMENT_ROLES.hr],training_budget:['hr_training_budgets',DEPARTMENT_ROLES.hr],hr_grievance_sla:['hr_grievance_sla_settings',DEPARTMENT_ROLES.hr,true],employment_policy:['hr_employment_policies',DEPARTMENT_ROLES.hr,true],journal:['gl_journals',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets],fleet_vehicle:['fleet_vehicles',DEPARTMENT_ROLES.assets],facility:['asset_facilities',DEPARTMENT_ROLES.assets],insurance_policy:['asset_insurance_policies',DEPARTMENT_ROLES.assets],insurance_claim:['asset_insurance_claims',DEPARTMENT_ROLES.assets],asset_incident:['asset_incidents',['MANAGING_DIRECTOR','ASSET_OFFICER','INTERNAL_AUDITOR']],asset_accounting_policy:['asset_accounting_policies',DEPARTMENT_ROLES.finance,true],field_device_acceptance:['field_device_acceptance',DEPARTMENT_ROLES.assets]};
+ const histories={procurement_contract:['procurement_contracts',DEPARTMENT_ROLES.procurement],employee:['hr_employees',DEPARTMENT_ROLES.hr],employment_contract:['hr_employment_contracts',DEPARTMENT_ROLES.hr],leave:['hr_leave_requests',DEPARTMENT_ROLES.hr],vacancy:['hr_vacancies',DEPARTMENT_ROLES.hr],application:['hr_application_directory',DEPARTMENT_ROLES.hr],onboarding:['hr_onboarding_tasks',DEPARTMENT_ROLES.hr],training_program:['hr_training_programs',DEPARTMENT_ROLES.hr],training_enrollment:['hr_training_enrollments',DEPARTMENT_ROLES.hr],performance_cycle:['hr_performance_cycles',DEPARTMENT_ROLES.hr],performance_review:['hr_performance_review_directory',DEPARTMENT_ROLES.hr],attendance:['hr_attendance',DEPARTMENT_ROLES.hr],disciplinary_case:['hr_disciplinary_cases',['HR_DIRECTOR','MANAGING_DIRECTOR']],grievance:['hr_grievances',['HR_DIRECTOR','MANAGING_DIRECTOR']],succession_plan:['hr_succession_plans',['HR_DIRECTOR','MANAGING_DIRECTOR']],succession_candidate:['hr_succession_candidates',DEPARTMENT_ROLES.hr],training_need:['hr_training_needs',DEPARTMENT_ROLES.hr],training_impact:['hr_training_impact_assessments',DEPARTMENT_ROLES.hr],policy_compliance:['hr_policy_compliance',DEPARTMENT_ROLES.hr],hr_position:['hr_positions',DEPARTMENT_ROLES.hr],competency:['hr_competencies',DEPARTMENT_ROLES.hr,true],competency_assessment:['hr_employee_competency_assessments',DEPARTMENT_ROLES.hr],succession_milestone:['hr_succession_development_milestones',DEPARTMENT_ROLES.hr],training_budget:['hr_training_budgets',DEPARTMENT_ROLES.hr],hr_grievance_sla:['hr_grievance_sla_settings',DEPARTMENT_ROLES.hr,true],employment_policy:['hr_employment_policies',DEPARTMENT_ROLES.hr,true],journal:['gl_journals',DEPARTMENT_ROLES.finance],finance_budget_revision:['finance_budget_revisions',DEPARTMENT_ROLES.finance],procurement_plan:['procurement_plans',DEPARTMENT_ROLES.procurement],asset:['assets',DEPARTMENT_ROLES.assets],fleet_vehicle:['fleet_vehicles',DEPARTMENT_ROLES.assets],facility:['asset_facilities',DEPARTMENT_ROLES.assets],insurance_policy:['asset_insurance_policies',DEPARTMENT_ROLES.assets],insurance_claim:['asset_insurance_claims',DEPARTMENT_ROLES.assets],asset_incident:['asset_incidents',['MANAGING_DIRECTOR','ASSET_OFFICER','INTERNAL_AUDITOR']],asset_accounting_policy:['asset_accounting_policies',DEPARTMENT_ROLES.finance,true],field_device_acceptance:['field_device_acceptance',DEPARTMENT_ROLES.assets]};
  app.get('/api/departments/:type/:id/history',loadAuth,route(async(req,res)=>{
   const config=histories[req.params.type];if(!config)throw fail('Unknown record type.',404);
   req.departmentAuth=departmentAuth(req.auth,config[1]);const r=await row(pool,config[0],req.params.id,false);if(!config[2])await scope(req,r.org_unit_id);

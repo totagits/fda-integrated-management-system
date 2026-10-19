@@ -2,6 +2,14 @@
 
 This release adds working operations to the existing FDA application. There is no new app, no seeded business data and no hosting change. The additive `004_enterprise_workflows.sql` migration is applied by normal server startup. Migration execution now takes a PostgreSQL transaction advisory lock to prevent simultaneous application instances from applying the same migration.
 
+## Finance control center and budget revisions — 19 October 2026
+
+The secure Finance Control Center reads live database records and is office-scoped server-side. It presents budget allocation, commitments, spending and availability by currency; office-level budget execution; posted general-ledger balances by account class; purchase-linked invoice/payable status; pending requisition, invoice, payroll and journal actions; and bank reconciliation counts. It includes CSV export for the visible office budget report and reports the database timestamp and access scope. USD and LRD amounts remain separate. The page explicitly identifies cash position and forecasting as unavailable when there is no verified feed or approved forecast basis; it does not imply that a manual payment reference is a bank transaction.
+
+Budget allocation amendments are recorded as proposals containing the captured prior allocation/version and a justification. A different authorized finance officer or Managing Director must decide. Approval rejects stale proposals and cannot lower the allocation below commitments plus posted expenditure. The approved amendment updates the budget account transactionally and is included in the append-only audit history. This is a configurable control workflow, not FDA approval of the chart of accounts, budget rules or delegated limits.
+
+No receivables/grant ledger, advances-and-expenses retirement, automated FX revaluation, bank-feed/payment API, or verified IFMIS/CSA/e-GP integration is introduced by this increment. Those require FDA policy and system-owner specifications. The dashboard’s financial values are operational summaries, not signed statutory financial statements or a cash forecast.
+
 ## Payroll — statutory calculation and accrual
 
 Finance can create an effective-dated statutory rule set. The editor starts with an **unapproved, editable template** derived from current published Liberia Revenue Authority PAYE guidance and NASSCORP scheme descriptions. It is not inserted into the database and cannot be used until a different finance officer approves it. Effective dates, employee coverage, exchange-rate source, exemptions and any FDA-specific treatment must be checked and documented before approval.

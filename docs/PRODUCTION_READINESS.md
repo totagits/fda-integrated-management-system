@@ -1,5 +1,11 @@
 # Production readiness status
 
+## Finance increment — 19 October 2026
+
+Migration `021_finance_budget_revisions.sql` adds independent budget-allocation amendment requests with captured budget version, justification, office scope and decision history. Approval is blocked for the requester, stale allocation versions, and reductions below reserved commitments plus recorded spending. The secured Finance Control Center now presents database-derived budget execution by currency and office, posted ledger balances by account class, purchase-linked invoice status, approval queues and reconciliation status; it provides CSV export and shows the database refresh time. USD and LRD are never added together. Cash position and forecasts are explicitly unavailable unless verified data/configuration exists. An authenticated route and a full procurement/accounting integration test cover the dashboard, role denial and revision approval/rejection controls.
+
+The local production build and all 76 automated tests pass. This does not verify the production migration, real FDA totals, bank/IFMIS/CSA/e-GP integrations, statutory statements, FDA policy approval or Finance user acceptance. Receivables/grants, staff advances and expense retirements, automated cash forecasting, external bank feeds and payment initiation remain outside this increment.
+
 ## Staff identity and onboarding increment — 18 October 2026
 
 The Managing Director appoints the IT Director; the IT Director provisions operational staff accounts; HR invites employees as part of onboarding. These boundaries are enforced by server authorization as well as the interface. The IT Director receives global support queue access and can assist employees across offices without business-module data permissions. Staff can submit support tickets, exchange replies, and track status; ticket messages and state changes are audited. Account setup uses single-use, 72-hour links; raw tokens are not stored, and administrators do not receive temporary passwords. Employee accounts receive only the self-service role. Migrations `011_it_director_administration.sql` and `012_support_desk.sql` add the IT Director role and support workflow while preserving existing account data. Automated tests cover provisioning boundaries, restricted navigation, employee activation, support-ticket privacy, and ticket resolution.
