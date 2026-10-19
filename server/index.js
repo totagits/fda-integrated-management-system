@@ -868,11 +868,25 @@ app.post('/api/records/:type/:id/attachments',loadAuth,csrfRequired,route(async(
   const signatureOk=ext==='.pdf'?bytes.subarray(0,5).toString()==='%PDF-':ext==='.png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):ext==='.jpg'||ext==='.jpeg'?bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff:ext==='.txt';
   if(!signatureOk){fs.unlinkSync(req.file.path);throw Object.assign(new Error('The file contents do not match the selected file type.'),{status:422,code:'FILE_SIGNATURE_INVALID'});}
   fs.chmodSync(req.file.path,0o600);
+  const documentCategory=String(req.body.documentCategory||'OTHER').trim().toUpperCase();
+  const allowedDocumentCategories=['CONTRACT','IDENTITY','QUALIFICATION','TRAINING','PERFORMANCE','LEAVE','POLICY_ACKNOWLEDGEMENT','OTHER'];
+  if(type==='EMPLOYEE'&&!allowedDocumentCategories.includes(documentCategory)){fs.unlinkSync(req.file.path);throw Object.assign(new Error('Select a valid personnel document category.'),{status:422,code:'INVALID_DOCUMENT_CATEGORY'});}
+  const optionalDate=(value,label)=>{
+    if(!value)return null;
+    const parsed=typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)?new Date(value+'T00:00:00.000Z'):new Date('invalid');
+    if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==value){fs.unlinkSync(req.file.path);throw Object.assign(new Error(label+' must be a valid date.'),{status:422,code:'INVALID_DOCUMENT_DATE'});}
+    return value;
+  };
+  const documentDate=type==='EMPLOYEE'?optionalDate(req.body.documentDate,'Document date'):null;
+  const expiresOn=type==='EMPLOYEE'?optionalDate(req.body.expiresOn,'Expiry date'):null;
+  if(documentDate&&expiresOn&&expiresOn<documentDate){fs.unlinkSync(req.file.path);throw Object.assign(new Error('Expiry date cannot precede the document date.'),{status:422,code:'INVALID_DOCUMENT_DATE'});}
+  const documentNote=type==='EMPLOYEE'?String(req.body.documentNote||'').trim():'';
+  if(documentNote.length>1000){fs.unlinkSync(req.file.path);throw Object.assign(new Error('Document note must be 1,000 characters or fewer.'),{status:422,code:'INVALID_DOCUMENT_NOTE'});}
   const id=uuid();
   try {
     const row=await transaction(async(client)=>{
-      const inserted=await client.query(`INSERT INTO attachments(id,record_type,record_id,uploaded_by,original_name,storage_name,media_type,byte_size,sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,record_type,record_id,original_name,media_type,byte_size,sha256,created_at`,[id,String(req.params.type).toUpperCase(),req.params.id,req.auth.userId,path.basename(req.file.originalname).slice(0,180),path.basename(req.file.path),req.file.mimetype,req.file.size,sha256(bytes)]);
-      await writeAudit(client,{...req.auth,role:req.auth.role},'attachment.uploaded','attachment',id,{recordType:type,recordId:req.params.id,fileName:path.basename(req.file.originalname).slice(0,180),byteSize:req.file.size,sha256:sha256(bytes)});
+      const inserted=await client.query(`INSERT INTO attachments(id,record_type,record_id,uploaded_by,original_name,storage_name,media_type,byte_size,sha256,document_category,document_date,expires_on,document_note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id,record_type,record_id,original_name,media_type,byte_size,sha256,document_category,document_date,expires_on,document_note,created_at`,[id,type,req.params.id,req.auth.userId,path.basename(req.file.originalname).slice(0,180),path.basename(req.file.path),req.file.mimetype,req.file.size,sha256(bytes),type==='EMPLOYEE'?documentCategory:'OTHER',documentDate,expiresOn,documentNote||null]);
+      await writeAudit(client,{...req.auth,role:req.auth.role},'attachment.uploaded','attachment',id,{recordType:type,recordId:req.params.id,fileName:path.basename(req.file.originalname).slice(0,180),byteSize:req.file.size,sha256:sha256(bytes),documentCategory:type==='EMPLOYEE'?documentCategory:'OTHER',documentDate,expiresOn});
       return inserted.rows[0];
     });res.status(201).json(row);
   } catch(error){fs.unlinkSync(req.file.path);throw error;}
@@ -898,6 +912,26 @@ app.get('/api/records/:type/:id/attachments',loadAuth,route(async(req,res)=>{
   await assertRecordAttachmentAccess(req.auth,type,req.params.id,'attachment.read.scope');
   const rows=await pool.query(`SELECT id,record_type,record_id,original_name,media_type,byte_size,sha256,created_at FROM attachments WHERE record_type=$1 AND record_id=$2 ORDER BY created_at DESC`,[type,req.params.id]);
   res.json(rows.rows);
+}));
+
+app.get('/api/hr/document-vault',loadAuth,route(async(req,res)=>{
+  const auth=departmentAuth(req.auth,DEPARTMENT_ROLES.hr);
+  const units=await scopedUnits(auth);
+  const limit=Math.min(100,Math.max(1,Number(req.query.limit)||25));
+  const offset=Math.max(0,Number(req.query.offset)||0);
+  if(!Number.isInteger(offset)||offset>1000000)throw Object.assign(new Error('Invalid page.'),{status:422,code:'INVALID_INPUT'});
+  const q=String(req.query.q||'').slice(0,200);
+  const category=String(req.query.category||'').trim().toUpperCase();
+  const categories=['CONTRACT','IDENTITY','QUALIFICATION','TRAINING','PERFORMANCE','LEAVE','POLICY_ACKNOWLEDGEMENT','OTHER'];
+  if(category&&!categories.includes(category))throw Object.assign(new Error('Select a valid personnel document category.'),{status:422,code:'INVALID_DOCUMENT_CATEGORY'});
+  const params=[units,'%'+q+'%',category||null];
+  const where=`a.record_type='EMPLOYEE' AND ($1::uuid[] IS NULL OR e.org_unit_id=ANY($1::uuid[])) AND ($2='' OR a.original_name ILIKE $2 OR a.document_category ILIKE $2 OR e.full_name ILIKE $2 OR e.staff_number ILIKE $2 OR o.name ILIKE $2) AND ($3::text IS NULL OR a.document_category=$3)`;
+  const total=await pool.query('SELECT count(*)::integer AS total FROM attachments a JOIN hr_employees e ON e.id=a.record_id LEFT JOIN org_units o ON o.id=e.org_unit_id WHERE '+where,params);
+  const rows=await pool.query(`SELECT a.id,a.original_name,a.media_type,a.byte_size,a.sha256,a.document_category,a.document_date,a.expires_on,a.created_at,
+      e.id AS employee_id,e.staff_number,e.full_name AS employee_name,o.name AS office_name,u.full_name AS uploaded_by_name
+    FROM attachments a JOIN hr_employees e ON e.id=a.record_id LEFT JOIN org_units o ON o.id=e.org_unit_id LEFT JOIN users u ON u.id=a.uploaded_by
+    WHERE `+where+` ORDER BY a.created_at DESC,a.id LIMIT $4 OFFSET $5`,[...params,limit,offset]);
+  res.json({rows:rows.rows,total:Number(total.rows[0].total),limit,offset,asOf:new Date().toISOString(),scope:auth.roles.some(r=>r.role==='MANAGING_DIRECTOR')?'FDA-wide':'assigned HR offices'});
 }));
 
 const departmentServices=registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });

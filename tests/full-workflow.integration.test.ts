@@ -22,7 +22,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
@@ -283,4 +283,17 @@ it('keeps grievance evidence private until an assigned ethics reviewer clears co
  const reporterDownload=await fetch(origin+`/api/attachments/${attachment.id}`,{headers:{cookie:accounts.HR_DIRECTOR.cookie}});expect(reporterDownload.status).toBe(200);
  expect((await call('MANAGING_DIRECTOR',`/api/attachments/${attachment.id}`)).status).toBe(403);
  expect((await fetch(origin+`/api/attachments/${attachment.id}`)).status).toBe(401);
+});
+
+it('provides a searchable HR document vault with protected files and office-scoped access',async()=>{
+ const hr='HR_DIRECTOR';
+ const position=await ok(hr,'/api/hr/positions',{orgUnitId:otherOffice,code:'VAULT-POS',title:'Records Officer',grade:'A',capacity:1});
+ const employee=await ok(hr,'/api/hr/employees',{staffNumber:'VAULT-EMP',fullName:'Vault Test Employee',positionId:position.id,startDate:'2026-01-01'});
+ const form=new FormData();form.set('file',new Blob(['Signed contract evidence'],{type:'text/plain'}),'signed-contract.txt');form.set('documentCategory','CONTRACT');form.set('documentDate','2026-01-01');form.set('expiresOn','2027-01-01');form.set('documentNote','Reference HR-CON-001');
+ const saved=await ok(hr,'/api/records/EMPLOYEE/'+employee.id+'/attachments',form);
+ expect(saved.document_category).toBe('CONTRACT');expect(String(saved.document_date).slice(0,10)).toBe('2026-01-01');expect(String(saved.expires_on).slice(0,10)).toBe('2027-01-01');
+ const listed=await ok(hr,'/api/hr/document-vault?q=VAULT-EMP&limit=25&offset=0');expect(listed.total).toBe(1);expect(listed.rows[0].id).toBe(saved.id);expect(listed.rows[0].employee_name).toBe('Vault Test Employee');
+ const mdList=await ok('MANAGING_DIRECTOR','/api/hr/document-vault?q=VAULT-EMP');expect(mdList.total).toBe(1);
+ const downloaded=await fetch(origin+'/api/attachments/'+saved.id,{headers:{cookie:accounts[hr].cookie}});expect(downloaded.status).toBe(200);expect(await downloaded.text()).toBe('Signed contract evidence');
+ expect((await call('COUNTY_OFFICER','/api/hr/document-vault?q=VAULT-EMP')).status).toBe(403);
 });
