@@ -96,7 +96,7 @@ export function registerEnterprise(app,deps){
  list('accepted_goods_receipt_directory',['receipt_no','po_number','supplier_name','office_name'],R.assets,'/api/goods-receipts/accepted');
  post('/api/inventory/items/:id/issue',R.assetWrite,async(db,req)=>{
   const item=await row(db,'inventory_items',req.params.id);await scope(req,item.org_unit_id,db);if(!item.active)throw fail('This stock item is inactive.',409);
-  const qty=stockQuantity(req.body.quantity),onHand=stockQuantity(item.quantity_on_hand,true);if(qty.milli>onHand.milli)throw fail('Issue quantity exceeds available stock.',409);
+  const qty=stockQuantity(req.body.quantity),onHand=stockQuantity(item.quantity_on_hand,true),reserved=stockQuantity(item.reserved_quantity||'0',true);if(qty.milli>onHand.milli-reserved.milli)throw fail('Issue quantity exceeds available stock after reservations.',409);
   const ref=required(req.body.reference,'Issue voucher / receiving officer reference',160),why=required(req.body.reason,'Issue purpose and receiving party');
   await db.query('UPDATE inventory_items SET quantity_on_hand=quantity_on_hand-$2::numeric,updated_at=now() WHERE id=$1',[item.id,qty.value]);
   const id=randomUUID();await db.query("INSERT INTO inventory_movements(id,item_id,movement,quantity,value_minor,reference,reason,created_by) VALUES($1,$2,'ISSUE',$3,$4,$5,$6,$7)",[id,item.id,qty.value,stockValue(qty.milli,item.estimated_unit_cost_minor),ref,why,req.auth.userId]);

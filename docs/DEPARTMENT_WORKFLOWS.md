@@ -20,6 +20,7 @@ This release extends the existing application and existing PostgreSQL database. 
 | Asset register | Procurement receipts create assets; register existing assets; update condition/location | Source reference for opening assets; version checks; no edits after disposal; protected evidence |
 | Custody | Propose assignment, employee accept/decline | Staff account must belong to the office; previous custody remains until acceptance |
 | Transfers | Request, receiving-office accept/reject | Two-person control, destination scope, no simultaneous pending disposal/transfer; no movement during open maintenance; custody reset on acceptance |
+| Internal logistics and distribution | Office request, central stock allocation/reservation, carrier and dispatch details, waybill tracking, destination acknowledgement, variance record and inventory receipt | Requester, allocator, dispatcher and receiver separation; source scope; reserved quantities are excluded from ordinary issues; transactional source/destination movements; append-only audit; destination stock changes only on receipt |
 | Maintenance | Schedule, complete, record cost and notes | No disposal/transfer with open maintenance; duplicate completion blocked |
 | Disposal | Submit justification, independently approve/reject | MD approval, no self-approval, original asset retained and marked disposed |
 
@@ -28,6 +29,8 @@ All new mutations use the existing serializable transaction wrapper and audit/ou
 ### Connected purchasing sequence
 
 Plan → draft requisition → submission/budget reservation → requisition approval → supplier qualification → optional contract approval → PO → one or more inspected goods receipts → capital asset registration or consumable stock posting → invoice match/correction against accepted value → independent payment authorization → installment payment recording → linked draft journal → independent posting → trial balance. Low-stock consumable requests can also create budgeted draft requisitions and return to the same flow.
+
+Internal stock distribution uses a separate operational path: destination request → source allocation and stock reservation → dispatch / carrier handover → transit tracking → destination count and acknowledgement → source transfer-out and destination transfer-in ledger entries. Short receipt requires a discrepancy report and is retained as a variance status. New destination inventory records carry a separately supplied reorder point. Fixed assets continue through the custody transfer workflow and are not treated as consumable inventory.
 
 A contract is not required for every purchase. Where a contract has been entered, the PO route enforces its approval, supplier, amount and effective dates. Goods deliveries and invoices can be processed in stages and payment installments update budget balances transactionally. Capital-asset receipts still require complete-value acceptance. Contract amendments remain to be implemented.
 

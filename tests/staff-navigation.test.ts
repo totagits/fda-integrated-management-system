@@ -4,12 +4,14 @@ describe('authenticated staff navigation',()=>{
  it('keeps procurement publication and administration out of county navigation',()=>{
   const ids=staffSections(['COUNTY_OFFICER']).map(s=>s.id);
   expect(ids).toContain('workflow'); expect(ids).toContain('assets');
+  expect(ids).toContain('supplyChain');
   expect(ids).not.toContain('setup'); expect(ids).not.toContain('publication'); expect(ids).not.toContain('audit');
  });
  it('keeps the employee helpdesk as a shared header utility rather than an HR sidebar item',()=>expect(staffSections(['HR_DIRECTOR']).map(s=>s.id)).toEqual(['overview','analytics','hr','payroll','account']));
  it('combines assigned roles without an impersonation selector',()=>{
   const ids=staffSections(['FINANCE_DIRECTOR','PROCUREMENT_OFFICER']).map(s=>s.id);
   expect(ids).toContain('finance');expect(ids).toContain('publication');expect(ids).not.toContain('setup');
+  expect(ids).toContain('supplyChain');
  });
  it('gives the IT Director administration tools without business-module access',()=>{
   const ids=staffSections(['IT_DIRECTOR']).map(s=>s.id);

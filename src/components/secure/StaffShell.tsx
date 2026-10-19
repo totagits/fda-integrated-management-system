@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, Box, Coins, History, LayoutDashboard, LifeBuoy, Settings, ShoppingCart, User, Users, LogOut } from 'lucide-react';
+import { BarChart3, Box, Coins, History, LayoutDashboard, LifeBuoy, Settings, ShoppingCart, Truck, User, Users, LogOut } from 'lucide-react';
 import { FDA_LOGO_URL } from '../../assets/logo';
 export const staffSections = (roles: string[]) => {
   const has = (...allowed: string[]) => roles.some(role => allowed.includes(role));
@@ -14,6 +14,7 @@ export const staffSections = (roles: string[]) => {
     {id:'evaluation',label:'Bid Evaluation',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','PROCUREMENT_OFFICER','FINANCE_DIRECTOR','COUNTY_OFFICER','INTERNAL_AUDITOR')},
     {id:'reconciliation',label:'Bank Reconciliation',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'stocktaking',label:'Stocktaking',icon:Box,show:has('MANAGING_DIRECTOR','ASSET_OFFICER','COUNTY_OFFICER','PROCUREMENT_OFFICER','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
+    {id:'supplyChain',label:'Logistics & Distribution',icon:Truck,show:has('MANAGING_DIRECTOR','ASSET_OFFICER','COUNTY_OFFICER','PROCUREMENT_OFFICER','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'depreciation',label:'Depreciation',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'integrations',label:'Integration Status',icon:Settings,show:has('MANAGING_DIRECTOR','IT_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'account',label:'My Account & Self-Service',icon:User,show:true},

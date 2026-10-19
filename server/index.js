@@ -2,8 +2,9 @@ import { sendSignedWebhook, validateWebhookConfiguration } from './integration-t
 import { registerEnterprise } from './enterprise.js';
 import { registerSealedBidding } from './sealed-bidding.js';
 import { registerSupport } from './support.js';
-import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
 import { registerAnalytics } from './analytics.js';
+import { registerSupplyChain } from './supply-chain.js';
+import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -873,8 +874,8 @@ app.post('/api/records/:type/:id/attachments',loadAuth,csrfRequired,route(async(
   if(type==='EMPLOYEE'&&!allowedDocumentCategories.includes(documentCategory)){fs.unlinkSync(req.file.path);throw Object.assign(new Error('Select a valid personnel document category.'),{status:422,code:'INVALID_DOCUMENT_CATEGORY'});}
   const optionalDate=(value,label)=>{
     if(!value)return null;
-    const parsed=typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)?new Date(value+'T00:00:00.000Z'):new Date('invalid');
-    if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==value){fs.unlinkSync(req.file.path);throw Object.assign(new Error(label+' must be a valid date.'),{status:422,code:'INVALID_DOCUMENT_DATE'});}
+    const parsed=typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)?new Date(`${value}T00:00:00.000Z`):new Date('invalid');
+    if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==value){fs.unlinkSync(req.file.path);throw Object.assign(new Error(`${label} must be a valid date.`),{status:422,code:'INVALID_DOCUMENT_DATE'});}
     return value;
   };
   const documentDate=type==='EMPLOYEE'?optionalDate(req.body.documentDate,'Document date'):null;
@@ -921,22 +922,20 @@ app.get('/api/hr/document-vault',loadAuth,route(async(req,res)=>{
   const offset=Math.max(0,Number(req.query.offset)||0);
   if(!Number.isInteger(offset)||offset>1000000)throw Object.assign(new Error('Invalid page.'),{status:422,code:'INVALID_INPUT'});
   const q=String(req.query.q||'').slice(0,200);
-  const category=String(req.query.category||'').trim().toUpperCase();
-  const categories=['CONTRACT','IDENTITY','QUALIFICATION','TRAINING','PERFORMANCE','LEAVE','POLICY_ACKNOWLEDGEMENT','OTHER'];
-  if(category&&!categories.includes(category))throw Object.assign(new Error('Select a valid personnel document category.'),{status:422,code:'INVALID_DOCUMENT_CATEGORY'});
-  const params=[units,'%'+q+'%',category||null];
-  const where=`a.record_type='EMPLOYEE' AND ($1::uuid[] IS NULL OR e.org_unit_id=ANY($1::uuid[])) AND ($2='' OR a.original_name ILIKE $2 OR a.document_category ILIKE $2 OR e.full_name ILIKE $2 OR e.staff_number ILIKE $2 OR o.name ILIKE $2) AND ($3::text IS NULL OR a.document_category=$3)`;
-  const total=await pool.query('SELECT count(*)::integer AS total FROM attachments a JOIN hr_employees e ON e.id=a.record_id LEFT JOIN org_units o ON o.id=e.org_unit_id WHERE '+where,params);
-  const rows=await pool.query(`SELECT a.id,a.original_name,a.media_type,a.byte_size,a.sha256,a.document_category,a.document_date,a.expires_on,a.created_at,
+  const params=[units,`%${q}%`];
+  const where=`a.record_type='EMPLOYEE' AND ($1::uuid[] IS NULL OR e.org_unit_id=ANY($1::uuid[])) AND ($2='' OR a.original_name ILIKE $2 OR a.document_category ILIKE $2 OR e.full_name ILIKE $2 OR e.staff_number ILIKE $2 OR o.name ILIKE $2)`;
+  const total=await pool.query(`SELECT count(*)::integer AS total FROM attachments a JOIN hr_employees e ON e.id=a.record_id LEFT JOIN org_units o ON o.id=e.org_unit_id WHERE ${where}`,params);
+  const rows=await pool.query(`SELECT a.id,a.original_name,a.media_type,a.byte_size,a.sha256,a.document_category,a.document_date,a.expires_on,a.document_note,a.created_at,
       e.id AS employee_id,e.staff_number,e.full_name AS employee_name,o.name AS office_name,u.full_name AS uploaded_by_name
     FROM attachments a JOIN hr_employees e ON e.id=a.record_id LEFT JOIN org_units o ON o.id=e.org_unit_id LEFT JOIN users u ON u.id=a.uploaded_by
-    WHERE `+where+` ORDER BY a.created_at DESC,a.id LIMIT $4 OFFSET $5`,[...params,limit,offset]);
+    WHERE ${where} ORDER BY a.created_at DESC,a.id LIMIT $3 OFFSET $4`,[...params,limit,offset]);
   res.json({rows:rows.rows,total:Number(total.rows[0].total),limit,offset,asOf:new Date().toISOString(),scope:auth.roles.some(r=>r.role==='MANAGING_DIRECTOR')?'FDA-wide':'assigned HR offices'});
 }));
 
 const departmentServices=registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
 registerAnalytics(app, { pool, route, loadAuth, scopedUnits });
 registerEnterprise(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess, ...departmentServices });
+registerSupplyChain(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
 registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess});
 registerSupport(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,uuid});
 

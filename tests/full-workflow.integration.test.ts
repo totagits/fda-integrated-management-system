@@ -15,16 +15,16 @@ vi.mock('../server/db.js',async importOriginal=>{
  const original=await importOriginal<Record<string,unknown>>();return {...original,pool:{query:(s:string,p?:unknown[])=>query(s,p)},transaction:(fn:Function)=>database.transaction(async tx=>transactionContext.run(tx,()=>fn({query:async(s:string,p?:unknown[])=>{const r=await tx.query(s,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})))};
 });
 vi.mock('../server/identity-email.js',()=>({identityEmailConfigured:()=>true,invitationLinkIsConfigured:()=>true,sendIdentityInvitation:vi.fn(async(message:any)=>{sentInvitations.push(message);return {sent:true};})}));
-const office=randomUUID(),otherOffice=randomUUID(),accounts:Record<string,{id:string;cookie:string;csrf:string}>={};
+const office=randomUUID(),otherOffice=randomUUID(),accounts:Record<string,{id:string;cookie:string;csrf:string}>={};let testPassword='';
 let server:Server,origin:string,uploads:string;
 const oldUrl=process.env.DATABASE_URL,oldUploads=process.env.UPLOADS_DIR;
 async function call(role:string,path:string,body?:unknown,csrf=true){const a=accounts[role];const r=await fetch(origin+path,{method:body===undefined?'GET':'POST',headers:{cookie:a?.cookie||'',...(csrf?{'x-csrf-token':a?.csrf||''}:{}),...(body instanceof FormData?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:body instanceof FormData?body:JSON.stringify(body)})});return {status:r.status,data:await r.json()};}
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
- const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
+ const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);testPassword=password;
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
   const id=randomUUID();await query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,false)',[id,`${role.toLowerCase()}@example.test`,role,hash]);
   await query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,$3,$4)',[randomUUID(),id,role==='FINANCE_RECORDER'?'FINANCE_DIRECTOR':role,unit]);accounts[role]={id,cookie:'',csrf:''};
@@ -248,6 +248,19 @@ it('lets the MD appoint HR and IT Directors, limits other account provisioning t
  const loginState=await ok('HR_DIRECTOR','/api/hr/employees?limit=25&offset=0&q=ONBOARD-EMP-1');expect(loginState.rows[0].login_status).toBe('ACTIVE');
 });
 
+it('provides a searchable HR document vault with protected files and office-scoped access',async()=>{
+ const hr='HR_DIRECTOR';
+ const position=await ok(hr,'/api/hr/positions',{orgUnitId:otherOffice,code:'VAULT-POS',title:'Records Officer',grade:'A',capacity:1});
+ const employee=await ok(hr,'/api/hr/employees',{staffNumber:'VAULT-EMP',fullName:'Vault Test Employee',positionId:position.id,startDate:'2026-01-01'});
+ const form=new FormData();form.set('file',new Blob(['Signed contract evidence'],{type:'text/plain'}),'signed-contract.txt');form.set('documentCategory','CONTRACT');form.set('documentDate','2026-01-01');form.set('expiresOn','2027-01-01');form.set('documentNote','Reference HR-CON-001');
+ const saved=await ok(hr,`/api/records/EMPLOYEE/${employee.id}/attachments`,form);
+ expect(saved.document_category).toBe('CONTRACT');expect(String(saved.document_date).slice(0,10)).toBe('2026-01-01');expect(String(saved.expires_on).slice(0,10)).toBe('2027-01-01');
+ const listed=await ok(hr,'/api/hr/document-vault?q=VAULT-EMP&limit=25&offset=0');expect(listed.total).toBe(1);expect(listed.rows[0].id).toBe(saved.id);expect(listed.rows[0].employee_name).toBe('Vault Test Employee');
+ const mdList=await ok('MANAGING_DIRECTOR','/api/hr/document-vault?q=VAULT-EMP');expect(mdList.total).toBe(1);
+ const downloaded=await fetch(origin+`/api/attachments/${saved.id}`,{headers:{cookie:accounts[hr].cookie}});expect(downloaded.status).toBe(200);expect(await downloaded.text()).toBe('Signed contract evidence');
+ expect((await call('COUNTY_OFFICER',`/api/hr/document-vault?q=VAULT-EMP`)).status).toBe(403);
+});
+
 it('provides global IT support without exposing other users’ tickets to staff',async()=>{
  const created=await ok('HR_DIRECTOR','/api/support/tickets',{module:'HR',priority:'HIGH',subject:'Employee directory will not load',description:'The directory returns an error after I select my assigned office.'});
  expect(created.ticketNumber).toMatch(/^FDA-IT-/);
@@ -285,15 +298,30 @@ it('keeps grievance evidence private until an assigned ethics reviewer clears co
  expect((await fetch(origin+`/api/attachments/${attachment.id}`)).status).toBe(401);
 });
 
-it('provides a searchable HR document vault with protected files and office-scoped access',async()=>{
- const hr='HR_DIRECTOR';
- const position=await ok(hr,'/api/hr/positions',{orgUnitId:otherOffice,code:'VAULT-POS',title:'Records Officer',grade:'A',capacity:1});
- const employee=await ok(hr,'/api/hr/employees',{staffNumber:'VAULT-EMP',fullName:'Vault Test Employee',positionId:position.id,startDate:'2026-01-01'});
- const form=new FormData();form.set('file',new Blob(['Signed contract evidence'],{type:'text/plain'}),'signed-contract.txt');form.set('documentCategory','CONTRACT');form.set('documentDate','2026-01-01');form.set('expiresOn','2027-01-01');form.set('documentNote','Reference HR-CON-001');
- const saved=await ok(hr,'/api/records/EMPLOYEE/'+employee.id+'/attachments',form);
- expect(saved.document_category).toBe('CONTRACT');expect(String(saved.document_date).slice(0,10)).toBe('2026-01-01');expect(String(saved.expires_on).slice(0,10)).toBe('2027-01-01');
- const listed=await ok(hr,'/api/hr/document-vault?q=VAULT-EMP&limit=25&offset=0');expect(listed.total).toBe(1);expect(listed.rows[0].id).toBe(saved.id);expect(listed.rows[0].employee_name).toBe('Vault Test Employee');
- const mdList=await ok('MANAGING_DIRECTOR','/api/hr/document-vault?q=VAULT-EMP');expect(mdList.total).toBe(1);
- const downloaded=await fetch(origin+'/api/attachments/'+saved.id,{headers:{cookie:accounts[hr].cookie}});expect(downloaded.status).toBe(200);expect(await downloaded.text()).toBe('Signed contract evidence');
- expect((await call('COUNTY_OFFICER','/api/hr/document-vault?q=VAULT-EMP')).status).toBe(403);
+it('completes an office distribution with reservations, separate dispatch/receipt, variance, audit and office scope',async()=>{
+ const destination=randomUUID();
+ await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'DIST-COUNTY','Distribution test county','COUNTY')",[destination]);
+ await query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,\'COUNTY_OFFICER\',$3)',[randomUUID(),accounts.COUNTY_OFFICER.id,destination]);
+ const receiverId=randomUUID(),receiverEmail='distribution.receiver@example.test',receiverHash=await hashPassword(testPassword);
+ await query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,false)',[receiverId,receiverEmail,'Destination receiving officer',receiverHash]);
+ await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),receiverId,destination]);
+ const login=await fetch(origin+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:receiverEmail,password:testPassword})});expect(login.status).toBe(200);
+ const receiverCookies=login.headers.getSetCookie().map(v=>v.split(';')[0]);accounts.DIST_RECEIVER={id:receiverId,cookie:receiverCookies.join('; '),csrf:decodeURIComponent(receiverCookies.find(c=>c.startsWith('fda_csrf='))!.split('=')[1])};
+
+ const item=await ok('ASSET_OFFICER','/api/inventory/items',{orgUnitId:office,sku:'DIST-PAPER',name:'Printer paper',unitOfMeasure:'box',reorderPoint:'2',estimatedUnitCost:'12.50',currency:'USD',openingQuantity:'10',reference:'OPEN-DIST-001',reason:'Counted source warehouse opening stock'});
+ const request=await ok('COUNTY_OFFICER','/api/supply-chain/distribution',{destinationOrgUnitId:destination,sku:'DIST-PAPER',itemName:'Printer paper',unitOfMeasure:'box',quantity:'8',destinationReorderPoint:'3',neededBy:'2026-12-15',reason:'County office quarterly stationery allocation'});
+ expect(request.reference).toMatch(/^DIST-/);
+ expect((await call('ASSET_OFFICER',`/api/supply-chain/distribution/${request.id}/allocate`,{sourceItemId:item.id})).status).toBe(200);
+ expect((await call('ASSET_OFFICER',`/api/inventory/items/${item.id}/issue`,{quantity:'3',reference:'ISSUE-RESERVED',reason:'Should not consume reserved distribution stock'})).status).toBe(409);
+ const reserved=await ok('ASSET_OFFICER','/api/inventory/items?q=DIST-PAPER');expect(reserved.rows[0].reserved_quantity).toBe('8.000');
+ expect((await call('ASSET_OFFICER',`/api/supply-chain/distribution/${request.id}/dispatch`,{carrier:'County dispatch unit',vehicleReference:'FDA-TRK-02',trackingReference:'WAYBILL-DIST-001',expectedDeliveryDate:'2026-12-15',note:'Eight sealed boxes handed over'})).status).toBe(403);
+ await ok('MANAGING_DIRECTOR',`/api/supply-chain/distribution/${request.id}/dispatch`,{carrier:'County dispatch unit',vehicleReference:'FDA-TRK-02',trackingReference:'WAYBILL-DIST-001',plannedDispatchDate:'2026-12-10',expectedDeliveryDate:'2026-12-15',note:'Eight sealed boxes handed over'});
+ expect((await call('COUNTY_OFFICER',`/api/supply-chain/distribution/${request.id}/receive`,{receivedQuantity:'7',discrepancyNote:'One carton missing at arrival; carrier notified.'})).status).toBe(403);
+ const received=await ok('DIST_RECEIVER',`/api/supply-chain/distribution/${request.id}/receive`,{receivedQuantity:'7',discrepancyNote:'One carton missing at arrival; carrier notified.'});expect(received.status).toBe('RECEIVED_WITH_VARIANCE');
+ const state=await ok('MANAGING_DIRECTOR','/api/supply-chain/distribution?q=DIST-PAPER');const delivered=state.rows.find((r:any)=>r.id===request.id);expect(delivered.status).toBe('RECEIVED_WITH_VARIANCE');expect(delivered.received_quantity).toBe('7.000');expect(delivered.discrepancy_note).toContain('One carton missing');
+ const source=await ok('ASSET_OFFICER','/api/inventory/items?q=DIST-PAPER');const sourceRow=source.rows.find((r:any)=>r.id===item.id);expect(sourceRow.quantity_on_hand).toBe('2.000');expect(sourceRow.reserved_quantity).toBe('0.000');
+ const destStock=await ok('DIST_RECEIVER','/api/inventory/items?q=DIST-PAPER');expect(destStock.rows).toHaveLength(1);expect(destStock.rows[0].quantity_on_hand).toBe('7.000');expect(destStock.rows[0].reorder_point).toBe('3.000');
+ const movements=await ok('MANAGING_DIRECTOR','/api/inventory/movements?q=WAYBILL-DIST-001');expect(movements.rows.map((r:any)=>r.movement).sort()).toEqual(['TRANSFER_IN','TRANSFER_OUT']);
+ expect((await call('HR_DIRECTOR','/api/supply-chain/distribution')).status).toBe(403);
+ const auditEvents=await query("SELECT action FROM audit_events WHERE entity_type='distribution_request' AND entity_id=$1 ORDER BY created_at",[request.id]);expect(auditEvents.rows.map((r:any)=>r.action)).toEqual(expect.arrayContaining(['supply_chain.distribution_requested','supply_chain.stock_reserved','supply_chain.distribution_dispatched','supply_chain.distribution_received_with_variance']));
 });
