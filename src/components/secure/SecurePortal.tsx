@@ -44,7 +44,8 @@ async function api<T=unknown>(path:string,options:RequestInit={}) : Promise<T> {
 
 export const SecurePortal:React.FC=()=>{
   const [recordEvidence,setRecordEvidence]=useState<{id:string;type:string}|null>(null);
-  const [section,setSection]=useState('overview');
+  const [section,setSectionState]=useState(()=>new URLSearchParams(window.location.search).get('section')||'overview');
+  const setSection=useCallback((next:string)=>{setSectionState(next);const url=new URL(window.location.href);if(next==='overview')url.searchParams.delete('section');else url.searchParams.set('section',next);if(next!=='hr')url.searchParams.delete('workspace');window.history.pushState({},'',url);},[]);
   const [adminInitialRole,setAdminInitialRole]=useState<'HR_DIRECTOR'|'IT_DIRECTOR'>('IT_DIRECTOR');
   const [audit,setAudit]=useState<Record<string,string>[]>([]);
   const [user,setUser]=useState<User|null>(null);
@@ -97,7 +98,8 @@ export const SecurePortal:React.FC=()=>{
   },[]);
 
   useEffect(()=>{void refresh();},[refresh]);
-  useEffect(()=>{if(section!=='support'&&!staffSections(roles.map(r=>r.role)).some(s=>s.id===section))setSection('overview');},[roles,section]);
+  useEffect(()=>{const sync=()=>setSectionState(new URLSearchParams(window.location.search).get('section')||'overview');window.addEventListener('popstate',sync);return()=>window.removeEventListener('popstate',sync);},[]);
+  useEffect(()=>{if(!loading&&user&&section!=='support'&&!staffSections(roles.map(r=>r.role)).some(s=>s.id===section))setSection('overview');},[loading,user,roles,section,setSection]);
   useEffect(()=>{if(section==='audit')void api<Record<string,string>[]>('/api/audit-events').then(setAudit).catch(e=>setError(e.message));},[section]);
 
   const submitLogin=async(event:FormEvent)=>{
