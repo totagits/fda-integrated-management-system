@@ -1,18 +1,16 @@
-Warning: truncated output (original token count: 45905)
-Total output lines: 1287
+
 
 import { randomUUID } from 'node:crypto';
 import { parseMinorUnits } from './domain.js';
 import { deliverIdentityInvitation, issueIdentityInvitation, makeUnusablePasswordHash } from './identity-invitations.js';
-export const DEPARTMENT_ROLES = {
- hr: ['MANAGING_DIRECTOR','HR_DIRECTOR'],
- finance: ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'],
- financeWrite: ['MANAGING_DIRECTOR','FINANCE_DIRECTOR'],
- procurement: ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','PROCUREMENT_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'],
- planWrite: ['PROCUREMENT_OFFICER','COUNTY_OFFICER'],
- planApprove: ['MANAGING_DIRECTOR','FINANCE_DIRECTOR'],
- assets: ['MANAGING_DIRECTOR','FINANCE_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'],
- assetWrite: ['MANAGING_DIRECTOR','ASSET_OFFICER','COUNTY_OFFICER'],
+
+export const DEPARTMENT_PERMISSIONS = {
+  financeWrite: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR'],
+  procurement: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR', 'PROCUREMENT_OFFICER', 'COUNTY_OFFICER', 'INTERNAL_AUDITOR'],
+  planWrite: ['PROCUREMENT_OFFICER', 'COUNTY_OFFICER'],
+  planApprove: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR'],
+  assets: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR', 'PROCUREMENT_OFFICER', 'ASSET_OFFICER', 'COUNTY_OFFICER', 'INTERNAL_AUDITOR'],
+  assetWrite: ['MANAGING_DIRECTOR', 'ASSET_OFFICER', 'COUNTY_OFFICER'],
 };
 export const fail=(message,status=422)=>Object.assign(new Error(message),{status,code:status===403?'FORBIDDEN':status===409?'CONFLICT':'INVALID_INPUT'});
 export const required=(value,label,max=2000)=>{if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw fail(`${label} is required (maximum ${max} characters).`);return value.trim();};
