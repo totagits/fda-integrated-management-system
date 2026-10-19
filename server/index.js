@@ -387,7 +387,7 @@ app.post('/api/admin/users', loadAuth, csrfRequired, guardAny('user.manage','it.
   const role = validEnum(body.role, ['IT_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'], 'Role');
   const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
   const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
-  if (isMD && !isITDirector && role !== 'IT_DIRECTOR') throw Object.assign(new Error('The Managing Director may appoint only the IT Director. The IT Director provisions other staff accounts.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+  if (isMD && !isITDirector && !['IT_DIRECTOR','HR_DIRECTOR'].includes(role)) throw Object.assign(new Error('The Managing Director may appoint the HR Director and IT Director. The IT Director provisions other system accounts; HR invites employees during onboarding.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
   if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may provision accounts.'), { status: 403, code: 'FORBIDDEN' });
   if (isITDirector && role === 'IT_DIRECTOR') throw Object.assign(new Error('Only the Managing Director may appoint an IT Director.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
   const orgUnitId = body.orgUnitId ? requireUuid(body.orgUnitId, 'Office') : null;
@@ -418,7 +418,7 @@ app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guard
     if (!user || user.disabled_at || !user.must_change_password) throw Object.assign(new Error('This account has already been activated or is unavailable.'), { status: 409, code: 'INVITATION_NOT_AVAILABLE' });
     const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
     const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
-    if (isMD && !isITDirector && user.role !== 'IT_DIRECTOR') throw Object.assign(new Error('The Managing Director may resend only the IT Director appointment invitation.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+    if (isMD && !isITDirector && !['IT_DIRECTOR','HR_DIRECTOR'].includes(user.role)) throw Object.assign(new Error('The Managing Director may resend only HR Director or IT Director appointment invitations.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may manage account invitations.'), { status: 403, code: 'FORBIDDEN' });
     if (isITDirector && ['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(user.role)) throw Object.assign(new Error('Only the Managing Director may manage executive account invitations.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     const issued=await issueIdentityInvitation(client, { user, requestedBy: req.auth.userId, orgUnitId: user.org_unit_id, invitationType: 'MD_ROLE_ACCOUNT' });
@@ -442,7 +442,8 @@ app.get('/api/admin/user-invitations', loadAuth, guardAny('user.manage','it.admi
     WHERE u.must_change_password=true AND u.disabled_at IS NULL
     ORDER BY i.created_at DESC LIMIT 200`);
   const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
-  res.json(isITDirector ? rows.rows.filter((row) => !['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : rows.rows.filter((row) => row.role === 'IT_DIRECTOR'));
+  const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
+  res.json(isITDirector ? rows.rows.filter((row) => !['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : isMD ? rows.rows.filter((row) => ['HR_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : []);
 }));
 
 app.post('/api/admin/budgets', loadAuth, csrfRequired, guard('budget.manage'), route(async (req, res) => {

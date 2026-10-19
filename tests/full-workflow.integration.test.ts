@@ -203,18 +203,22 @@ it('keeps supplier bid packets encrypted until a deadline and two assigned opene
  const attachments=await query("SELECT id,original_name FROM attachments WHERE record_type='EVALUATION' AND record_id=$1",[evaluation.id]);expect(attachments.rowCount||attachments.rows.length).toBeGreaterThan(0);
 },30000);
 
-it('lets the MD appoint the IT Director, who provisions staff, while HR invites employees',async()=>{
- expect((await call('MANAGING_DIRECTOR','/api/admin/users',{email:'blocked.hr@example.test',fullName:'Blocked HR Director',role:'HR_DIRECTOR',orgUnitId:otherOffice})).status).toBe(403);
+it('lets the MD appoint HR and IT Directors, limits other account provisioning to IT, and lets HR invite employees',async()=>{
+ expect((await call('MANAGING_DIRECTOR','/api/admin/users',{email:'blocked.finance@example.test',fullName:'Blocked Finance Director',role:'FINANCE_DIRECTOR',orgUnitId:otherOffice})).status).toBe(403);
  const appointed=await ok('MANAGING_DIRECTOR','/api/admin/users',{email:'new.it@example.test',fullName:'New IT Director',role:'IT_DIRECTOR'});
  expect(appointed.temporaryPassword).toBeUndefined();expect(appointed.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.it@example.test');
  expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.it@example.test')).toBe(true);
+ const appointedHR=await ok('MANAGING_DIRECTOR','/api/admin/users',{email:'appointed.hr@example.test',fullName:'Appointed HR Director',role:'HR_DIRECTOR',orgUnitId:office});
+ expect(appointedHR.temporaryPassword).toBeUndefined();expect(appointedHR.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('appointed.hr@example.test');
+ expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='appointed.hr@example.test')).toBe(true);
+ expect((await call('MANAGING_DIRECTOR',`/api/admin/users/${appointedHR.user.id}/invitation/resend`,{})).status).toBe(200);
  expect((await call('HR_DIRECTOR','/api/admin/user-invitations')).status).toBe(403);
  expect((await call('IT_DIRECTOR','/api/hr/employees')).status).toBe(403);
  const created=await ok('IT_DIRECTOR','/api/admin/users',{email:'new.hr@example.test',fullName:'New HR Director',role:'HR_DIRECTOR',orgUnitId:otherOffice});
  expect(created.temporaryPassword).toBeUndefined();expect(created.emailSent).toBe(true);expect(sentInvitations.at(-1).email).toBe('new.hr@example.test');
  expect((await ok('IT_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(true);
- expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(false);
- expect((await call('MANAGING_DIRECTOR',`/api/admin/users/${created.user.id}/invitation/resend`,{})).status).toBe(403);
+ expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.hr@example.test')).toBe(true);
+ expect((await call('MANAGING_DIRECTOR',`/api/admin/users/${created.user.id}/invitation/resend`,{})).status).toBe(200);
  const pendingMD=randomUUID(),pendingMDInvite=randomUUID();
  await query("INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,'pending.md@example.test','Pending MD','unused',true)",[pendingMD]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'MANAGING_DIRECTOR',$3)",[randomUUID(),pendingMD,office]);
@@ -224,6 +228,9 @@ it('lets the MD appoint the IT Director, who provisions staff, while HR invites 
  const hrToken=sentInvitations.at(-1).token;
  const activated=await call('anonymous','/api/auth/accept-invitation',{token:hrToken,password:'A-long-private-password-2026!'},false);expect(activated.status).toBe(200);
  const hrHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.hr@example.test']);expect(await verifyPassword('A-long-private-password-2026!',hrHash.rows[0].password_hash)).toBe(true);
+ const financeStaff=await ok('IT_DIRECTOR','/api/admin/users',{email:'new.finance@example.test',fullName:'New Finance Director',role:'FINANCE_DIRECTOR',orgUnitId:otherOffice});
+ expect((await ok('MANAGING_DIRECTOR','/api/admin/user-invitations')).some((i:any)=>i.email==='new.finance@example.test')).toBe(false);
+ expect((await call('MANAGING_DIRECTOR',`/api/admin/users/${financeStaff.user.id}/invitation/resend`,{})).status).toBe(403);
 
  const position=await ok('HR_DIRECTOR','/api/hr/positions',{orgUnitId:otherOffice,code:'ONBOARD-1',title:'Field Officer',grade:'A',capacity:2});
  const employee=await ok('HR_DIRECTOR','/api/hr/employees',{staffNumber:'ONBOARD-EMP-1',fullName:'New FDA Employee',positionId:position.id,startDate:'2026-10-18'});
