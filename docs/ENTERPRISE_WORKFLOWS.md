@@ -8,7 +8,21 @@ The secure Finance Control Center reads live database records and is server-auth
 
 Budget allocation amendments are recorded as proposals containing the captured prior allocation/version and a justification. A different authorized finance officer or Managing Director must decide. Approval rejects stale proposals and cannot lower the allocation below commitments plus posted expenditure. The approved amendment updates the budget account transactionally and is included in the append-only audit history. This is a configurable control workflow, not FDA approval of the chart of accounts, budget rules or delegated limits.
 
-No receivables/grant ledger, advances-and-expenses retirement, automated FX revaluation, bank-feed/payment API, or verified IFMIS/CSA/e-GP integration is introduced by this increment. Those require FDA policy and system-owner specifications. The dashboard’s financial values are operational summaries, not signed statutory financial statements or a cash forecast.
+## Finance operations extension — 19 October 2026
+
+Migration `022_finance_operations.sql` adds a persistent grants and receivables ledger, staff advance/expense-retirement records, exchange-rate submissions, versioned policy records, and GL-derived statement snapshots. These operate in the existing app/database and add no demonstration records.
+
+Grant awards require separate submission and approval. Grant receivables cannot exceed the approved award; receipts remain recorded-but-unverified until a different finance officer matches them to an unused positive line in a reconciled statement with the same office and currency. An approved receipt reduces the open receivable balance and feeds the cash forecast. This is internal statement matching; it is not a bank feed.
+
+Staff advances are scoped to an office and requester, independently approved, and marked disbursed only by recording an evidence/reference. The requester records itemized expense amounts and receipt references; a different finance officer retires the advance only when accepted expenses plus unused cash returned equal the recorded advance. Retirement currently records evidence and does not generate a journal or real bank payment.
+
+The 90-day cash forecast uses the latest reconciled statement closing balance per office/account/currency, approved receivable balances due, and unpaid matched/authorized invoices. Invoices without a due date are placed on the current date. It excludes payroll, unapproved commitments, cash transactions and unrecorded receipts, makes no USD/LRD net total, and is not a live bank position.
+
+Exchange rates are versioned and independently approved. The current FX revaluation preview compares outstanding USD receivables using the approved LRD-per-USD rate against the prior approved rate. It is preview-only; there is no automatic posting until FDA defines functional currency, initial recognition, monetary account classification, FX gain/loss mappings and posting authority.
+
+Finance policy versions retain effective dates, structured configuration, authority/evidence reference and independent review history. The repository does not assert that storing an approved policy means every budget rule is automatically enforced. Statement packages snapshot posted GL balances for trial balance, balance sheet summary or income/expenditure reports and require a separate internal reviewer. They are not statutory statements or FDA-approved formats until FDA provides and accepts the reporting basis and account mappings.
+
+`/api/finance/integration-readiness` reports IFMIS, CSA/payroll, e-GP and bank links as `NOT_VERIFIED`. No external API is called. Adapter development and verification require system-owner specifications, sandbox access, credentials through Coolify, approved data-sharing/security controls, reconciliation tests and signed acceptance. No bank payment initiation or settlement verification is claimed.
 
 ## Payroll — statutory calculation and accrual
 
@@ -70,10 +84,11 @@ Consumable items are office-scoped, use quantities precise to three decimal plac
 
 ## Verification and remaining assurance
 
-- Production frontend build and 59 automated tests pass.
+- Production frontend build and 77 automated tests pass.
 - Full application-route tests use named logins, real session cookies and CSRF, isolated PostgreSQL-compatible PGlite databases and real attachment files in a disposable test directory.
 - New tests exercise statutory arithmetic and approval, encrypted sealed-bid submission, receipt and two-officer opening with protected evidence, stocktake completeness, depreciation calculation/posting/duplicate prevention, reconciliation/matching/backdating controls, panel declarations/scoring/ranking/approval and truthful integration status.
 - The integrated goods test exercises two staged accepted deliveries, an invoice exception/correction, two installments, stock receipt and issue, a low-stock request and conversion into a budgeted requisition. Existing capital procurement, accounting, HR and asset tests also pass.
+- The finance operations integration test exercises grant approval, grant-bounded receivables, statement-line receipt verification, staff advance approval and retirement, exchange-rate approval and revaluation preview, statement package review, cash-forecast basis and unverified external-system status.
 - No production records or external business systems are used by these tests.
 - Browser visual acceptance, real PostgreSQL concurrency/load testing, independent security review, restore drills and FDA process acceptance remain outstanding.
 
