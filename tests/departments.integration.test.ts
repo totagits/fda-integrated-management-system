@@ -18,7 +18,7 @@ async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
  for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee'],[ethicsUser,'ethics'],[appealUser,'appeal']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'HR_DIRECTOR',$3),($4,$5,'HR_DIRECTOR',$3)",[randomUUID(),maker,office,randomUUID(),checker]);
@@ -335,9 +335,11 @@ describe('asset custody and controlled office transfers',()=>{
   expect((await request(`/api/assets/register/${assetId}/transfer`,{toOrgUnitId:otherOffice,reason:'Regional assignment'},'ASSET_OFFICER')).status).toBe(409);
   expect((await request(`/api/assets/maintenance/${m.data.id}/complete`,{cost:'50',note:'Serviced'},'ASSET_OFFICER')).status).toBe(200);
   const t=await request(`/api/assets/register/${assetId}/transfer`,{toOrgUnitId:otherOffice,reason:'Regional assignment'},'ASSET_OFFICER');expect(t.status,t.data.error).toBe(200);transferId=t.data.id;
-  expect((await request(`/api/assets/transfers/${transferId}/decide`,{status:'ACCEPTED',location:'New stores',reason:'Received'},'ASSET_OFFICER',checker)).status).toBe(403);
+  expect((await request(`/api/assets/transfers/${transferId}/approve`,{reason:'Approved for regional custody'},'ASSET_OFFICER',maker)).status).toBe(403);
+  expect((await request(`/api/assets/transfers/${transferId}/approve`,{reason:'Approved for regional custody'},'ASSET_OFFICER',checker)).status).toBe(200);
+  expect((await request(`/api/assets/transfers/${transferId}/dispatch`,{carrier:'FDA driver',vehicleReference:'Pool vehicle 01',trackingReference:'TRK-TEST-1',waybillReference:'WB-TEST-1',plannedDispatchDate:'2026-10-19',expectedDeliveryDate:'2026-10-20',condition:'GOOD',note:'Tag and serial verified at handover'},'ASSET_OFFICER',employeeUser)).status).toBe(200);
   const incoming=await request('/api/assets/incoming-transfers',undefined,'ASSET_OFFICER',checker,otherOffice);expect(incoming.data.rows[0].asset_tag).toBe('TEST-A1');
-  expect((await request(`/api/assets/transfers/${transferId}/decide`,{status:'ACCEPTED',location:'New stores',reason:'Received'},'ASSET_OFFICER',checker,otherOffice)).status).toBe(200);
+  expect((await request(`/api/assets/transfers/${transferId}/receive`,{received:true,condition:'GOOD',location:'New stores',receiptNote:'Tag and equipment accepted'},'ASSET_OFFICER',ethicsUser,otherOffice)).status).toBe(200);
   expect((await request('/api/assets/register',undefined,'ASSET_OFFICER')).data.rows).toHaveLength(0);
   expect((await request('/api/assets/my-custody',undefined,'COUNTY_OFFICER',employeeUser)).data).toHaveLength(0);
  });

@@ -695,7 +695,7 @@ app.post('/api/receipts/:id/inspect', loadAuth, csrfRequired, guard('receipt.ins
       const category = text(req.body?.assetCategory || 'GENERAL', 'Asset category', 80);
       const assetId = uuid();
       const assetTag = `FDA-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-      await client.query('INSERT INTO assets(id,asset_tag,purchase_order_id,receipt_id,description,category,purchase_cost_minor,currency,org_unit_id,custodian) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [assetId, assetTag, receipt.po_id, id, receipt.requisition_title, category, accepted, receipt.po_currency, receipt.org_unit_id, null]);
+      await client.query("INSERT INTO assets(id,asset_tag,purchase_order_id,receipt_id,description,category,purchase_cost_minor,currency,org_unit_id,custodian,acquisition_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PURCHASED')", [assetId, assetTag, receipt.po_id, id, receipt.requisition_title, category, accepted, receipt.po_currency, receipt.org_unit_id, null]);
       asset = { id: assetId, asset_tag: assetTag };
     }
     await audit(client, req, `asset.delivery_${outcome.toLowerCase()}`, 'goods_receipt', id, { acceptedAmountMinor: accepted, asset });

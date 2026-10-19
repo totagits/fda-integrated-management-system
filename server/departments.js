@@ -366,18 +366,24 @@ export function registerDepartments(app,deps){
   const r=await row(db,'requisitions',c.requisition_id);if(r.status!=='COMPLETE')throw fail('Complete delivery and payment before closing this contract.',409);
   await db.query("UPDATE procurement_contracts SET status='CLOSED' WHERE id=$1",[c.id]);await audit(db,req,'procurement.contract.closed','procurement_contract',c.id,{reason:required(req.body.reason,'Completion note')});return {id:c.id};
  });
- get('/api/assets/register',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'assets',['asset_tag','description','lifecycle_status','location']));
+ get('/api/assets/register',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_register_directory',['asset_tag','description','lifecycle_status','location']));
  post('/api/assets/register',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
   const b=req.body;await office(db,req,b.orgUnitId);const id=randomUUID();
-  await db.query('INSERT INTO assets(id,asset_tag,description,category,purchase_cost_minor,currency,org_unit_id,source_reference,location) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,required(b.assetTag,'Asset tag',100),required(b.description,'Description'),required(b.category,'Category',100),amount(b.cost),currencyValue(b.currency),b.orgUnitId,required(b.sourceReference,'Acquisition / opening-register evidence reference',240),required(b.location,'Location',240)]);
+  const acquisitionType=b.acquisitionType||'OPENING_BALANCE';if(!['DONATED','TRANSFERRED_IN','OPENING_BALANCE'].includes(acquisitionType))throw fail('Select donated, transferred-in, or opening-balance for manual registration. Purchased assets must come from an accepted procurement receipt.');
+  const tag=required(b.assetTag,'Asset tag',100),serial=String(b.serialNumber||'').trim()||null,duplicate=await db.query('SELECT 1 FROM assets WHERE lower(asset_tag)=lower($1) OR ($2::text IS NOT NULL AND lower(serial_number)=lower($2))',[tag,serial]);if(duplicate.rowCount)throw fail('Asset tag or serial number is already registered.',409);
+  const usefulMonths=b.usefulLifeMonths?numeric(b.usefulLifeMonths,1,1200):null;if(usefulMonths!==null&&!Number.isInteger(usefulMonths))throw fail('Useful life must be a whole number of months.');
+  await db.query('INSERT INTO assets(id,asset_tag,description,category,purchase_cost_minor,currency,org_unit_id,source_reference,location,acquisition_type,make,model,serial_number,purchase_date,funding_source,project_code,donor,warranty_expires_on,useful_life_months) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)',[id,tag,required(b.description,'Description'),required(b.category,'Category',100),amount(b.cost),currencyValue(b.currency),b.orgUnitId,required(b.sourceReference,'Acquisition / opening-register evidence reference',240),required(b.location,'Location',240),acquisitionType,String(b.make||'').trim()||null,String(b.model||'').trim()||null,serial,b.purchaseDate?dateValue(b.purchaseDate):null,String(b.fundingSource||'').trim()||null,String(b.projectCode||'').trim()||null,String(b.donor||'').trim()||null,b.warrantyExpiresOn?dateValue(b.warrantyExpiresOn):null,usefulMonths]);
   await audit(db,req,'asset.registered','asset',id,{sourceReference:b.sourceReference});return {id};
  });
- const activeAsset=async(db,req,id)=>{const a=await row(db,'assets',id);await scope(req,a.org_unit_id);if(a.lifecycle_status!=='ACTIVE')throw fail('Disposed assets cannot be changed.',409);return a;};
- const noPending=async(db,id)=>{const p=await db.query("SELECT id FROM asset_transfers WHERE asset_id=$1 AND status='PENDING' UNION ALL SELECT id FROM asset_disposals WHERE asset_id=$1 AND status='SUBMITTED'",[id]);if(p.rowCount)throw fail('Resolve the pending transfer or disposal first.',409);};
+ const activeAsset=async(db,req,id)=>{const a=await row(db,'assets',id);await scope(req,a.org_unit_id);if(a.lifecycle_status!=='ACTIVE')throw fail('Only active assets can be changed.',409);return a;};
+ const noPending=async(db,id)=>{const p=await db.query("SELECT id FROM asset_transfers WHERE asset_id=$1 AND status IN ('PENDING_APPROVAL','APPROVED','IN_TRANSIT','DELIVERY_EXCEPTION') UNION ALL SELECT id FROM asset_disposals WHERE asset_id=$1 AND status='SUBMITTED'",[id]);if(p.rowCount)throw fail('Resolve the pending transfer or disposal first.',409);};
  post('/api/assets/register/:id/update',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
   const a=await activeAsset(db,req,req.params.id);if(a.version!==Number(req.body.version))throw fail('Asset changed. Refresh before updating.',409);
   if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(req.body.condition))throw fail('Select an asset condition.');
-  await db.query('UPDATE assets SET condition=$2,location=$3,version=version+1 WHERE id=$1',[a.id,req.body.condition,required(req.body.location,'Location',240)]);await audit(db,req,'asset.condition_updated','asset',a.id,{condition:req.body.condition,location:req.body.location});return {id:a.id};
+  const b=req.body,serial=String(b.serialNumber||'').trim()||null;
+  const duplicate=await db.query('SELECT 1 FROM assets WHERE id<>$1 AND $2::text IS NOT NULL AND lower(serial_number)=lower($2)',[a.id,serial]);if(duplicate.rowCount)throw fail('That serial number is already assigned to another registered asset.',409);
+  const usefulMonths=b.usefulLifeMonths?numeric(b.usefulLifeMonths,1,1200):null;if(usefulMonths!==null&&!Number.isInteger(usefulMonths))throw fail('Useful life must be a whole number of months.');
+  await db.query('UPDATE assets SET condition=$2,location=$3,make=$4,model=$5,serial_number=$6,purchase_date=$7,funding_source=$8,project_code=$9,donor=$10,warranty_expires_on=$11,useful_life_months=$12,version=version+1 WHERE id=$1',[a.id,b.condition,required(b.location,'Location',240),String(b.make||'').trim()||null,String(b.model||'').trim()||null,serial,b.purchaseDate?dateValue(b.purchaseDate):null,String(b.fundingSource||'').trim()||null,String(b.projectCode||'').trim()||null,String(b.donor||'').trim()||null,b.warrantyExpiresOn?dateValue(b.warrantyExpiresOn):null,usefulMonths]);await audit(db,req,'asset.record_updated','asset',a.id,{condition:b.condition,location:b.location,serialNumber:serial});return {id:a.id};
  });
  post('/api/assets/register/:id/assign',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
   const a=await activeAsset(db,req,req.params.id);await noPending(db,a.id);
@@ -394,21 +400,68 @@ export function registerDepartments(app,deps){
   else await db.query('UPDATE assets SET proposed_custodian_id=NULL,version=version+1 WHERE id=$1',[a.id]);
   await audit(db,req,req.body.accept?'asset.custody_accepted':'asset.custody_declined','asset',a.id);return {id:a.id};
  }))));
- get('/api/assets/transfers',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_transfer_directory',['status','reason','asset_tag','source_office','destination_office'],'from_org_unit_id')); // Receiving queue has its own scope.
- get('/api/assets/incoming-transfers',DEPARTMENT_ROLES.assetWrite,(req,res)=>list(req,res,'asset_transfer_directory',['status','reason','asset_tag','source_office','destination_office'],'to_org_unit_id',"AND status='PENDING'"));
+ get('/api/assets/transfers',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_transfer_directory',['status','reason','asset_tag','source_office','destination_office','tracking_reference','waybill_reference'],'from_org_unit_id'));
+ get('/api/assets/incoming-transfers',DEPARTMENT_ROLES.assetWrite,(req,res)=>list(req,res,'asset_transfer_directory',['status','reason','asset_tag','source_office','destination_office','tracking_reference','waybill_reference','expected_delivery_date'],'to_org_unit_id',"AND status IN ('IN_TRANSIT','DELIVERY_EXCEPTION')"));
  post('/api/assets/register/:id/transfer',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
   const a=await activeAsset(db,req,req.params.id);await noPending(db,a.id);if(a.proposed_custodian_id)throw fail('Resolve custody acceptance before transfer.',409);
   const work=await db.query("SELECT 1 FROM asset_maintenance WHERE asset_id=$1 AND status='OPEN'",[a.id]);if(work.rowCount)throw fail('Complete maintenance before transferring this asset.',409);
   const to=await row(db,'org_units',req.body.toOrgUnitId,false);if(!to.active||to.id===a.org_unit_id)throw fail('Choose a different active destination office.');
-  const id=randomUUID();await db.query('INSERT INTO asset_transfers(id,asset_id,from_org_unit_id,to_org_unit_id,requested_by,reason) VALUES($1,$2,$3,$4,$5,$6)',[id,a.id,a.org_unit_id,to.id,req.auth.userId,required(req.body.reason,'Transfer reason')]);await audit(db,req,'asset.transfer_requested','asset',a.id,{transferId:id,toOrgUnitId:to.id});return {id};
+  const id=randomUUID(),note=required(req.body.reason,'Transfer reason');await db.query("INSERT INTO asset_transfers(id,asset_id,from_org_unit_id,to_org_unit_id,requested_by,reason,status) VALUES($1,$2,$3,$4,$5,$6,'PENDING_APPROVAL')",[id,a.id,a.org_unit_id,to.id,req.auth.userId,note]);
+  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'REQUESTED',$3,$4,$5)",[randomUUID(),id,req.auth.userId,a.org_unit_id,JSON.stringify({toOrgUnitId:to.id,reason:note})]);
+  await audit(db,req,'asset.transfer_requested','asset',a.id,{transferId:id,toOrgUnitId:to.id});return {id,status:'PENDING_APPROVAL'};
+ });
+ post('/api/assets/transfers/:id/approve',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
+  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.from_org_unit_id);checker(req,t.requested_by);
+  const a=await row(db,'assets',t.asset_id);if(t.status!=='PENDING_APPROVAL'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Transfer is no longer awaiting approval.',409);
+  const note=required(req.body.reason,'Approval rationale');
+  await db.query("UPDATE asset_transfers SET status='APPROVED',approved_by=$2,approved_at=now(),approval_note=$3 WHERE id=$1",[t.id,req.auth.userId,note]);
+  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'APPROVED',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.from_org_unit_id,JSON.stringify({reason:note})]);
+  await audit(db,req,'asset.transfer_approved','asset',a.id,{transferId:t.id});return {id:t.id,status:'APPROVED'};
  });
  post('/api/assets/transfers/:id/decide',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
-  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.to_org_unit_id);checker(req,t.requested_by);
-  const a=await row(db,'assets',t.asset_id);if(t.status!=='PENDING'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Transfer is no longer pending.',409);
-  if(!['ACCEPTED','REJECTED'].includes(req.body.status))throw fail('Select accept or reject.');
-  const note=required(req.body.reason,'Receiving note');
-  if(req.body.status==='ACCEPTED')await db.query('UPDATE assets SET org_unit_id=$2,location=$3,custodian=NULL,custodian_user_id=NULL,proposed_custodian_id=NULL,version=version+1 WHERE id=$1',[a.id,t.to_org_unit_id,required(req.body.location,'Receiving location',240)]);
-  await db.query('UPDATE asset_transfers SET status=$2,accepted_by=$3 WHERE id=$1',[t.id,req.body.status,req.auth.userId]);await audit(db,req,`asset.transfer_${req.body.status.toLowerCase()}`,'asset',a.id,{transferId:t.id,fromOffice:t.from_org_unit_id,toOffice:t.to_org_unit_id,note});return {id:t.id};
+  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.from_org_unit_id);checker(req,t.requested_by);
+  const a=await row(db,'assets',t.asset_id);if(t.status!=='PENDING_APPROVAL'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Only an unapproved transfer can be rejected.',409);
+  if(req.body.status!=='REJECTED')throw fail('A transfer request can only be rejected here. Approval and receipt use separate controls.');
+  const note=required(req.body.reason,'Rejection rationale');
+  await db.query("UPDATE asset_transfers SET status='REJECTED',approved_by=$2,approved_at=now(),approval_note=$3 WHERE id=$1",[t.id,req.auth.userId,note]);
+  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'REJECTED',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.from_org_unit_id,JSON.stringify({reason:note})]);
+  await audit(db,req,'asset.transfer_rejected','asset',a.id,{transferId:t.id});return {id:t.id,status:'REJECTED'};
+ });
+ post('/api/assets/transfers/:id/dispatch',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
+  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.from_org_unit_id);checker(req,t.requested_by);checker(req,t.approved_by);
+  const a=await row(db,'assets',t.asset_id);if(t.status!=='APPROVED'||a.org_unit_id!==t.from_org_unit_id||a.lifecycle_status!=='ACTIVE')throw fail('Only an approved asset transfer can be dispatched.',409);
+  const carrier=required(req.body.carrier,'Carrier / responsible driver',200),vehicle=required(req.body.vehicleReference,'Vehicle or dispatch reference',160),tracking=required(req.body.trackingReference,'Tracking reference',160),waybill=required(req.body.waybillReference,'Waybill / movement permit',160),planned=dateValue(req.body.plannedDispatchDate),expected=dateValue(req.body.expectedDeliveryDate);
+  if(expected<planned)throw fail('Expected delivery cannot be earlier than dispatch.');
+  const condition=req.body.condition||a.condition;if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(condition))throw fail('Record the asset condition at handover.');
+  const note=required(req.body.note,'Dispatch and handover record');
+  await db.query("UPDATE asset_transfers SET status='IN_TRANSIT',dispatch_carrier=$2,vehicle_reference=$3,tracking_reference=$4,waybill_reference=$5,planned_dispatch_date=$6,expected_delivery_date=$7,dispatch_condition=$8,dispatch_note=$9,dispatched_by=$10,dispatched_at=now() WHERE id=$1",[t.id,carrier,vehicle,tracking,waybill,planned,expected,condition,note,req.auth.userId]);
+  await db.query("UPDATE assets SET lifecycle_status='IN_TRANSIT',version=version+1 WHERE id=$1",[a.id]);
+  await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'DISPATCHED',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.from_org_unit_id,JSON.stringify({carrier,vehicleReference:vehicle,trackingReference:tracking,waybillReference:waybill,plannedDispatchDate:planned,expectedDeliveryDate:expected,condition,note})]);
+  await audit(db,req,'asset.transfer_dispatched','asset',a.id,{transferId:t.id,trackingReference:tracking,waybillReference:waybill});return {id:t.id,status:'IN_TRANSIT'};
+ });
+ post('/api/assets/transfers/:id/receive',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{
+  const t=await row(db,'asset_transfers',req.params.id);await scope(req,t.to_org_unit_id);
+  if(!['IN_TRANSIT','DELIVERY_EXCEPTION'].includes(t.status))throw fail('This transfer is not awaiting destination receipt.',409);
+  [t.requested_by,t.approved_by,t.dispatched_by].filter(Boolean).forEach(actorId=>checker(req,actorId));
+  const note=required(req.body.receiptNote,'Receiving inspection note');
+  if(req.body.received!==true){
+   const discrepancy=required(req.body.discrepancyNote,'Explain why the asset was not received');
+   await db.query("UPDATE asset_transfers SET status='DELIVERY_EXCEPTION',received_by=$2,received_at=now(),receipt_note=$3,discrepancy_note=$4 WHERE id=$1",[t.id,req.auth.userId,note,discrepancy]);
+   await db.query("INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,'DELIVERY_EXCEPTION',$3,$4,$5)",[randomUUID(),t.id,req.auth.userId,t.to_org_unit_id,JSON.stringify({receiptNote:note,discrepancyNote:discrepancy})]);
+   await audit(db,req,'asset.transfer_delivery_exception','asset',t.asset_id,{transferId:t.id,discrepancy});return {id:t.id,status:'DELIVERY_EXCEPTION'};
+  }
+  const condition=req.body.condition;if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(condition))throw fail('Record the observed condition.');
+  const location=required(req.body.location,'Receiving location',240),discrepancy=String(req.body.discrepancyNote||'').trim();
+  const variance=condition!==t.dispatch_condition||Boolean(discrepancy),status=variance?'RECEIVED_WITH_VARIANCE':'RECEIVED';
+  const a=await row(db,'assets',t.asset_id);if(a.lifecycle_status!=='IN_TRANSIT'||a.org_unit_id!==t.from_org_unit_id)throw fail('Asset register is not in the expected in-transit state.',409);
+  await db.query('UPDATE assets SET lifecycle_status=\'ACTIVE\',org_unit_id=$2,location=$3,condition=$4,custodian=NULL,custodian_user_id=NULL,proposed_custodian_id=NULL,version=version+1 WHERE id=$1',[a.id,t.to_org_unit_id,location,condition]);
+  await db.query('UPDATE asset_transfers SET status=$2,received_by=$3,received_at=now(),received_condition=$4,received_location=$5,receipt_note=$6,discrepancy_note=$7 WHERE id=$1',[t.id,status,req.auth.userId,condition,location,note,discrepancy||null]);
+  await db.query('INSERT INTO asset_transfer_events(id,transfer_id,action,actor_id,org_unit_id,event_data) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),t.id,status,req.auth.userId,t.to_org_unit_id,JSON.stringify({condition,location,receiptNote:note,discrepancyNote:discrepancy||null})]);
+  await audit(db,req,variance?'asset.transfer_received_with_variance':'asset.transfer_received','asset',a.id,{transferId:t.id,fromOffice:t.from_org_unit_id,toOffice:t.to_org_unit_id,condition,location,discrepancyNote:discrepancy||null});return {id:t.id,status};
+ });
+ get('/api/assets/transfers/:id/history',DEPARTMENT_ROLES.assets,async(req,res)=>{
+  const t=await row(pool,'asset_transfers',req.params.id,false),units=await scopedUnits(req.departmentAuth);if(units&&!units.includes(t.from_org_unit_id)&&!units.includes(t.to_org_unit_id))throw fail('This transfer is outside your assigned offices.',403);
+  res.json((await pool.query('SELECT e.id,e.action,e.actor_id,u.full_name AS actor_name,e.org_unit_id,o.name AS office_name,e.event_data,e.created_at FROM asset_transfer_events e LEFT JOIN users u ON u.id=e.actor_id LEFT JOIN org_units o ON o.id=e.org_unit_id WHERE e.transfer_id=$1 ORDER BY e.created_at,e.id',[t.id])).rows);
  });
  get('/api/assets/maintenance',DEPARTMENT_ROLES.assets,(req,res)=>list(req,res,'asset_maintenance_directory',['description','status','asset_tag']));
  post('/api/assets/register/:id/maintenance',DEPARTMENT_ROLES.assetWrite,async(db,req)=>{

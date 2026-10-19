@@ -23,12 +23,12 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);testPassword=password;
- for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
+ for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice],['FIELD_ASSET_OFFICER',otherOffice]]){
   const id=randomUUID();await query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,false)',[id,`${role.toLowerCase()}@example.test`,role,hash]);
-  await query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,$3,$4)',[randomUUID(),id,role==='FINANCE_RECORDER'?'FINANCE_DIRECTOR':role,unit]);accounts[role]={id,cookie:'',csrf:''};
+  await query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,$3,$4)',[randomUUID(),id,role==='FINANCE_RECORDER'?'FINANCE_DIRECTOR':role==='FIELD_ASSET_OFFICER'?'ASSET_OFFICER':role,unit]);accounts[role]={id,cookie:'',csrf:''};
  }
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'ETHICS_OFFICER',NULL)",[randomUUID(),accounts.ASSET_OFFICER.id]);accounts.ETHICS_OFFICER=accounts.ASSET_OFFICER;
  const {app}=await import('../server/index.js');await new Promise<void>(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});origin=`http://127.0.0.1:${(server.address() as any).port}`;
@@ -133,13 +133,32 @@ it('takes an immutable stock snapshot and independently reviews all counted asse
  expect((await call('COUNTY_OFFICER',`/api/stocktakes/${run.id}/submit`,{})).status).toBe(422);
  const lines=await ok('ASSET_OFFICER',`/api/stocktakes/${run.id}/lines`);expect(lines.length).toBeGreaterThan(0);
  for(const l of lines)await ok('COUNTY_OFFICER',`/api/stocktakes/${run.id}/count`,{assetTag:l.asset_tag,result:'PRESENT',location:'HQ stores',condition:'GOOD',note:'Physical tag and equipment checked'});
+ const finding=await ok('COUNTY_OFFICER','/api/stocktake-findings',{stocktakeId:run.id,observedTag:'UNRECORDED-01',description:'Unlisted generator',category:'Generator',serialNumber:'GEN-FOUND-01',location:'HQ service yard',condition:'FAIR',note:'Observed during field count; custody confirmed by facility officer'});
  await ok('COUNTY_OFFICER',`/api/stocktakes/${run.id}/submit`,{});
+ expect((await call('MANAGING_DIRECTOR',`/api/stocktakes/${run.id}/decide`,{status:'APPROVED',reason:'Review'})).status).toBe(409);
+ expect((await call('COUNTY_OFFICER',`/api/stocktake-findings/${finding.id}/decide`,{status:'REGISTERED',estimatedValue:'250',currency:'USD',valuationReference:'Independent valuation worksheet V-01',reason:'Reviewed serial and ownership evidence'})).status).toBe(403);
+ const registered=await ok('ASSET_OFFICER',`/api/stocktake-findings/${finding.id}/decide`,{status:'REGISTERED',estimatedValue:'250',currency:'USD',valuationReference:'Independent valuation worksheet V-01',reason:'Reviewed serial and ownership evidence'});expect(registered.assetTag).toMatch(/^FDA-FND-/);
  await ok('MANAGING_DIRECTOR',`/api/stocktakes/${run.id}/decide`,{status:'APPROVED',reason:'All counts and discrepancies reviewed'});
  expect((await call('COUNTY_OFFICER',`/api/stocktakes/${run.id}/count`,{assetTag:lines[0].asset_tag,result:'MISSING',note:'Too late'})).status).toBe(409);
  const report=await ok('ASSET_OFFICER',`/api/stocktakes/${run.id}/lines`);expect(report[0].expected_location).not.toBe(report[0].actual_location);
 },30000);
+it('moves a linked fixed asset across offices through independent approval, dispatch and receiver acknowledgement',async()=>{
+ const assetOfficer='ASSET_OFFICER',county='COUNTY_OFFICER',md='MANAGING_DIRECTOR',destinationOfficer='FIELD_ASSET_OFFICER';
+ const entry=await ok(assetOfficer,'/api/assets/register',{orgUnitId:office,assetTag:'MOVE-ASSET-01',description:'County field tablet',category:'IT equipment',cost:'450',currency:'USD',sourceReference:'Opening register evidence ASSET-OPEN-01',location:'HQ secure store',acquisitionType:'OPENING_BALANCE',make:'FieldTech',model:'Rugged 10',serialNumber:'MOVE-SN-01',purchaseDate:'2026-01-15',fundingSource:'FDA appropriation',projectCode:'FIELD-OPS',warrantyExpiresOn:'2027-01-15',usefulLifeMonths:'36'});
+ const directory=await ok(md,'/api/assets/register');const stored=directory.rows.find((r:any)=>r.id===entry.id);expect(stored.serial_number).toBe('MOVE-SN-01');expect(stored.project_code).toBe('FIELD-OPS');expect(Number(stored.net_book_value_minor)).toBe(45000);
+ const transfer=await ok(county,`/api/assets/register/${entry.id}/transfer`,{toOrgUnitId:otherOffice,reason:'Deploy field tablet to county office'});expect(transfer.status).toBe('PENDING_APPROVAL');
+ expect((await call(county,`/api/assets/transfers/${transfer.id}/approve`,{reason:'Cannot self approve'})).status).toBe(403);
+ await ok(assetOfficer,`/api/assets/transfers/${transfer.id}/approve`,{reason:'County request and available custody verified'});
+ expect((await call(assetOfficer,`/api/assets/transfers/${transfer.id}/dispatch`,{carrier:'FDA transport',vehicleReference:'VEH-09',trackingReference:'TRK-MOVE-01',waybillReference:'WB-MOVE-01',plannedDispatchDate:'2026-10-19',expectedDeliveryDate:'2026-10-21',condition:'GOOD',note:'Device powered down and sealed'})).status).toBe(403);
+ await ok(md,`/api/assets/transfers/${transfer.id}/dispatch`,{carrier:'FDA transport',vehicleReference:'VEH-09',trackingReference:'TRK-MOVE-01',waybillReference:'WB-MOVE-01',plannedDispatchDate:'2026-10-19',expectedDeliveryDate:'2026-10-21',condition:'GOOD',note:'Device powered down and sealed'});
+ const pending=await ok(destinationOfficer,'/api/assets/incoming-transfers');expect(pending.rows.some((r:any)=>r.id===transfer.id)).toBe(true);
+ const received=await ok(destinationOfficer,`/api/assets/transfers/${transfer.id}/receive`,{received:true,condition:'FAIR',location:'Zwedru county office IT room',receiptNote:'Device and label physically checked',discrepancyNote:'Minor casing damage recorded at arrival'});expect(received.status).toBe('RECEIVED_WITH_VARIANCE');
+ const moved=await ok(md,'/api/assets/register');expect(moved.rows.find((r:any)=>r.id===entry.id).office_name).toBe('Other office');
+ const timeline=await ok(destinationOfficer,`/api/assets/transfers/${transfer.id}/history`);expect(timeline.map((r:any)=>r.action)).toEqual(['REQUESTED','APPROVED','DISPATCHED','RECEIVED_WITH_VARIANCE']);
+ expect((await call('IT_DIRECTOR',`/api/assets/transfers/${transfer.id}/history`)).status).toBe(403);
+},30000);
 it('calculates exact depreciation with independent approval and prevents duplicate months',async()=>{
- const finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR',asset=(await ok(finance,'/api/assets/register')).rows[0];
+ const finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR',asset=(await ok(finance,'/api/assets/register')).rows.find((r:any)=>r.description==='Capital equipment');
  await ok(finance,`/api/assets/register/${asset.id}/depreciation-policy`,{inServiceDate:'2026-10-01',usefulMonths:12,residual:'0',basis:'Approved full-month straight-line policy'});
  const run=await ok(finance,'/api/depreciation/runs',{reference:'DEP-2026-10',orgUnitId:office,month:'2026-10-01',currency:'USD'});
  const lines=await ok(finance,`/api/depreciation/runs/${run.id}/lines`);expect(Number(lines[0].amount_minor)).toBe(10000);

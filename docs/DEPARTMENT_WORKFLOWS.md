@@ -41,13 +41,25 @@ HR transfers change the personnel establishment record. They do not silently alt
 ## Verification performed
 
 - Production frontend build passes.
-- 42 automated tests pass across 7 test files.
-- PostgreSQL-compatible PGlite tests exercise all three SQL migrations in isolated databases.
+- 74 automated tests pass across 10 test files.
+- PostgreSQL-compatible PGlite tests exercise the database migrations in isolated databases.
 - A full application-route test uses scrypt login, session cookies and CSRF, seven separate staff identities, the purchasing sequence through ledger posting, and private evidence upload/download.
 - Negative tests include anonymous/wrong-role access, office scope, CSRF, position capacity, leave overuse/overlap, self-approval, stale edits, unbalanced entries, closed periods, duplicate conversion/posting, pending transfers, and audit immutability.
 - Fixed two existing defects found by those tests: missing currency alias when registering assets from inspection, and an out-of-scope `type` variable during attachment upload.
 - Browser visual testing was attempted but the available browser binary download failed. Desktop/mobile visual acceptance is still outstanding; no visual pass is claimed.
 - These checks do not replace real PostgreSQL concurrency/load testing, FDA user acceptance or production security assessment.
+
+## Fixed-asset lifecycle and field controls
+
+Migration `019_asset_lifecycle_controls.sql` adds the following database-backed controls:
+
+- The asset directory includes make/model/serial, purchase date, funding/project/donor, warranty, useful life, office, condition, acquisition cost, purchase order, accepted goods receipt, invoice/payment references, posted accumulated depreciation and net book value.
+- A purchased asset must reference an accepted goods receipt belonging to the same purchase order. Procurement receipt inspection creates the linked asset; manual registration is limited to donated, transferred-in, opening-balance and found assets.
+- Inter-office transfers move through requested, independently approved, dispatched/in-transit, and destination receipt. Dispatch records carrier/vehicle, tracking reference, waybill, dates, condition and handover evidence. Receipt updates the office/custody state; condition variance or failed delivery remains an explicit exception. An append-only event trail records each stage.
+- Stocktakes can record unregistered items found in the field. An independent asset officer or Managing Director must review each finding; unresolved findings block stocktake certification. A finding can be registered with valuation evidence or closed with an investigation reason.
+- Field users can scan supported QR/barcodes with a device camera, print Code 39 asset labels, and capture counts offline. Offline counts are stored on that browser/device and are clearly marked pending until they sync to the server; they are not official count records while offline.
+
+These workflows are covered by isolated route tests. The offline queue and camera scanning still require device/browser acceptance testing with FDA field hardware, and label printing requires a trial with FDA-selected label stock and scanners.
 
 ## Requirements still open
 
@@ -58,8 +70,8 @@ The requested full enterprise scope is **not complete**. Remaining work is track
 | HR | Recruitment/applicant lifecycle, onboarding task plans, attendance and biometric interfaces, performance cycles, training, confidential disciplinary cases, payroll calculations and reconciliation, payslips and approved payroll-to-ledger posting; other leave types and FDA calendar/policy configuration |
 | Finance | AP/AR subledgers, external bank settlement, advances/retirement, full financial statements, payroll filing/payments, budget revisions and delegated approval thresholds; accountant-approved chart and reporting structure |
 | Procurement | FDA/PPCC-approved sourcing rules, externally verified e-GP workflow, formal award publication, contract amendments and supplier performance |
-| Assets | Barcode/QR labels, loss/damage cases, disposal execution/proceeds, demand forecasting and inventory valuation policy |
+| Assets | Fleet and facilities registers; insurance coverage; formal loss/damage incidents; approved disposal sale/auction/donation/recycling execution, proceeds and gain/loss accounting; FDA-approved capitalization and depreciation policies including revaluation/impairment; replacement planning and inventory valuation policy |
 | Operations | Full role-specific work queues, reporting across all modules, controlled offline synchronization, concurrency and load assurance |
 | Production assurance | External independent audit storage, offsite backup/restore drill, alert delivery, recovery rehearsal, MFA/identity-provider and account recovery, security/accessibility assessment, verified FDA integrations |
 
-No external-system integration, legal compliance certification, uptime/recovery guarantee, or full production-readiness claim is made by this release.
+No external-system integration, legal compliance certification, uptime/recovery guarantee, or full production-readiness claim is made by this release. Live migration status, role access across actual FDA offices, protected asset evidence downloads, live stocktake, backup restore, and monitoring/alert delivery still require supervised operational verification.

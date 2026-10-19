@@ -148,7 +148,34 @@ export function registerEnterprise(app,deps){
   const s=await parent(db,req,'stocktakes');if(!['OPEN','RETURNED'].includes(s.status))throw fail('Stocktake is not open.',409);const missing=await db.query('SELECT 1 FROM stocktake_lines WHERE stocktake_id=$1 AND result IS NULL',[s.id]);if(missing.rowCount)throw fail('Count every asset before submission.');await db.query("UPDATE stocktakes SET status='SUBMITTED' WHERE id=$1",[s.id]);await audit(db,req,'stocktake.submitted','stocktake',s.id);return {id:s.id};
  });
  post('/api/stocktakes/:id/decide',['MANAGING_DIRECTOR'],async(db,req)=>{
-  const s=await parent(db,req,'stocktakes');different(req,s.created_by);if(s.status!=='SUBMITTED')throw fail('Stocktake is not submitted.',409);const counted=await db.query('SELECT 1 FROM stocktake_lines WHERE stocktake_id=$1 AND counted_by=$2',[s.id,req.auth.userId]);if(counted.rowCount)throw fail('A counter cannot approve the stocktake.',403);if(!['APPROVED','RETURNED'].includes(req.body.status))throw fail('Select approve or return.');await db.query('UPDATE stocktakes SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[s.id,req.body.status,req.auth.userId,required(req.body.reason,'Discrepancy review note')]);await audit(db,req,`stocktake.${req.body.status.toLowerCase()}`,'stocktake',s.id);return {id:s.id};
+  const s=await parent(db,req,'stocktakes');different(req,s.created_by);if(s.status!=='SUBMITTED')throw fail('Stocktake is not submitted.',409);const counted=await db.query('SELECT 1 FROM stocktake_lines WHERE stocktake_id=$1 AND counted_by=$2',[s.id,req.auth.userId]);if(counted.rowCount)throw fail('A counter cannot approve the stocktake.',403);if(!['APPROVED','RETURNED'].includes(req.body.status))throw fail('Select approve or return.');if(req.body.status==='APPROVED'){const unresolved=await db.query("SELECT 1 FROM asset_found_items WHERE stocktake_id=$1 AND status='OPEN' LIMIT 1",[s.id]);if(unresolved.rowCount)throw fail('Resolve all unregistered-asset findings before certifying this stocktake.',409);}await db.query('UPDATE stocktakes SET status=$2,approved_by=$3,decision_note=$4 WHERE id=$1',[s.id,req.body.status,req.auth.userId,required(req.body.reason,'Discrepancy review note')]);await audit(db,req,`stocktake.${req.body.status.toLowerCase()}`,'stocktake',s.id);return {id:s.id};
+ });
+ list('asset_found_item_directory',['observed_tag','description','category','status','stocktake_reference','office_name'],R.assets,'/api/stocktake-findings');
+ post('/api/stocktake-findings',R.assetWrite,async(db,req)=>{
+  const stocktake=await row(db,'stocktakes',idValue(req.body.stocktakeId));await scope(req,stocktake.org_unit_id,db);
+  if(!['OPEN','RETURNED'].includes(stocktake.status))throw fail('Asset findings can only be added to an open or returned stocktake.',409);
+  const observedTag=String(req.body.observedTag||'').trim().slice(0,100)||null;
+  if(observedTag){const known=await db.query('SELECT 1 FROM assets WHERE lower(asset_tag)=lower($1)',[observedTag]);if(known.rowCount)throw fail('That tag already exists in the register. Record it on the stocktake count sheet instead.',409);}
+  const condition=req.body.condition;if(!['GOOD','FAIR','POOR','UNSERVICEABLE'].includes(condition))throw fail('Select the observed condition.');
+  const id=randomUUID();await db.query('INSERT INTO asset_found_items(id,stocktake_id,observed_tag,description,category,serial_number,observed_location,observed_condition,note,reported_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,stocktake.id,observedTag,required(req.body.description,'Asset description'),required(req.body.category,'Asset category',100),String(req.body.serialNumber||'').trim()||null,required(req.body.location,'Observed location',240),condition,required(req.body.note,'Observation and evidence note'),req.auth.userId]);
+  await audit(db,req,'asset.stocktake_unregistered_found','asset_found_item',id,{stocktakeId:stocktake.id,observedTag});return {id,status:'OPEN'};
+ });
+ post('/api/stocktake-findings/:id/decide',['MANAGING_DIRECTOR','ASSET_OFFICER'],async(db,req)=>{
+  const found=await row(db,'asset_found_items',req.params.id);const stocktake=await row(db,'stocktakes',found.stocktake_id);await scope(req,stocktake.org_unit_id,db);different(req,found.reported_by);
+  if(found.status!=='OPEN')throw fail('This finding has already been reviewed.',409);
+  const decision=req.body.status,note=required(req.body.reason,'Independent review and decision rationale');
+  if(decision==='NOT_AN_ASSET'){
+   await db.query("UPDATE asset_found_items SET status='NOT_AN_ASSET',reviewed_by=$2,decision_note=$3,reviewed_at=now() WHERE id=$1",[found.id,req.auth.userId,note]);
+   await audit(db,req,'asset.stocktake_finding_closed','asset_found_item',found.id,{decision,note});return {id:found.id,status:decision};
+  }
+  if(decision!=='REGISTERED')throw fail('Choose register as an asset or close as not an asset.');
+  const tag=String(req.body.assetTag||'').trim()||`FDA-FND-${new Date().getUTCFullYear()}-${randomUUID().slice(0,8).toUpperCase()}`;
+  const category=required(req.body.category||found.category,'Asset category',100),description=required(req.body.description||found.description,'Asset description');
+  const cost=positive(req.body.estimatedValue).toString(),curr=currency(req.body.currency||'USD'),source=required(req.body.valuationReference,'Independent valuation / acquisition evidence reference',240);
+  const duplicate=await db.query('SELECT 1 FROM assets WHERE lower(asset_tag)=lower($1) OR ($2::text IS NOT NULL AND lower(serial_number)=lower($2))',[tag,found.serial_number]);if(duplicate.rowCount)throw fail('Asset tag or serial number is already registered.',409);
+  const assetId=randomUUID();await db.query("INSERT INTO assets(id,asset_tag,description,category,purchase_cost_minor,currency,org_unit_id,source_reference,location,condition,serial_number,acquisition_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'FOUND')",[assetId,tag,description,category,cost,curr,stocktake.org_unit_id,source,found.observed_location,found.observed_condition,found.serial_number]);
+  await db.query("UPDATE asset_found_items SET status='REGISTERED',reviewed_by=$2,decision_note=$3,asset_id=$4,reviewed_at=now() WHERE id=$1",[found.id,req.auth.userId,note,assetId]);
+  await audit(db,req,'asset.stocktake_found_registered','asset',assetId,{findingId:found.id,stocktakeId:stocktake.id,valuationReference:source});return {id:found.id,status:'REGISTERED',assetId,assetTag:tag};
  });
  post('/api/assets/register/:id/depreciation-policy',finance,async(db,req)=>{
   const a=await parent(db,req,'assets');if(a.lifecycle_status!=='ACTIVE')throw fail('Asset is not active.',409);
