@@ -2,7 +2,7 @@ import { createHash,randomBytes,randomUUID,createPublicKey,createPrivateKey,priv
 import { mkdir,writeFile,rm } from 'node:fs/promises';
 import path from 'node:path';
 import rateLimit from 'express-rate-limit';
-import { departmentAuth,DEPARTMENT_ROLES as R,fail,required,idValue,scopedUnits } from './departments.js';
+import { departmentAuth, DEPARTMENT_ROLES as R, fail, required, idValue } from './departments.js';
 import { safeUploadsDirectory } from './db.js';
 const staff=['MANAGING_DIRECTOR','PROCUREMENT_OFFICER','FINANCE_DIRECTOR','INTERNAL_AUDITOR'];
 const openers=['MANAGING_DIRECTOR','PROCUREMENT_OFFICER','FINANCE_DIRECTOR'];
