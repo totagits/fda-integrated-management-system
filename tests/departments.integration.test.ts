@@ -46,6 +46,9 @@ describe('HR records and employee self-service',()=>{
   expect((await request('/api/hr/positions',b,'HR_DIRECTOR',maker,office,false)).status).toBe(403);
   expect((await request('/api/hr/positions',{...b,orgUnitId:otherOffice})).status).toBe(403);
   const p=await request('/api/hr/positions',b);expect(p.status,p.data.error).toBe(200);positionId=p.data.id;
+  const positionHistory=await request(`/api/departments/hr_position/${positionId}/history`);expect(positionHistory.status).toBe(200);expect(positionHistory.data.some((event:any)=>event.action==='hr.position.created')).toBe(true);
+  const competency=await request('/api/hr/competencies',{code:'TRACE-1',name:'Traceability',group:'Governance',description:'Can produce attributable work evidence.'});expect(competency.status).toBe(200);
+  const competencyHistory=await request(`/api/departments/competency/${competency.data.id}/history`);expect(competencyHistory.status).toBe(200);expect(competencyHistory.data.some((event:any)=>event.action==='hr.competency.created')).toBe(true);
  });
  it('enforces establishment capacity and persists named employee records',async()=>{
   const b={staffNumber:'TEST-EMP',fullName:'Test employee',positionId,startDate:'2026-01-01',userId:employeeUser};
