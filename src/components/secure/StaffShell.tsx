@@ -6,6 +6,7 @@ export const staffSections = (roles: string[]) => {
   return [
     {id:'overview',label:'My Role Dashboard',icon:LayoutDashboard,show:true},
     {id:'hr',label:'HRMIS & Personnel',icon:Users,show:has('MANAGING_DIRECTOR','HR_DIRECTOR')},
+    {id:'ethics',label:'Independent Grievance Review',icon:LifeBuoy,show:has('ETHICS_OFFICER')},
     {id:'accounting',label:'Accounts & Periods',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},
     {id:'plans',label:'Procurement Planning',icon:ShoppingCart,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','PROCUREMENT_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR')},
     {id:'payroll',label:'Payroll',icon:Users,show:has('MANAGING_DIRECTOR','HR_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},

@@ -1,12 +1,13 @@
 export type UserRole =
-  | 'MANAGING_DIRECTOR'     // Hon. Rudolph J. Merab, Sr. - Executive authorization
+  | 'MANAGING_DIRECTOR'     // Executive authorization
   | 'IT_DIRECTOR'           // Enterprise system administration and staff access
   | 'FINANCE_DIRECTOR'      // Budget Vote Book control, Payment Voucher approvals, IFMIS Gateway
   | 'HR_DIRECTOR'           // Civil service personnel, Leave workflows, Dual-Currency Payroll, CSA Sync
   | 'PROCUREMENT_OFFICER'   // PPCC compliance, RFQs, Vendor Registry, 3-Way Matching
   | 'ASSET_OFFICER'         // Fixed Asset Register, Barcode/QR tags, Depreciation, County Depot Transfers
   | 'COUNTY_OFFICER'        // Regional Forestry Operations, Field Patrols, Concession checks, Offline Sync
-  | 'INTERNAL_AUDITOR';     // Immutable Audit Trail, Segregation of Duties (SoD) oversight
+  | 'INTERNAL_AUDITOR'      // Immutable Audit Trail, Segregation of Duties (SoD) oversight
+  | 'ETHICS_OFFICER';       // Independent, assigned grievance handling only
 
 export interface UserPersona {
   role: UserRole;

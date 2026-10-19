@@ -54,7 +54,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: process.env.NODE_ENV === 'test' ? 100 : 8, standardHeaders: 'draft-8', legacyHeaders: false });
 const invitationLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
 
 async function deliverOutboxBatch() {
@@ -228,6 +228,7 @@ function unrestricted(auth) {
 }
 
 async function scopedUnits(auth, client = pool) {
+  if (auth.roles.some((item) => item.role === 'ETHICS_OFFICER' && !item.orgUnitId)) return null;
   if (unrestricted(auth)) return null;
   const roots = auth.roles.map((item) => item.orgUnitId).filter(Boolean);
   if (!roots.length) return [];
@@ -242,7 +243,7 @@ async function scopedUnits(auth, client = pool) {
 
 async function assertOrgAccess(auth, orgUnitId, client = pool) {
   if (!orgUnitId) throw Object.assign(new Error('This record has no office scope.'), { status: 403, code: 'OFFICE_SCOPE_REQUIRED' });
-  if (unrestricted(auth)) return;
+  if (unrestricted(auth) || (auth.roles.some((item) => item.role === 'ETHICS_OFFICER' && !item.orgUnitId))) return;
   const units = await scopedUnits(auth, client);
   if (!units.includes(orgUnitId)) throw Object.assign(new Error('This record is outside your assigned office scope.'), { status: 403, code: 'OFFICE_SCOPE_FORBIDDEN' });
 }
@@ -400,14 +401,14 @@ app.post('/api/admin/users', loadAuth, csrfRequired, guardAny('user.manage','it.
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid work email.'), { status: 422, code: 'INVALID_INPUT' });
   if ((await pool.query('SELECT 1 FROM users WHERE email=$1',[email])).rowCount) throw Object.assign(new Error('An account already uses this email address.'), { status: 409, code: 'ACCOUNT_EXISTS' });
   const fullName = text(body.fullName, 'Full name', 160);
-  const role = validEnum(body.role, ['IT_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR'], 'Role');
+  const role = validEnum(body.role, ['IT_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','INTERNAL_AUDITOR','ETHICS_OFFICER'], 'Role');
   const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
   const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
-  if (isMD && !isITDirector && !['IT_DIRECTOR','HR_DIRECTOR'].includes(role)) throw Object.assign(new Error('The Managing Director may appoint the HR Director and IT Director. The IT Director provisions other system accounts; HR invites employees during onboarding.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+    if (isMD && !isITDirector && !['IT_DIRECTOR','HR_DIRECTOR','ETHICS_OFFICER'].includes(role)) throw Object.assign(new Error('The Managing Director may appoint the HR Director, IT Director, or the designated ethics officer. The IT Director provisions other system accounts; HR invites employees during onboarding.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
   if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may provision accounts.'), { status: 403, code: 'FORBIDDEN' });
   if (isITDirector && role === 'IT_DIRECTOR') throw Object.assign(new Error('Only the Managing Director may appoint an IT Director.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
   const orgUnitId = body.orgUnitId ? requireUuid(body.orgUnitId, 'Office') : null;
-  if (!['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(role) && !orgUnitId) throw Object.assign(new Error('Assign this user to an office scope.'), { status: 422, code: 'OFFICE_SCOPE_REQUIRED' });
+  if (!['MANAGING_DIRECTOR','IT_DIRECTOR','ETHICS_OFFICER'].includes(role) && !orgUnitId) throw Object.assign(new Error('Assign this user to an office scope.'), { status: 422, code: 'OFFICE_SCOPE_REQUIRED' });
   if (orgUnitId) {
     const office = await pool.query('SELECT id FROM org_units WHERE id=$1 AND active=true', [orgUnitId]);
     if (!office.rowCount) throw Object.assign(new Error('The selected office is not active.'), { status: 422, code: 'INVALID_OFFICE' });
@@ -434,7 +435,7 @@ app.post('/api/admin/users/:id/invitation/resend', loadAuth, csrfRequired, guard
     if (!user || user.disabled_at || !user.must_change_password) throw Object.assign(new Error('This account has already been activated or is unavailable.'), { status: 409, code: 'INVITATION_NOT_AVAILABLE' });
     const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
     const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
-    if (isMD && !isITDirector && !['IT_DIRECTOR','HR_DIRECTOR'].includes(user.role)) throw Object.assign(new Error('The Managing Director may resend only HR Director or IT Director appointment invitations.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
+    if (isMD && !isITDirector && !['IT_DIRECTOR','HR_DIRECTOR','ETHICS_OFFICER'].includes(user.role)) throw Object.assign(new Error('The Managing Director may resend only leadership or designated ethics officer invitations.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     if (!isITDirector && !isMD) throw Object.assign(new Error('Only the IT Director or Managing Director may manage account invitations.'), { status: 403, code: 'FORBIDDEN' });
     if (isITDirector && ['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(user.role)) throw Object.assign(new Error('Only the Managing Director may manage executive account invitations.'), { status: 403, code: 'ROLE_PROVISIONING_RESTRICTED' });
     const issued=await issueIdentityInvitation(client, { user, requestedBy: req.auth.userId, orgUnitId: user.org_unit_id, invitationType: 'MD_ROLE_ACCOUNT' });
@@ -459,7 +460,7 @@ app.get('/api/admin/user-invitations', loadAuth, guardAny('user.manage','it.admi
     ORDER BY i.created_at DESC LIMIT 200`);
   const isITDirector = req.auth.roles.some((assignment) => assignment.role === 'IT_DIRECTOR');
   const isMD = req.auth.roles.some((assignment) => assignment.role === 'MANAGING_DIRECTOR');
-  res.json(isITDirector ? rows.rows.filter((row) => !['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : isMD ? rows.rows.filter((row) => ['HR_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : []);
+  res.json(isITDirector ? rows.rows.filter((row) => !['MANAGING_DIRECTOR','IT_DIRECTOR'].includes(row.role)) : isMD ? rows.rows.filter((row) => ['HR_DIRECTOR','IT_DIRECTOR','ETHICS_OFFICER'].includes(row.role)) : []);
 }));
 
 app.post('/api/admin/budgets', loadAuth, csrfRequired, guard('budget.manage'), route(async (req, res) => {
@@ -812,13 +813,17 @@ app.get('/api/audit-events',loadAuth,guard('audit.read.all'),route(async(req,res
 const allowedFiles={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.txt':'text/plain'};
 async function assertRecordAttachmentAccess(auth,type,id,capability) {
   if(type==='GRIEVANCE'){
-    const found=await pool.query('SELECT id,org_unit_id,reporter_user_id,restricted_to_md FROM hr_grievances WHERE id=$1',[requireUuid(id,'Record')]);
+    const found=await pool.query('SELECT id,org_unit_id,reporter_user_id,restricted_to_md,escalation_route,case_assignee_id FROM hr_grievances WHERE id=$1',[requireUuid(id,'Record')]);
     if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});
     const g=found.rows[0],reporter=g.reporter_user_id===auth.userId,isMd=auth.roles?.some(item=>item.role==='MANAGING_DIRECTOR')||auth.role==='MANAGING_DIRECTOR';
     const isHr=auth.roles?.some(item=>item.role==='HR_DIRECTOR')||auth.role==='HR_DIRECTOR';
-    if(!reporter&&!(isMd||(!g.restricted_to_md&&isHr)))throw Object.assign(new Error('You do not have permission to access this confidential grievance.'),{status:403,code:'FORBIDDEN'});
-    if(!reporter)await assertOrgAccess(departmentAuth(auth,['HR_DIRECTOR','MANAGING_DIRECTOR']),g.org_unit_id);
-    if(capability.includes('write')&&!(reporter||isMd||(!g.restricted_to_md&&isHr)))throw Object.assign(new Error('You do not have permission to add grievance evidence.'),{status:403,code:'FORBIDDEN'});
+    const hasEthicsRole=auth.roles?.some(item=>item.role==='ETHICS_OFFICER');
+    const assignedEthics=hasEthicsRole&&((g.escalation_route==='INDEPENDENT'&&g.case_assignee_id===auth.userId)||(await pool.query("SELECT 1 FROM hr_grievance_appeals WHERE grievance_id=$1 AND assigned_to=$2",[g.id,auth.userId])).rowCount>0);
+    const isAssignedEthics=assignedEthics&&(await pool.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CLEAR'",[g.id,auth.userId])).rowCount>0;
+    const standardHandler=g.escalation_route==='STANDARD'&&!g.restricted_to_md&&(isMd||isHr);
+    if(!reporter&&!(isAssignedEthics||standardHandler))throw Object.assign(new Error('You do not have permission to access this confidential grievance.'),{status:403,code:'FORBIDDEN'});
+    if(standardHandler&&!reporter)await assertOrgAccess(departmentAuth(auth,['HR_DIRECTOR','MANAGING_DIRECTOR']),g.org_unit_id);
+    if(capability.includes('write')&&!(reporter||standardHandler||isAssignedEthics))throw Object.assign(new Error('You do not have permission to add grievance evidence.'),{status:403,code:'FORBIDDEN'});
     return g;
   }
   const extra={PAYROLL:['payroll_runs',capability.includes('write')?[...DEPARTMENT_ROLES.hr,...DEPARTMENT_ROLES.financeWrite]:[...DEPARTMENT_ROLES.hr,...DEPARTMENT_ROLES.finance]],STOCKTAKE:['stocktakes',capability.includes('write')?DEPARTMENT_ROLES.assetWrite:DEPARTMENT_ROLES.assets],DEPRECIATION:['depreciation_runs',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],BANK_STATEMENT:['bank_statements',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],EVALUATION:['bid_evaluations',capability.includes('write')?['MANAGING_DIRECTOR','PROCUREMENT_OFFICER']:DEPARTMENT_ROLES.procurement],PROCUREMENT_CONTRACT:['procurement_contracts',capability.includes('write')?['MANAGING_DIRECTOR','PROCUREMENT_OFFICER']:DEPARTMENT_ROLES.procurement],EMPLOYEE:['hr_employees',DEPARTMENT_ROLES.hr],LEAVE:['hr_leave_requests',DEPARTMENT_ROLES.hr],DISCIPLINARY:['hr_disciplinary_cases',['HR_DIRECTOR','MANAGING_DIRECTOR']],JOURNAL:['gl_journals',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],PROCUREMENT_PLAN:['procurement_plans',capability.includes('write')?DEPARTMENT_ROLES.planWrite:DEPARTMENT_ROLES.procurement]}[type];

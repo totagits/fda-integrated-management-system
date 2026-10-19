@@ -7,27 +7,29 @@ import type { Server } from 'node:http';
 import { registerDepartments } from '../server/departments.js';
 import { writeAudit } from '../server/db.js';
 const db=new PGlite();
-const office=randomUUID(),otherOffice=randomUUID(),maker=randomUUID(),checker=randomUUID(),employeeUser=randomUUID();
+const office=randomUUID(),otherOffice=randomUUID(),maker=randomUUID(),checker=randomUUID(),employeeUser=randomUUID(),ethicsUser=randomUUID(),appealUser=randomUUID();
 const query=async(sql:string,params?:unknown[])=>{const r=await db.query(sql,params);return {...r,rowCount:r.rows.length||r.affectedRows};};
 let server:Server,origin:string,positionId:string,employeeId:string,leaveId:string,periodId:string,debitId:string,creditId:string,journalId:string,planId:string,assetId:string,transferId:string;
 const budgetId=randomUUID();
 const route=(handler:Function)=>(req:any,res:any,next:any)=>Promise.resolve(handler(req,res)).catch(next);
-async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,unit=office,csrf=true){
- const r=await fetch(origin+path,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json','x-role':role,'x-actor':actor,'x-unit':unit,...(csrf?{'x-csrf':'yes'}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,unit:string|null=office,csrf=true){
+ const r=await fetch(origin+path,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json','x-role':role,'x-actor':actor,...(unit?{'x-unit':unit}:{}),...(csrf?{'x-csrf':'yes'}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
- for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
+ for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee'],[ethicsUser,'ethics'],[appealUser,'appeal']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
+ await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'HR_DIRECTOR',$3),($4,$5,'HR_DIRECTOR',$3)",[randomUUID(),maker,office,randomUUID(),checker]);
+ await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'ETHICS_OFFICER',NULL),($3,$4,'ETHICS_OFFICER',NULL)",[randomUUID(),ethicsUser,randomUUID(),appealUser]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
  await query("INSERT INTO budget_accounts(id,fiscal_year,vote_code,title,org_unit_id,currency,allocated_minor) VALUES($1,2026,'TEST','Test budget',$2,'USD',10000000)",[budgetId,office]);
  const app=express();app.use(express.json());
  registerDepartments(app,{pool:{query},transaction:(fn:Function)=>db.transaction(async tx=>fn({query:async(sql:string,p?:unknown[])=>{const r=await tx.query(sql,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})),writeAudit,route,
  loadAuth:(req:any,res:any,next:any)=>{if(!req.get('x-role'))return res.status(401).json({error:'Sign in'});const role=req.get('x-role'),unit=req.get('x-unit');req.auth={userId:req.get('x-actor'),role,orgUnitId:unit,fullName:'Test staff',roles:[{role,orgUnitId:unit}]};next();},
  csrfRequired:(req:any,res:any,next:any)=>req.get('x-csrf')==='yes'?next():res.status(403).json({error:'CSRF'}),
- scopedUnits:async(auth:any)=>auth.roles.some((r:any)=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(r.role))?null:auth.roles.map((r:any)=>r.orgUnitId),
- assertOrgAccess:async(auth:any,unit:string)=>{if(!auth.roles.some((r:any)=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(r.role)||r.orgUnitId===unit))throw Object.assign(new Error('Outside assigned office'),{status:403});},
+ scopedUnits:async(auth:any)=>auth.roles.some((r:any)=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(r.role)||r.role==='ETHICS_OFFICER'&&!r.orgUnitId)?null:auth.roles.map((r:any)=>r.orgUnitId),
+ assertOrgAccess:async(auth:any,unit:string)=>{if(!auth.roles.some((r:any)=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(r.role)||r.role==='ETHICS_OFFICER'&&!r.orgUnitId||r.orgUnitId===unit))throw Object.assign(new Error('Outside assigned office'),{status:403});},
  });
  app.use((e:any,_req:any,res:any,_next:any)=>res.status(e.status||500).json({error:e.message}));
  await new Promise<void>(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});origin=`http://127.0.0.1:${(server.address() as any).port}`;
@@ -154,22 +156,44 @@ describe('HR records and employee self-service',()=>{
   expect((await request(`/api/departments/disciplinary_case/${c.data.id}/history`,undefined,'COUNTY_OFFICER',employeeUser)).status).toBe(403);
  });
  it('keeps employee grievances private and requires independent case actions',async()=>{
-  const restricted=await request('/api/hr/grievances',{category:'WORKPLACE_CONFLICT',subject:'Concern about a workplace matter',details:'Confidential report details',restrictedToMd:true},'COUNTY_OFFICER',employeeUser);
-  expect(restricted.status,restricted.data.error).toBe(201);
-  expect((await request('/api/hr/grievances',undefined,'HR_DIRECTOR')).data.total).toBe(0);
-  expect((await request('/api/hr/grievances',undefined,'MANAGING_DIRECTOR',checker)).data.total).toBe(1);
-  expect((await request(`/api/departments/grievance/${restricted.data.id}/history`,undefined,'HR_DIRECTOR')).status).toBe(403);
-  expect((await request(`/api/departments/grievance/${restricted.data.id}/history`,undefined,'MANAGING_DIRECTOR',checker)).status).toBe(200);
-  const regular=await request('/api/hr/grievances',{category:'OTHER',subject:'Team process concern',details:'Evidence and dates are recorded in the case file.',restrictedToMd:false},'COUNTY_OFFICER',employeeUser);
-  expect(regular.status,regular.data.error).toBe(201);
-  expect((await request('/api/hr/grievances',undefined,'HR_DIRECTOR')).data.total).toBe(1);
+  const sla=await request('/api/hr/grievances/sla',{acknowledgementDays:3,resolutionDays:30});expect(sla.status,sla.data.error).toBe(200);
+  expect((await request(`/api/hr/grievances/sla/${sla.data.id}/approve`,{reason:'Approved internal service targets'},'HR_DIRECTOR',maker)).status).toBe(403);
+  expect((await request(`/api/hr/grievances/sla/${sla.data.id}/approve`,{reason:'Approved internal service targets'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const regular=await request('/api/hr/grievances',{category:'OTHER',subject:'Team process concern',details:'Evidence and dates are recorded in the case file.',implicatedRole:'OTHER'},'COUNTY_OFFICER',employeeUser);
+  expect(regular.status,regular.data.error).toBe(201);expect(regular.data.escalationRoute).toBe('STANDARD');
   const id=regular.data.id;
-  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'ACKNOWLEDGED',reason:'Receipt confirmed'},'HR_DIRECTOR',employeeUser)).status).toBe(403);
-  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'ACKNOWLEDGED',reason:'Receipt confirmed'},'HR_DIRECTOR',checker)).status).toBe(200);
-  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'UNDER_REVIEW',reason:'Assigned independent reviewer'},'HR_DIRECTOR',checker)).status).toBe(403);
-  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'UNDER_REVIEW',reason:'Assigned independent reviewer'})).status).toBe(200);
-  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'RESOLVED',reason:'Resolution record GRV-RES-1'},'HR_DIRECTOR',checker)).status).toBe(200);
-  expect((await request(`/api/hr/grievances/${id}/appeal`,{reason:'I request a review of the resolution'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  const standardQueue=await request('/api/hr/grievances',undefined,'HR_DIRECTOR');expect(standardQueue.status,standardQueue.data.error).toBe(200);expect(standardQueue.data.rows).toHaveLength(1);
+  expect((await request(`/api/hr/grievances/${id}/assign`,{handlerId:maker},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'ACKNOWLEDGED',reason:'Receipt confirmed'})).status).toBe(409);
+  expect((await request(`/api/hr/grievances/${id}/conflict-check`,{result:'CLEAR',reason:'No personal, supervisory, financial or reporting-line conflict identified.'})).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/events`,{eventType:'EVIDENCE_REVIEWED',note:'Reviewed signed meeting record MEET-3',visibleToReporter:true})).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'ACKNOWLEDGED',reason:'Receipt confirmed'})).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'UNDER_REVIEW',reason:'Investigation opened under approved workflow'})).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'RESOLVED',reason:'Resolution recommendation and reference GRV-RES-1'})).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/appeal`,{reason:'I request a review of the resolution'},'COUNTY_OFFICER',employeeUser)).status).toBe(201);
+  const independent=await request('/api/hr/grievances',{category:'HARASSMENT',subject:'Concern involving an executive role',details:'Confidential allegation record',implicatedRole:'MANAGING_DIRECTOR'},'COUNTY_OFFICER',employeeUser);
+  expect(independent.status,independent.data.error).toBe(201);expect(independent.data.escalationRoute).toBe('INDEPENDENT');
+  expect((await request('/api/hr/grievances',undefined,'HR_DIRECTOR')).data.rows).toHaveLength(1);
+  expect((await request('/api/hr/grievances',undefined,'MANAGING_DIRECTOR',checker)).data.rows).toHaveLength(1);
+  const unassignedQueue=await request('/api/hr/grievances',undefined,'ETHICS_OFFICER',ethicsUser,null);expect(unassignedQueue.data.rows).toHaveLength(1);
+  expect(unassignedQueue.data.rows[0]).toMatchObject({subject:'Unassigned independent case',details:null,employee_name:null,staff_number:null});
+  const independentId=independent.data.id;
+  expect((await request(`/api/hr/grievances/${independentId}/claim`,{},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request('/api/hr/grievances',undefined,'ETHICS_OFFICER',ethicsUser,null)).data.rows[0].details).toBe('Confidential allegation record');
+  expect((await request(`/api/hr/grievances/${independentId}/conflict-check`,{result:'CLEAR',reason:'No relationship with the complainant, subject, witness or decision chain.'},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${independentId}/events`,{eventType:'INVESTIGATION_NOTE',note:'Recorded timeline and identified witnesses.',visibleToReporter:false},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${independentId}/advance`,{status:'ACKNOWLEDGED',reason:'Received and assigned to the independent case process.'},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${independentId}/advance`,{status:'UNDER_REVIEW',reason:'Independent investigation started.'},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${independentId}/advance`,{status:'RESOLVED',reason:'Decision submitted with documented grounds.'},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${independentId}/appeal`,{reason:'I request an independent review'},'COUNTY_OFFICER',employeeUser)).status).toBe(201);
+  const appeals=await request('/api/hr/grievance-appeals',undefined,'ETHICS_OFFICER',appealUser,null);expect(appeals.data.rows).toHaveLength(2);
+  const independentAppeal=appeals.data.rows.find((a:any)=>a.grievance_id===independentId);expect(independentAppeal).toBeTruthy();
+  expect((await request(`/api/hr/grievance-appeals/${independentAppeal.id}/assign`,{handlerId:employeeUser},'ETHICS_OFFICER',appealUser,null)).status).toBe(422);
+  expect((await request(`/api/hr/grievance-appeals/${independentAppeal.id}/assign`,{handlerId:ethicsUser},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(403);
+  const thirdEthics=randomUUID();await query("INSERT INTO users(id,email,full_name,password_hash) VALUES($1,'review@example.test','Review Officer','unused')",[thirdEthics]);await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'ETHICS_OFFICER',NULL)",[randomUUID(),thirdEthics]);
+  expect((await request(`/api/hr/grievance-appeals/${independentAppeal.id}/assign`,{handlerId:thirdEthics},'ETHICS_OFFICER',ethicsUser,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievance-appeals/${independentAppeal.id}/conflict-check`,{result:'CLEAR',reason:'No conflict with this appeal.'},'ETHICS_OFFICER',thirdEthics,null)).status).toBe(200);
+  expect((await request(`/api/hr/grievance-appeals/${independentAppeal.id}/decide`,{status:'UPHELD',reason:'Independent review confirms the decision and procedure.'},'ETHICS_OFFICER',thirdEthics,null)).status).toBe(200);
   expect((await request('/api/hr/grievances',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
  });
  it('records succession plans and evidenced training needs with independently assessed impact',async()=>{
@@ -181,12 +205,36 @@ describe('HR records and employee self-service',()=>{
   expect((await request(`/api/hr/succession/plans/${plan.data.id}/decide`,{status:'ACTIVE',reason:'Approved continuity plan'},'HR_DIRECTOR',checker)).status).toBe(200);
   const candidate=await request('/api/hr/succession/candidates',{planId:plan.data.id,employeeId,readiness:'WITHIN_1_2_YEARS',competencyGap:'Needs supervised leadership experience',developmentActions:'Assign documented acting responsibility and review in six months'});
   expect(candidate.status,candidate.data.error).toBe(200);
+  expect((await request(`/api/hr/succession/candidates/${candidate.data.id}/readiness-review`,{readiness:'WITHIN_1_2_YEARS',nextReviewDate:'2027-06-30',reason:'Reviewed against documented acting assignment and performance evidence'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const milestone=await request('/api/hr/succession/milestones',{candidateId:candidate.data.id,title:'Lead a quarterly planning cycle',measurableOutcome:'Submit an approved plan, meeting record and delivery review',assignedTo:employeeUser,targetDate:'2027-05-31'});
+  expect(milestone.status,milestone.data.error).toBe(200);
+  expect((await request('/api/hr/development-milestones/my',undefined,'COUNTY_OFFICER',maker)).data).toHaveLength(0);
+  expect((await request('/api/hr/development-milestones/my',undefined,'COUNTY_OFFICER',employeeUser)).data).toMatchObject([{id:milestone.data.id,title:'Lead a quarterly planning cycle'}]);
+  const started=await request(`/api/hr/development-milestones/${milestone.data.id}/start`,{reason:'Started assigned planning activity'},'COUNTY_OFFICER',employeeUser);expect(started.status,started.data.error).toBe(200);
+  expect((await request(`/api/hr/development-milestones/${milestone.data.id}/submit`,{evidenceReference:'PLAN-REVIEW-1',reason:'Submitted planning record and outcomes'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request(`/api/hr/succession/milestones/${milestone.data.id}/decide`,{status:'VERIFIED',evidenceReference:'PLAN-REVIEW-1',reason:'Evidence reviewed by independent HR officer'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request('/api/hr/succession/milestones')).data.rows[0].status).toBe('VERIFIED');
   expect((await request('/api/hr/succession/plans',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
+  const competency=await request('/api/hr/competencies',{code:'DATA-VALIDATION',name:'Data validation',group:'Information management',description:'Independently validates source records against documented controls.'});
+  expect(competency.status,competency.data.error).toBe(200);
+  expect((await request(`/api/hr/positions/${positionId}/competencies`,{competencyId:competency.data.id,requiredLevel:4,rationale:'Approved role profile requires independent validation.'})).status).toBe(200);
+  const assessment=await request('/api/hr/competency-assessments',{employeeId,competencyId:competency.data.id,assessedLevel:2,evidenceReference:'SUPERVISION-REVIEW-2026-4',validUntil:'2027-12-31'});
+  expect(assessment.status,assessment.data.error).toBe(200);
+  expect((await request(`/api/hr/competency-assessments/${assessment.data.id}/training-need`,{priority:'HIGH',rationale:'Address role requirement gap'},'HR_DIRECTOR',checker)).status).toBe(409);
+  expect((await request(`/api/hr/competency-assessments/${assessment.data.id}/review`,{reason:'Evidence sampled and rating independently confirmed'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const skillReport=await request('/api/hr/skills-analysis');expect(skillReport.status,skillReport.data.error).toBe(200);expect(skillReport.data.total).toBe(1);expect(skillReport.data.rows[0]).toMatchObject({identified_gaps:1,meets_required:0});
+  const linkedNeed=await request(`/api/hr/competency-assessments/${assessment.data.id}/training-need`,{priority:'HIGH',rationale:'Address role requirement gap'});expect(linkedNeed.status,linkedNeed.data.error).toBe(200);
+  expect((await request(`/api/hr/competency-assessments/${assessment.data.id}/training-need`,{priority:'HIGH',rationale:'Duplicate need'})).status).toBe(409);
   const need=await request('/api/hr/training/needs',{employeeId,competency:'Data quality',currentLevel:'Completes routine updates with review',requiredLevel:'Independently validates monthly returns',assessmentSource:'SUPERVISOR_ASSESSMENT',priority:'HIGH',rationale:'Quarterly supervision identified repeat validation corrections.'});
   expect(need.status,need.data.error).toBe(200);
   expect((await request(`/api/hr/training/needs/${need.data.id}/decide`,{status:'APPROVED',reason:'Approved against competency evidence'})).status).toBe(403);
   expect((await request(`/api/hr/training/needs/${need.data.id}/decide`,{status:'APPROVED',reason:'Approved against competency evidence'},'HR_DIRECTOR',checker)).status).toBe(200);
-  const program=await request('/api/hr/training/programs',{code:'DATA-QUALITY',title:'Data quality practice',category:'Data',provider:'FDA',description:'Monthly return validation methods',startsOn:'2026-01-01',endsOn:'2027-12-31',capacity:5});
+  const program=await request('/api/hr/training/programs',{code:'DATA-QUALITY',title:'Data quality practice',category:'Data',provider:'FDA',description:'Monthly return validation methods',startsOn:'2026-01-01',endsOn:'2027-12-31',capacity:5,estimatedCost:'250.00',currency:'USD'});
+  const trainingBudget=await request('/api/hr/training/budgets',{orgUnitId:office,fiscalYear:2027,currency:'USD',allocated:'500.00'});expect(trainingBudget.status,trainingBudget.data.error).toBe(200);
+  expect((await request(`/api/hr/training/budgets/${trainingBudget.data.id}/decide`,{status:'APPROVED',reason:'Approved training allocation in office operating plan'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/training/budgets/${trainingBudget.data.id}/commit`,{programId:program.data.id})).status).toBe(200);
+  expect((await request(`/api/hr/training/budgets/${trainingBudget.data.id}/commit`,{programId:program.data.id})).status).toBe(409);
+  expect(Number((await request('/api/hr/training/budgets')).data.rows[0].remaining_minor)).toBe(25000);
   expect((await request(`/api/hr/training/programs/${program.data.id}/decide`,{status:'PUBLISHED',reason:'Approved course plan'},'HR_DIRECTOR',checker)).status).toBe(200);
   const enrollment=await request('/api/hr/training/enrollments',{programId:program.data.id,employeeId,learningObjective:'Independently validate monthly returns'});
   expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide`,{status:'APPROVED',reason:'Approved learning plan'},'HR_DIRECTOR',checker)).status).toBe(200);

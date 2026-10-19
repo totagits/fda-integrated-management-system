@@ -22,16 +22,17 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
   const id=randomUUID();await query('INSERT INTO users(id,email,full_name,password_hash,must_change_password) VALUES($1,$2,$3,$4,false)',[id,`${role.toLowerCase()}@example.test`,role,hash]);
   await query('INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,$3,$4)',[randomUUID(),id,role==='FINANCE_RECORDER'?'FINANCE_DIRECTOR':role,unit]);accounts[role]={id,cookie:'',csrf:''};
  }
+ await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'ETHICS_OFFICER',NULL)",[randomUUID(),accounts.ASSET_OFFICER.id]);accounts.ETHICS_OFFICER=accounts.ASSET_OFFICER;
  const {app}=await import('../server/index.js');await new Promise<void>(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});origin=`http://127.0.0.1:${(server.address() as any).port}`;
- for(const role of Object.keys(accounts)){
-  const r=await fetch(origin+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:`${role.toLowerCase()}@example.test`,password})});expect(r.status).toBe(200);
+ for(const role of Object.keys(accounts).filter(role=>role!=='ETHICS_OFFICER')){
+  const r=await fetch(origin+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:`${role.toLowerCase()}@example.test`,password})});expect(r.status,`${role} login: ${await r.clone().text()}`).toBe(200);
   const cookies=r.headers.getSetCookie().map(v=>v.split(';')[0]);accounts[role].cookie=cookies.join('; ');accounts[role].csrf=decodeURIComponent(cookies.find(c=>c.startsWith('fda_csrf='))!.split('=')[1]);
  }
 },30000);
@@ -262,4 +263,24 @@ it('provides global IT support without exposing other users’ tickets to staff'
  expect((await ok('IT_DIRECTOR','/api/support/tickets?status=RESOLVED')).tickets.map((t:any)=>t.id)).toContain(created.id);
  await ok('HR_DIRECTOR',`/api/support/tickets/${created.id}/messages`,{message:'The page stopped loading again this morning.'});
  expect((await ok('IT_DIRECTOR','/api/support/tickets?status=OPEN')).tickets.map((t:any)=>t.id)).toContain(created.id);
+});
+
+it('keeps grievance evidence private until an assigned ethics reviewer clears conflicts',async()=>{
+ const positionId=randomUUID(),employeeId=randomUUID();
+ await query('INSERT INTO hr_positions(id,org_unit_id,code,title,grade,capacity) VALUES($1,$2,$3,$4,$5,1)',[positionId,office,'GRV-EMP','Grievance reporter','A']);
+ await query('INSERT INTO hr_employees(id,staff_number,full_name,email,user_id,org_unit_id,position_id,start_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[employeeId,'GRV-EMP-1','Test Reporter','hr_director@example.test',accounts.HR_DIRECTOR.id,otherOffice,positionId,'2026-01-01']);
+ const submitted=await ok('HR_DIRECTOR','/api/hr/grievances',{category:'OTHER',subject:'Concern about senior management',details:'Confidential report details for access-control testing.',implicatedRole:'MANAGING_DIRECTOR'});
+ expect(submitted.escalationRoute).toBe('INDEPENDENT');
+ const blockedBeforeClaim=new FormData();blockedBeforeClaim.set('file',new Blob(['restricted'],{type:'text/plain'}),'evidence.txt');
+ expect((await call('ETHICS_OFFICER',`/api/records/GRIEVANCE/${submitted.id}/attachments`,blockedBeforeClaim)).status).toBe(403);
+ await ok('ETHICS_OFFICER',`/api/hr/grievances/${submitted.id}/claim`,{});
+ const blockedBeforeClear=new FormData();blockedBeforeClear.set('file',new Blob(['restricted'],{type:'text/plain'}),'evidence.txt');
+ expect((await call('ETHICS_OFFICER',`/api/records/GRIEVANCE/${submitted.id}/attachments`,blockedBeforeClear)).status).toBe(403);
+ await ok('ETHICS_OFFICER',`/api/hr/grievances/${submitted.id}/conflict-check`,{result:'CLEAR',reason:'No relationship with the reporter, subject, witnesses or decision chain.'});
+ const form=new FormData();form.set('file',new Blob(['Protected grievance evidence'],{type:'text/plain'}),'report.txt');
+ const attachment=await ok('ETHICS_OFFICER',`/api/records/GRIEVANCE/${submitted.id}/attachments`,form);
+ const ethicsDownload=await fetch(origin+`/api/attachments/${attachment.id}`,{headers:{cookie:accounts.ETHICS_OFFICER.cookie}});expect(ethicsDownload.status).toBe(200);expect(await ethicsDownload.text()).toBe('Protected grievance evidence');
+ const reporterDownload=await fetch(origin+`/api/attachments/${attachment.id}`,{headers:{cookie:accounts.HR_DIRECTOR.cookie}});expect(reporterDownload.status).toBe(200);
+ expect((await call('MANAGING_DIRECTOR',`/api/attachments/${attachment.id}`)).status).toBe(403);
+ expect((await fetch(origin+`/api/attachments/${attachment.id}`)).status).toBe(401);
 });

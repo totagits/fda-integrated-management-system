@@ -519,8 +519,10 @@ export function registerDepartments(app,deps){
  post('/api/hr/training/programs',DEPARTMENT_ROLES.hr,async(db,req)=>{
   const b=req.body,start=dateValue(b.startsOn),end=dateValue(b.endsOn);if(end<start)throw fail('Training end date must follow its start date.');
   const capacity=numeric(b.capacity,1,10000);if(!Number.isInteger(capacity))throw fail('Capacity must be a whole number.');
-  const id=randomUUID();await db.query('INSERT INTO hr_training_programs(id,code,title,category,provider,description,starts_on,ends_on,capacity,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,required(b.code,'Course code',80),required(b.title,'Course title',200),required(b.category,'Course category',100),required(b.provider,'Training provider',200),required(b.description,'Course description'),start,end,capacity,req.auth.userId]);
-  await audit(db,req,'hr.training.program_created','training_program',id,{code:b.code});return {id};
+  const costMinor=b.estimatedCost?parseMinorUnits(String(b.estimatedCost)):0n;if(costMinor<0n||costMinor>9000000000000000n)throw fail('Enter a valid estimated training cost.');
+  const currency=currencyValue(b.currency||'USD');
+  const id=randomUUID();await db.query('INSERT INTO hr_training_programs(id,code,title,category,provider,description,starts_on,ends_on,capacity,created_by,estimated_cost_minor,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,required(b.code,'Course code',80),required(b.title,'Course title',200),required(b.category,'Course category',100),required(b.provider,'Training provider',200),required(b.description,'Course description'),start,end,capacity,req.auth.userId,costMinor.toString(),currency]);
+  await audit(db,req,'hr.training.program_created','training_program',id,{code:b.code,estimatedCostMinor:costMinor.toString(),currency});return {id};
  });
  post('/api/hr/training/programs/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
   const p=await row(db,'hr_training_programs',req.params.id);checker(req,p.created_by);if(p.status!=='DRAFT')throw fail('Only draft training programs can be published or cancelled.',409);
@@ -556,6 +558,150 @@ export function registerDepartments(app,deps){
   if(!['COMPLETED','FAILED'].includes(req.body.status))throw fail('Select completed or failed.');await db.query('UPDATE hr_training_enrollments SET status=$2,updated_at=now() WHERE id=$1',[e.id,req.body.status]);await audit(db,req,`hr.training.${req.body.status.toLowerCase()}`,'training_enrollment',e.id,{certificateReference:e.certificate_reference,verification:required(req.body.reason,'Independent certificate / result verification')});return {id:e.id};
  });
  get('/api/hr/training/my',Object.values(DEPARTMENT_ROLES).flat(),async(req,res)=>res.json((await pool.query('SELECT id,program_code,program_title,starts_on,ends_on,status,learning_objective,completion_note,certificate_reference FROM hr_training_enrollment_directory WHERE employee_user_id=$1 ORDER BY starts_on DESC',[req.auth.userId])).rows));
+
+ // Shared competency framework, reviewed evidence and office-scoped skills analysis.
+ get('/api/hr/competencies',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_competencies',['code','name','competency_group','description','status'],'',`AND status='ACTIVE'`));
+ post('/api/hr/competencies',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,id=randomUUID();await db.query('INSERT INTO hr_competencies(id,code,name,competency_group,description,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,required(b.code,'Competency code',80).toUpperCase(),required(b.name,'Competency name',160),required(b.group,'Competency group',100),required(b.description,'Observable competency description'),req.auth.userId]);
+  await audit(db,req,'hr.competency.created','competency',id,{code:b.code});return {id};
+ });
+ post('/api/hr/competencies/:id/retire',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const c=await row(db,'hr_competencies',req.params.id);if(c.status!=='ACTIVE')throw fail('Only an active competency can be retired.',409);
+  await db.query("UPDATE hr_competencies SET status='RETIRED' WHERE id=$1",[c.id]);await audit(db,req,'hr.competency.retired','competency',c.id,{reason:required(req.body.reason,'Retirement rationale')});return {id:c.id};
+ });
+ post('/api/hr/positions/:id/competencies',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const p=await row(db,'hr_positions',req.params.id),c=await row(db,'hr_competencies',req.body.competencyId,false);await office(db,req,p.org_unit_id);
+  if(c.status!=='ACTIVE')throw fail('Position requirements must use an active competency.');const level=numeric(req.body.requiredLevel,1,5);if(!Number.isInteger(level))throw fail('Required proficiency level must be a whole number from 1 to 5.');
+  await db.query(`INSERT INTO hr_position_competencies(position_id,competency_id,required_level,rationale,set_by) VALUES($1,$2,$3,$4,$5)
+   ON CONFLICT(position_id,competency_id) DO UPDATE SET required_level=$3,rationale=$4,set_by=$5,set_at=now()`,[p.id,c.id,level,required(req.body.rationale,'Position requirement rationale'),req.auth.userId]);
+  await audit(db,req,'hr.position.competency_set','hr_position',p.id,{competencyId:c.id,requiredLevel:level});return {id:p.id,competencyId:c.id};
+ });
+ get('/api/hr/competency-assessments',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_competency_assessment_directory',['staff_number','employee_name','position_title','office_name','competency_code','competency_name','assessed_level','required_level','gap_status','review_note']));
+ post('/api/hr/competency-assessments',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,e=await row(db,'hr_employees',b.employeeId),c=await row(db,'hr_competencies',b.competencyId,false);await scope(req,e.org_unit_id);
+  if(e.status!=='ACTIVE'||c.status!=='ACTIVE')throw fail('Assess active employees against active competencies only.');
+  const level=numeric(b.assessedLevel,1,5);if(!Number.isInteger(level))throw fail('Assessed proficiency must be a whole number from 1 to 5.');
+  const validUntil=b.validUntil?dateValue(b.validUntil):null,id=randomUUID();
+  await db.query('INSERT INTO hr_employee_competency_assessments(id,employee_id,competency_id,org_unit_id,assessed_level,evidence_reference,assessed_by,valid_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,e.id,c.id,e.org_unit_id,level,required(b.evidenceReference,'Assessment evidence reference'),req.auth.userId,validUntil]);
+  await audit(db,req,'hr.competency.assessed','competency_assessment',id,{employeeId:e.id,competencyId:c.id,level});return {id};
+ });
+ post('/api/hr/competency-assessments/:id/review',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const a=await row(db,'hr_employee_competency_assessments',req.params.id);await scope(req,a.org_unit_id);checker(req,a.assessed_by);
+  if(a.reviewed_by)throw fail('This assessment has already been independently reviewed.',409);
+  await db.query('UPDATE hr_employee_competency_assessments SET reviewed_by=$2,review_note=$3 WHERE id=$1',[a.id,req.auth.userId,required(req.body.reason,'Independent evidence review')]);
+  await audit(db,req,'hr.competency.assessment_reviewed','competency_assessment',a.id,{employeeId:a.employee_id,competencyId:a.competency_id});return {id:a.id};
+ });
+ post('/api/hr/competency-assessments/:id/training-need',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const a=await row(db,'hr_employee_competency_assessments',req.params.id);await scope(req,a.org_unit_id);
+  if(!a.reviewed_by)throw fail('Independently review the competency evidence before creating a training need.',409);
+  if(a.valid_until&&dbDate(a.valid_until)<new Date().toISOString().slice(0,10))throw fail('This competency assessment has expired; reassess it before linking training.');
+  const requirement=await db.query('SELECT required_level FROM hr_position_competencies WHERE position_id=(SELECT position_id FROM hr_employees WHERE id=$1) AND competency_id=$2',[a.employee_id,a.competency_id]);
+  if(!requirement.rowCount||a.assessed_level>=requirement.rows[0].required_level)throw fail('A training need can be generated only for a reviewed competency gap against an approved position requirement.',409);
+  if(!['LOW','MEDIUM','HIGH','CRITICAL'].includes(req.body.priority))throw fail('Select a training need priority.');
+  if((await db.query('SELECT 1 FROM hr_training_needs WHERE source_assessment_id=$1',[a.id])).rowCount)throw fail('A training need already exists for this assessment.',409);
+  const id=randomUUID();await db.query(`INSERT INTO hr_training_needs(id,employee_id,org_unit_id,competency,competency_id,current_level,required_level,assessment_source,priority,rationale,created_by,source_assessment_id)
+   SELECT $1,e.id,e.org_unit_id,c.name,c.id,'Level '||$2::text,'Level '||$3::text,'SUPERVISOR_ASSESSMENT',$4,$5,$6,$7
+   FROM hr_employees e JOIN hr_competencies c ON c.id=$8 WHERE e.id=$9`,[id,a.assessed_level,requirement.rows[0].required_level,req.body.priority,required(req.body.rationale,'Training need rationale'),req.auth.userId,a.id,a.competency_id,a.employee_id]);
+  await audit(db,req,'hr.training_need.created_from_competency_gap','training_need',id,{assessmentId:a.id,competencyId:a.competency_id,employeeId:a.employee_id});return {id};
+ });
+ get('/api/hr/skills-analysis',DEPARTMENT_ROLES.hr,async(req,res)=>{
+  const units=await scopedUnits(req.departmentAuth),limit=Math.min(100,Math.max(1,Number(req.query.limit)||25)),offset=Math.max(0,Number(req.query.offset)||0),q=String(req.query.q||'').slice(0,200);
+  const grouped=`SELECT competency_group,competency_code,competency_name,office_name,
+    count(*)::integer AS assessed_positions,
+    count(*) FILTER(WHERE gap_status='MEETS')::integer AS meets_required,
+    count(*) FILTER(WHERE gap_status='GAP')::integer AS identified_gaps,
+    count(*) FILTER(WHERE gap_status='UNASSESSED')::integer AS unassessed,
+    max(assessed_at) AS last_evidence_date
+   FROM hr_competency_gap_directory WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))
+   GROUP BY competency_group,competency_code,competency_name,office_name`;
+  const filter=`competency_group ILIKE $2 OR competency_code ILIKE $2 OR competency_name ILIKE $2 OR office_name ILIKE $2`;
+  const total=await pool.query(`WITH grouped AS (${grouped}) SELECT count(*) FROM grouped WHERE ${filter}`,[units,`%${q}%`]);
+  const result=await pool.query(`WITH grouped AS (${grouped}) SELECT * FROM grouped WHERE ${filter} ORDER BY competency_group,competency_name,office_name LIMIT $3 OFFSET $4`,[units,`%${q}%`,limit,offset]);
+  res.json({rows:result.rows,total:Number(total.rows[0].count),limit,offset,asOf:new Date().toISOString(),scope:req.departmentAuth.roles.some(r=>r.role==='MANAGING_DIRECTOR')?'FDA-wide':'assigned offices'});
+ });
+
+ // Succession readiness is a reviewable estimate; milestones need evidence and a separate verifier.
+ post('/api/hr/succession/candidates/:id/readiness-review',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const c=await row(db,'hr_succession_candidates',req.params.id);await scope(req,c.org_unit_id);checker(req,c.nominated_by);
+  const e=await row(db,'hr_employees',c.employee_id,false);if(e.user_id===req.auth.userId)throw fail('A candidate cannot review their own succession readiness.',403);
+  if(!['READY_NOW','WITHIN_1_2_YEARS','WITHIN_3_5_YEARS','DEVELOPMENT_REQUIRED'].includes(req.body.readiness))throw fail('Select a valid readiness horizon.');
+  const next=req.body.nextReviewDate?dateValue(req.body.nextReviewDate):null;if(next&&next<new Date().toISOString().slice(0,10))throw fail('Next review date cannot be in the past.');
+  await db.query('UPDATE hr_succession_candidates SET readiness=$2,readiness_reviewed_by=$3,readiness_assessment_note=$4,readiness_reviewed_at=now(),next_review_date=$5 WHERE id=$1',[c.id,req.body.readiness,req.auth.userId,required(req.body.reason,'Readiness evidence and review basis'),next]);
+  await audit(db,req,'hr.succession.readiness_reviewed','succession_candidate',c.id,{readiness:req.body.readiness,nextReviewDate:next});return {id:c.id};
+ });
+ get('/api/hr/succession/milestones',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_succession_milestone_directory',['candidate_name','staff_number','plan_reference','title','status','target_date','office_name']));
+ post('/api/hr/succession/milestones',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body,c=await row(db,'hr_succession_candidates',b.candidateId),e=await row(db,'hr_employees',c.employee_id,false);await scope(req,c.org_unit_id);
+  if(c.status!=='ACTIVE')throw fail('Development milestones require an active succession candidate.');
+  const assigned=await db.query('SELECT 1 FROM user_roles r JOIN users u ON u.id=r.user_id WHERE r.user_id=$1 AND u.disabled_at IS NULL AND r.org_unit_id=$2',[idValue(b.assignedTo),c.org_unit_id]);
+  if(!assigned.rowCount)throw fail('Assign this milestone to an active account in the candidate office.');
+  const id=randomUUID();await db.query('INSERT INTO hr_succession_development_milestones(id,candidate_id,org_unit_id,title,measurable_outcome,assigned_to,target_date,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,c.id,c.org_unit_id,required(b.title,'Milestone title',200),required(b.measurableOutcome,'Measurable development outcome'),b.assignedTo,dateValue(b.targetDate),req.auth.userId]);
+  await audit(db,req,'hr.succession.milestone_created','succession_milestone',id,{candidateId:c.id,assignedTo:b.assignedTo});return {id};
+ });
+ post('/api/hr/succession/milestones/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const m=await row(db,'hr_succession_development_milestones',req.params.id);await scope(req,m.org_unit_id);
+  const state=req.body.status;if(state==='VERIFIED')checker(req,m.assigned_to);
+  const allowed={PLANNED:['IN_PROGRESS','CANCELLED'],IN_PROGRESS:['SUBMITTED','DEFERRED','CANCELLED'],SUBMITTED:['VERIFIED','IN_PROGRESS'],DEFERRED:['IN_PROGRESS','CANCELLED']}[m.status]||[];
+  if(!allowed.includes(state))throw fail('This development milestone cannot move to the selected stage.',409);
+  const evidence=required(req.body.reason,'Milestone progress evidence and decision note');
+  await db.query('UPDATE hr_succession_development_milestones SET status=$2,evidence_reference=CASE WHEN $3::text IS NULL THEN evidence_reference ELSE $3::text END,completion_note=$4,verified_by=CASE WHEN $2=\'VERIFIED\' THEN $5 ELSE verified_by END WHERE id=$1',[m.id,state,req.body.evidenceReference?required(req.body.evidenceReference,'Evidence reference'):null,evidence,req.auth.userId]);
+  await audit(db,req,`hr.succession.milestone_${state.toLowerCase()}`,'succession_milestone',m.id,{candidateId:m.candidate_id});return {id:m.id};
+ });
+ app.get('/api/hr/development-milestones/my',loadAuth,route(async(req,res)=>{
+  res.json((await pool.query(`SELECT id,title,measurable_outcome,target_date,status,evidence_reference,completion_note
+   FROM hr_succession_development_milestones WHERE assigned_to=$1 AND status NOT IN ('VERIFIED','CANCELLED') ORDER BY target_date,id`,[req.auth.userId])).rows);
+ }));
+ app.post('/api/hr/development-milestones/:id/start',loadAuth,csrfRequired,route(async(req,res)=>{
+  const result=await transaction(async db=>{
+   const m=await row(db,'hr_succession_development_milestones',req.params.id);if(m.assigned_to!==req.auth.userId)throw fail('Only the assigned employee can start this development activity.',403);
+   if(m.status!=='PLANNED')throw fail('Only a planned activity can be started.',409);
+   await db.query("UPDATE hr_succession_development_milestones SET status='IN_PROGRESS',completion_note=$2 WHERE id=$1",[m.id,required(req.body.reason,'Development activity start note')]);
+   await writeAudit(db,req.auth,'hr.development_milestone.started','succession_milestone',m.id,{targetDate:m.target_date});return {id:m.id};
+  });res.json(result);
+ }));
+ app.post('/api/hr/development-milestones/:id/submit',loadAuth,csrfRequired,route(async(req,res)=>{
+  const result=await transaction(async db=>{
+   const m=await row(db,'hr_succession_development_milestones',req.params.id);if(m.assigned_to!==req.auth.userId)throw fail('Only the assigned employee can submit this development evidence.',403);
+   if(m.status!=='IN_PROGRESS')throw fail('Start this development activity before submitting evidence.',409);
+   await db.query("UPDATE hr_succession_development_milestones SET status='SUBMITTED',evidence_reference=$2,completion_note=$3 WHERE id=$1",[m.id,required(req.body.evidenceReference,'Evidence reference'),required(req.body.reason,'Outcome and completion note')]);
+   await writeAudit(db,req.auth,'hr.development_milestone.submitted','succession_milestone',m.id,{targetDate:m.target_date});return {id:m.id};
+  });res.json(result);
+ }));
+
+ // Approved annual training budgets, program commitments and measured training impact.
+ get('/api/hr/training/budgets',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_budget_directory',['fiscal_year','office_name','currency','allocated_minor','committed_minor','remaining_minor','status']));
+ post('/api/hr/training/budgets',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=req.body;await office(db,req,b.orgUnitId);const year=numeric(b.fiscalYear,2000,2200),allocated=parseMinorUnits(String(b.allocated));if(!Number.isInteger(year)||allocated<0n||allocated>9000000000000000n)throw fail('Enter a valid annual allocation.');
+  const id=randomUUID();await db.query('INSERT INTO hr_training_budgets(id,fiscal_year,org_unit_id,currency,allocated_minor,created_by) VALUES($1,$2,$3,$4,$5,$6)',[id,year,b.orgUnitId,currencyValue(b.currency),allocated.toString(),req.auth.userId]);
+  await audit(db,req,'hr.training.budget_drafted','training_budget',id,{fiscalYear:year,orgUnitId:b.orgUnitId,currency:b.currency,allocatedMinor:allocated.toString()});return {id};
+ });
+ post('/api/hr/training/budgets/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=await row(db,'hr_training_budgets',req.params.id);await scope(req,b.org_unit_id);checker(req,b.created_by);
+  if(b.status!=='DRAFT'||req.body.status!=='APPROVED')throw fail('Only draft training budgets can be independently approved.',409);
+  await db.query("UPDATE hr_training_budgets SET status='APPROVED',approved_by=$2,decision_note=$3 WHERE id=$1",[b.id,req.auth.userId,required(req.body.reason,'Budget approval basis')]);
+  await audit(db,req,'hr.training.budget_approved','training_budget',b.id,{fiscalYear:b.fiscal_year,currency:b.currency});return {id:b.id};
+ });
+ post('/api/hr/training/budgets/:id/commit',DEPARTMENT_ROLES.hr,async(db,req)=>{
+  const b=await row(db,'hr_training_budgets',req.params.id),p=await row(db,'hr_training_programs',req.body.programId);await scope(req,b.org_unit_id);
+  if(b.status!=='APPROVED'||p.status==='CANCELLED'||p.status==='CLOSED')throw fail('Commitments require an approved budget and an active training program.',409);
+  if(p.currency!==b.currency)throw fail('Program and budget currencies must match.');
+  if((await db.query('SELECT 1 FROM hr_training_budget_commitments WHERE program_id=$1',[p.id])).rowCount)throw fail('This training program already has an approved budget commitment.',409);
+  const used=await db.query('SELECT coalesce(sum(amount_minor),0)::bigint AS total FROM hr_training_budget_commitments WHERE budget_id=$1',[b.id]);
+  const cost=BigInt(p.estimated_cost_minor);if(BigInt(used.rows[0].total)+cost>BigInt(b.allocated_minor))throw fail('This commitment exceeds the remaining approved training budget.',409);
+  const id=randomUUID();await db.query('INSERT INTO hr_training_budget_commitments(id,budget_id,program_id,amount_minor,committed_by) VALUES($1,$2,$3,$4,$5)',[id,b.id,p.id,cost.toString(),req.auth.userId]);
+  await audit(db,req,'hr.training.budget_committed','training_budget',b.id,{programId:p.id,amountMinor:cost.toString()});return {id};
+ });
+ get('/api/hr/policy-compliance-summary',DEPARTMENT_ROLES.hr,async(req,res)=>{
+  const units=await scopedUnits(req.departmentAuth);const summary=await pool.query(`SELECT status,count(*)::integer AS total,
+    count(*) FILTER(WHERE status='PENDING' AND due_date<current_date)::integer AS overdue
+   FROM hr_policy_compliance WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[])) GROUP BY status ORDER BY status`,[units]);
+  const reviews=await pool.query(`SELECT p.policy_code,p.version,p.title,p.authority_reference,p.review_date,p.status,
+    count(c.id)::integer AS assigned_checks,count(c.id) FILTER(WHERE c.status='PENDING')::integer AS pending_checks,
+    count(c.id) FILTER(WHERE c.status='NON_COMPLIANT')::integer AS open_gaps
+   FROM hr_employment_policies p LEFT JOIN hr_policy_compliance c ON c.policy_id=p.id AND ($1::uuid[] IS NULL OR c.org_unit_id=ANY($1::uuid[]))
+   GROUP BY p.id ORDER BY p.review_date`,[units]);
+  res.json({asOf:new Date().toISOString(),scope:req.departmentAuth.roles.some(r=>r.role==='MANAGING_DIRECTOR')?'FDA-wide':'assigned offices',totals:summary.rows,policies:reviews.rows});
+ });
 
  get('/api/hr/performance/cycles',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_performance_cycles',['reference','status','period_start','period_end']));
  post('/api/hr/performance/cycles',DEPARTMENT_ROLES.hr,async(db,req)=>{
@@ -655,46 +801,212 @@ export function registerDepartments(app,deps){
   await db.query('UPDATE hr_disciplinary_cases SET status=$2,last_action_by=$3,last_action_note=$4,updated_at=now() WHERE id=$1',[c.id,req.body.status,req.auth.userId,required(req.body.reason,'Procedural action and evidence reference')]);
   await audit(db,req,`hr.disciplinary.${req.body.status.toLowerCase()}`,'disciplinary_case',c.id,{previousStatus:c.status});return {id:c.id};
  });
- // Employees submit and track their own grievances. HR cannot see cases explicitly
- // restricted to the Managing Director; narrative is omitted from the global audit feed.
- get('/api/hr/grievances',disciplineRoles,async(req,res)=>{
-  const units=await scopedUnits(req.departmentAuth),isMd=req.departmentAuth.roles.some(r=>r.role==='MANAGING_DIRECTOR');
+ // Standard cases stay with scoped HR/MD reviewers. Complaints implicating HR
+ // leadership or the Managing Director are routed only to designated ethics staff.
+ const grievanceRoles=[...disciplineRoles,'ETHICS_OFFICER'];
+ get('/api/hr/grievances/handlers',grievanceRoles,async(req,res)=>{
+  const independent=String(req.query.route)==='INDEPENDENT';
+  const ethics=req.departmentAuth.roles.some(r=>r.role==='ETHICS_OFFICER');
+  if(independent!==ethics)throw fail('This handler directory is not available for your grievance route.',403);
+  const wanted=independent?'ETHICS_OFFICER':String(req.query.role||'HR_DIRECTOR');
+  if(!['ETHICS_OFFICER','HR_DIRECTOR','MANAGING_DIRECTOR'].includes(wanted)||independent&&wanted!=='ETHICS_OFFICER'||!independent&&!disciplineRoles.includes(wanted))throw fail('Select an eligible case-handler role.');
+  const units=await scopedUnits(req.departmentAuth);
+  res.json((await pool.query(`SELECT DISTINCT u.id,u.full_name,r.role FROM users u JOIN user_roles r ON r.user_id=u.id
+   WHERE u.disabled_at IS NULL AND r.role=$1 AND ($2::uuid[] IS NULL OR r.org_unit_id=ANY($2::uuid[]) OR r.org_unit_id IS NULL)
+   AND (NOT $3::boolean OR r.org_unit_id IS NULL) ORDER BY u.full_name`,[wanted,units,independent])).rows);
+ });
+ get('/api/hr/grievances',grievanceRoles,async(req,res)=>{
+  const units=await scopedUnits(req.departmentAuth),ethics=req.departmentAuth.roles.some(r=>r.role==='ETHICS_OFFICER');
   const limit=Math.min(100,Math.max(1,Number(req.query.limit)||25)),offset=Math.max(0,Number(req.query.offset)||0),q=String(req.query.q||'').slice(0,200);
-  const clauses=['($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[]))','($2::boolean OR restricted_to_md=false)','(case_reference ILIKE $3 OR subject ILIKE $3 OR status ILIKE $3 OR category ILIKE $3)'];
-  const params=[units,isMd,`%${q}%`],where=clauses.join(' AND ');
+  const routeName=ethics?'INDEPENDENT':'STANDARD',actor=req.auth.userId;
+  const where=`escalation_route=$1 AND ($2::uuid[] IS NULL OR org_unit_id=ANY($2::uuid[]))
+   AND ($3::boolean=false OR case_assignee_id IS NULL OR case_assignee_id=$4)
+   AND (case_reference ILIKE $5 OR subject ILIKE $5 OR status ILIKE $5 OR category ILIKE $5)`;
+  const params=[routeName,units,ethics,actor,`%${q}%`];
   const total=await pool.query(`SELECT count(*) FROM hr_grievance_directory WHERE ${where}`,params);
-  const rows=await pool.query(`SELECT id,case_reference,reporter_employee_id,reporter_user_id,org_unit_id,staff_number,employee_name,office_name,category,subject,details,restricted_to_md,status,last_action_by,last_action_note,created_at,updated_at,resolved_at FROM hr_grievance_directory WHERE ${where} ORDER BY created_at DESC LIMIT $4 OFFSET $5`,[...params,limit,offset]);
+  const rows=await pool.query(`SELECT id,case_reference,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE reporter_employee_id END AS reporter_employee_id,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE reporter_user_id END AS reporter_user_id,
+   org_unit_id,CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE staff_number END AS staff_number,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE employee_name END AS employee_name,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE office_name END AS office_name,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE category END AS category,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN 'Unassigned independent case' ELSE subject END AS subject,
+   CASE WHEN $8::boolean AND case_assignee_id IS DISTINCT FROM $9::uuid THEN NULL ELSE details END AS details,
+   restricted_to_md,escalation_route,implicated_role,case_assignee_id,assigned_by,
+   (SELECT cc.result FROM hr_grievance_conflict_checks cc WHERE cc.grievance_id=hr_grievance_directory.id AND cc.handler_id=$9) AS current_conflict_result,
+   acknowledgement_due_at,resolution_due_at,status,last_action_by,last_action_note,created_at,updated_at,resolved_at
+   FROM hr_grievance_directory WHERE ${where} ORDER BY created_at DESC LIMIT $6 OFFSET $7`,[...params,limit,offset,ethics,actor]);
   res.json({rows:rows.rows,total:Number(total.rows[0].count),limit,offset});
  });
- app.get('/api/hr/grievances/my',loadAuth,route(async(req,res)=>res.json((await pool.query(`SELECT id,case_reference,category,subject,details,restricted_to_md,status,last_action_note,created_at,updated_at,resolved_at FROM hr_grievances WHERE reporter_user_id=$1 ORDER BY created_at DESC LIMIT 100`,[req.auth.userId])).rows)));
+ app.get('/api/hr/grievances/my',loadAuth,route(async(req,res)=>res.json((await pool.query(`SELECT g.id,g.case_reference,g.category,g.subject,g.details,g.escalation_route,g.implicated_role,g.status,g.last_action_note,g.acknowledgement_due_at,g.resolution_due_at,g.created_at,g.updated_at,g.resolved_at,
+  coalesce((SELECT json_agg(json_build_object('eventType',ev.event_type,'note',ev.note,'createdAt',ev.created_at) ORDER BY ev.created_at) FROM hr_grievance_events ev WHERE ev.grievance_id=g.id AND ev.visible_to_reporter=true),'[]'::json) AS updates
+  FROM hr_grievances g WHERE g.reporter_user_id=$1 ORDER BY g.created_at DESC LIMIT 100`,[req.auth.userId])).rows)));
  app.post('/api/hr/grievances',loadAuth,csrfRequired,route(async(req,res)=>{
   const result=await transaction(async db=>{
    const e=await db.query('SELECT * FROM hr_employees WHERE user_id=$1 FOR UPDATE',[req.auth.userId]);
    if(!e.rowCount||e.rows[0].status!=='ACTIVE')throw fail('An active linked employee record is required to submit a grievance.',403);
-   const employee=e.rows[0],category=req.body.category;
+   const employee=e.rows[0],category=req.body.category,implicatedRole=req.body.implicatedRole||(req.body.restrictedToMd?'MANAGING_DIRECTOR':'OTHER');
    if(!['HARASSMENT','DISCRIMINATION','RETALIATION','SAFEGUARDING','WORKPLACE_CONFLICT','OTHER'].includes(category))throw fail('Select a grievance category.');
-   if(typeof req.body.restrictedToMd!=='boolean')throw fail('Choose whether this report should be restricted to the Managing Director.');
+   if(!['HR_DIRECTOR','MANAGING_DIRECTOR','OTHER'].includes(implicatedRole))throw fail('Select whom the concern involves.');
+   const escalationRoute=implicatedRole==='OTHER'?'STANDARD':'INDEPENDENT';
+   const sla=await db.query("SELECT acknowledgement_days,resolution_days FROM hr_grievance_sla_settings WHERE status='ACTIVE'");
+   const ackDays=sla.rows[0]?.acknowledgement_days,resDays=sla.rows[0]?.resolution_days;
    const id=randomUUID(),caseReference=`FDA-GRV-${new Date().getUTCFullYear()}-${randomUUID().slice(0,8).toUpperCase()}`;
-   await db.query('INSERT INTO hr_grievances(id,case_reference,reporter_employee_id,reporter_user_id,org_unit_id,category,subject,details,restricted_to_md) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,caseReference,employee.id,req.auth.userId,employee.org_unit_id,category,required(req.body.subject,'Brief subject',200),required(req.body.details,'Grievance details'),req.body.restrictedToMd]);
-   await writeAudit(db,req.auth,'hr.grievance.submitted','hr_grievance',id,{orgUnitId:employee.org_unit_id,category,restrictedToMd:req.body.restrictedToMd});return {id,caseReference};
+   await db.query(`INSERT INTO hr_grievances(id,case_reference,reporter_employee_id,reporter_user_id,org_unit_id,category,subject,details,restricted_to_md,escalation_route,implicated_role,acknowledgement_due_at,resolution_due_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10,CASE WHEN $11::int IS NULL THEN NULL ELSE now()+make_interval(days=>$11) END,CASE WHEN $12::int IS NULL THEN NULL ELSE now()+make_interval(days=>$12) END)`,[id,caseReference,employee.id,req.auth.userId,employee.org_unit_id,category,required(req.body.subject,'Brief subject',200),required(req.body.details,'Grievance details'),escalationRoute,implicatedRole,ackDays??null,resDays??null]);
+   await writeAudit(db,req.auth,'hr.grievance.submitted','hr_grievance',id,{orgUnitId:employee.org_unit_id,category,escalationRoute,implicatedRole});return {id,caseReference,escalationRoute,deadlinesConfigured:!!sla.rowCount};
   });res.status(201).json(result);
  }));
- app.post('/api/hr/grievances/:id/advance',loadAuth,csrfRequired,guard(disciplineRoles),route(async(req,res)=>res.json(await transaction(async db=>{
-  req.departmentDb=db;const g=await row(db,'hr_grievances',req.params.id);await scope(req,g.org_unit_id);
-  if(g.restricted_to_md&&!req.departmentAuth.roles.some(r=>r.role==='MANAGING_DIRECTOR'))throw fail('This grievance is restricted to the Managing Director.',403);
-  checker(req,g.last_action_by||g.reporter_user_id);
-  const allowed={SUBMITTED:['ACKNOWLEDGED'],ACKNOWLEDGED:['UNDER_REVIEW'],UNDER_REVIEW:['RESOLVED'],APPEALED:['UNDER_REVIEW'],RESOLVED:['CLOSED']}[g.status]||[];
+ // FDA configures service deadlines; these are internal targets, not statutory time limits.
+ get('/api/hr/grievances/sla',disciplineRoles,async(_req,res)=>{
+  const result=await pool.query("SELECT id,acknowledgement_days,resolution_days,status,configured_at,approved_by,created_by FROM hr_grievance_sla_settings ORDER BY configured_at DESC LIMIT 1");
+  res.json({rows:result.rows,total:result.rowCount,limit:1,offset:0});
+ });
+ post('/api/hr/grievances/sla',disciplineRoles,async(db,req)=>{
+  const ack=numeric(req.body.acknowledgementDays,1,30),resolution=numeric(req.body.resolutionDays,1,180);
+  const id=randomUUID();await db.query('INSERT INTO hr_grievance_sla_settings(id,acknowledgement_days,resolution_days,created_by) VALUES($1,$2,$3,$4)',[id,ack,resolution,req.auth.userId]);
+  await audit(db,req,'hr.grievance.sla_drafted','hr_grievance_sla',id,{acknowledgementDays:ack,resolutionDays:resolution});return {id};
+ });
+ post('/api/hr/grievances/sla/:id/approve',disciplineRoles,async(db,req)=>{
+  const setting=await row(db,'hr_grievance_sla_settings',req.params.id);checker(req,setting.created_by);
+  if(setting.status!=='PENDING')throw fail('Only pending service targets can be approved.',409);
+  await db.query("UPDATE hr_grievance_sla_settings SET status='SUPERSEDED' WHERE status='ACTIVE'");
+  await db.query("UPDATE hr_grievance_sla_settings SET status='ACTIVE',approved_by=$2,configured_at=now() WHERE id=$1",[setting.id,req.auth.userId]);
+  await audit(db,req,'hr.grievance.sla_activated','hr_grievance_sla',setting.id);return {id:setting.id};
+ });
+ post('/api/hr/grievances/:id/assign',grievanceRoles,async(db,req)=>{
+  const g=await row(db,'hr_grievances',req.params.id);await scope(req,g.org_unit_id);
+  const ethics=req.departmentAuth.roles.some(r=>r.role==='ETHICS_OFFICER');
+  if((g.escalation_route==='INDEPENDENT')!==ethics)throw fail('Only the authorized handler group can assign this grievance.',403);
+  const target=await db.query(`SELECT u.id,u.disabled_at,r.role,r.org_unit_id FROM users u JOIN user_roles r ON r.user_id=u.id WHERE u.id=$1`,[idValue(req.body.handlerId)]);
+  if(!target.rowCount||target.rows.some(x=>x.disabled_at))throw fail('Select an active grievance handler.');
+  const roles=target.rows.map(x=>x.role);
+  if(g.escalation_route==='INDEPENDENT'&&!roles.includes('ETHICS_OFFICER'))throw fail('Independent cases may only be assigned to a designated ethics officer.');
+  if(g.escalation_route==='STANDARD'&&!roles.some(r=>disciplineRoles.includes(r)))throw fail('Standard cases may only be assigned to HR or MD reviewers.');
+  if(g.implicated_role!=='OTHER'&&roles.includes(g.implicated_role))throw fail('A reviewer from the implicated leadership role cannot handle this case.');
+  await assertOrgAccess({userId:target.rows[0].id,roles:target.rows.map(x=>({role:x.role,orgUnitId:x.org_unit_id}))},g.org_unit_id,db);
+  const conflict=await db.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CONFLICT'",[g.id,target.rows[0].id]);if(conflict.rowCount)throw fail('This handler already disclosed a conflict and cannot be re-assigned to the case.',409);
+  const sla=await db.query("SELECT acknowledgement_days,resolution_days FROM hr_grievance_sla_settings WHERE status='ACTIVE'");
+  const ackDays=sla.rows[0]?.acknowledgement_days,resDays=sla.rows[0]?.resolution_days;
+  await db.query(`UPDATE hr_grievances SET case_assignee_id=$2,assigned_by=$3,
+   acknowledgement_due_at=coalesce(acknowledgement_due_at,CASE WHEN $4::int IS NULL THEN NULL ELSE now()+make_interval(days=>$4) END),
+   resolution_due_at=coalesce(resolution_due_at,CASE WHEN $5::int IS NULL THEN NULL ELSE now()+make_interval(days=>$5) END),updated_at=now() WHERE id=$1`,[g.id,target.rows[0].id,req.auth.userId,ackDays??null,resDays??null]);
+  await db.query('INSERT INTO hr_grievance_events(id,grievance_id,event_type,note,actor_id,visible_to_reporter) VALUES($1,$2,\'ASSIGNED\',$3,$4,true)',[randomUUID(),g.id,'Case assigned to an authorized handler. Deadlines follow the currently approved FDA service targets if configured.',req.auth.userId]);
+  await writeAudit(db,req.auth,'hr.grievance.assigned','hr_grievance',g.id,{route:g.escalation_route,assigneeId:target.rows[0].id});return {id:g.id};
+ });
+ post('/api/hr/grievances/:id/claim',['ETHICS_OFFICER'],async(db,req)=>{
+  const g=await row(db,'hr_grievances',req.params.id);if(g.escalation_route!=='INDEPENDENT')throw fail('Only independently routed grievances can be claimed.',403);
+  if(g.case_assignee_id)throw fail('This grievance has already been assigned.',409);
+  if(g.reporter_user_id===req.auth.userId)throw fail('The reporting employee cannot handle their own case.',403);
+  const assignment=await db.query("SELECT 1 FROM user_roles WHERE user_id=$1 AND role='ETHICS_OFFICER' AND org_unit_id IS NULL",[req.auth.userId]);if(!assignment.rowCount)throw fail('An organization-wide ethics officer assignment is required.');
+  const conflict=await db.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CONFLICT'",[g.id,req.auth.userId]);if(conflict.rowCount)throw fail('You previously declared a conflict on this case.',409);
+  const sla=await db.query("SELECT acknowledgement_days,resolution_days FROM hr_grievance_sla_settings WHERE status='ACTIVE'");
+  await db.query(`UPDATE hr_grievances SET case_assignee_id=$2,assigned_by=$2,
+   acknowledgement_due_at=coalesce(acknowledgement_due_at,CASE WHEN $3::int IS NULL THEN NULL ELSE now()+make_interval(days=>$3) END),
+   resolution_due_at=coalesce(resolution_due_at,CASE WHEN $4::int IS NULL THEN NULL ELSE now()+make_interval(days=>$4) END),updated_at=now() WHERE id=$1`,[g.id,req.auth.userId,sla.rows[0]?.acknowledgement_days??null,sla.rows[0]?.resolution_days??null]);
+  await db.query('INSERT INTO hr_grievance_events(id,grievance_id,event_type,note,actor_id,visible_to_reporter) VALUES($1,$2,\'ASSIGNED\',$3,$4,true)',[randomUUID(),g.id,'Independent case assigned to designated ethics officer.',req.auth.userId]);
+  await writeAudit(db,req.auth,'hr.grievance.claimed','hr_grievance',g.id,{route:'INDEPENDENT',assigneeId:req.auth.userId});return {id:g.id};
+ });
+ post('/api/hr/grievances/:id/conflict-check',grievanceRoles,async(db,req)=>{
+  const g=await row(db,'hr_grievances',req.params.id);await scope(req,g.org_unit_id);
+  if(g.case_assignee_id!==req.auth.userId)throw fail('Only the assigned case handler can declare a conflict.',403);
+  const result=req.body.result;if(!['CLEAR','CONFLICT'].includes(result))throw fail('Select CLEAR or CONFLICT.');
+  const note=required(req.body.reason,'Conflict-of-interest declaration and basis');
+  await db.query(`INSERT INTO hr_grievance_conflict_checks(id,grievance_id,handler_id,result,note) VALUES($1,$2,$3,$4,$5)
+   ON CONFLICT(grievance_id,handler_id) DO UPDATE SET result=$4,note=$5,checked_at=now()`,[randomUUID(),g.id,req.auth.userId,result,note]);
+  if(result==='CONFLICT')await db.query('UPDATE hr_grievances SET case_assignee_id=NULL,assigned_by=NULL,last_conflict_check_at=now(),updated_at=now() WHERE id=$1',[g.id]);
+  else await db.query('UPDATE hr_grievances SET last_conflict_check_at=now(),updated_at=now() WHERE id=$1',[g.id]);
+  await db.query('INSERT INTO hr_grievance_events(id,grievance_id,event_type,note,actor_id,visible_to_reporter) VALUES($1,$2,\'CONFLICT_CHECKED\',$3,$4,false)',[randomUUID(),g.id,result==='CLEAR'?'Assigned handler declared no conflict.':'Assigned handler disclosed a conflict and was removed.',req.auth.userId]);
+  await writeAudit(db,req.auth,`hr.grievance.conflict_${result.toLowerCase()}`,'hr_grievance',g.id,{handlerId:req.auth.userId});return {id:g.id,result};
+ });
+ post('/api/hr/grievances/:id/events',grievanceRoles,async(db,req)=>{
+  const g=await row(db,'hr_grievances',req.params.id);await scope(req,g.org_unit_id);
+  if(g.case_assignee_id!==req.auth.userId)throw fail('Only the conflict-cleared assigned handler may document case work.',403);
+  const clear=await db.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CLEAR'",[g.id,req.auth.userId]);if(!clear.rowCount)throw fail('Complete a clear conflict check before recording investigation work.',409);
+  const eventType=req.body.eventType;if(!['INVESTIGATION_NOTE','EVIDENCE_REVIEWED','RESOLUTION_RECOMMENDED'].includes(eventType))throw fail('Select an allowed investigation record type.');
+  const note=required(req.body.note,'Investigation record');const visible=Boolean(req.body.visibleToReporter);
+  const id=randomUUID();await db.query('INSERT INTO hr_grievance_events(id,grievance_id,event_type,note,actor_id,visible_to_reporter) VALUES($1,$2,$3,$4,$5,$6)',[id,g.id,eventType,note,req.auth.userId,visible]);
+  await writeAudit(db,req.auth,'hr.grievance.investigation_recorded','hr_grievance',g.id,{eventType,visibleToReporter:visible});return {id};
+ });
+ get('/api/hr/grievances/:id/events',grievanceRoles,async(req,res)=>{
+  const g=await row(pool,'hr_grievances',req.params.id,false);await scope(req,g.org_unit_id);
+  const ethics=req.departmentAuth.roles.some(r=>r.role==='ETHICS_OFFICER');
+  if((g.escalation_route==='INDEPENDENT')!==ethics||g.case_assignee_id!==req.auth.userId)throw fail('Only the assigned handler may read this case work log.',403);
+  const clear=await pool.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CLEAR'",[g.id,req.auth.userId]);if(!clear.rowCount)throw fail('Conflict clearance is required before reading the investigation log.',403);
+  res.json((await pool.query('SELECT id,event_type,note,actor_id,visible_to_reporter,created_at FROM hr_grievance_events WHERE grievance_id=$1 ORDER BY created_at',[g.id])).rows);
+ });
+ post('/api/hr/grievances/:id/advance',grievanceRoles,async(db,req)=>{
+  const g=await row(db,'hr_grievances',req.params.id);await scope(req,g.org_unit_id);
+  const ethics=req.departmentAuth.roles.some(r=>r.role==='ETHICS_OFFICER');
+  if((g.escalation_route==='INDEPENDENT')!==ethics||g.case_assignee_id!==req.auth.userId)throw fail('Only the assigned handler on the correct case route may advance this grievance.',403);
+  const clear=await db.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CLEAR'",[g.id,req.auth.userId]);if(!clear.rowCount)throw fail('Complete a clear conflict check before case action.',409);
+  const allowed={SUBMITTED:['ACKNOWLEDGED'],ACKNOWLEDGED:['UNDER_REVIEW'],UNDER_REVIEW:['RESOLVED'],APPEALED:['UNDER_REVIEW']}[g.status]||[];
   if(!allowed.includes(req.body.status))throw fail('This grievance cannot move to the selected stage.',409);
   const note=required(req.body.reason,'Procedural action note');
   await db.query('UPDATE hr_grievances SET status=$2,last_action_by=$3,last_action_note=$4,updated_at=now(),resolved_at=CASE WHEN $2=\'RESOLVED\' THEN now() WHEN $2=\'UNDER_REVIEW\' THEN NULL ELSE resolved_at END WHERE id=$1',[g.id,req.body.status,req.auth.userId,note]);
-  await audit(db,req,`hr.grievance.${req.body.status.toLowerCase()}`,'hr_grievance',g.id,{previousStatus:g.status});return {id:g.id};
- }))));
- app.post('/api/hr/grievances/:id/appeal',loadAuth,csrfRequired,route(async(req,res)=>res.json(await transaction(async db=>{
-  const g=await row(db,'hr_grievances',req.params.id);if(g.reporter_user_id!==req.auth.userId)throw fail('Only the employee who submitted this grievance may appeal it.',403);
-  if(g.status!=='RESOLVED')throw fail('Only a resolved grievance may be appealed.',409);
-  await db.query("UPDATE hr_grievances SET status='APPEALED',last_action_by=$2,last_action_note=$3,updated_at=now() WHERE id=$1",[g.id,req.auth.userId,required(req.body.reason,'Appeal reason')]);
-  await writeAudit(db,req.auth,'hr.grievance.appealed','hr_grievance',g.id,{orgUnitId:g.org_unit_id});return {id:g.id};
- }))));
+  await db.query('INSERT INTO hr_grievance_events(id,grievance_id,event_type,note,actor_id,visible_to_reporter) VALUES($1,$2,\'INVESTIGATION_NOTE\',$3,$4,true)',[randomUUID(),g.id,note,req.auth.userId]);
+  await writeAudit(db,req.auth,`hr.grievance.${req.body.status.toLowerCase()}`,'hr_grievance',g.id,{previousStatus:g.status});return {id:g.id};
+ });
+ app.post('/api/hr/grievances/:id/appeal',loadAuth,csrfRequired,route(async(req,res)=>{
+  const result=await transaction(async db=>{
+   const g=await row(db,'hr_grievances',req.params.id);if(g.reporter_user_id!==req.auth.userId)throw fail('Only the employee who submitted this grievance may appeal it.',403);
+   if(g.status!=='RESOLVED')throw fail('Only a resolved grievance may be appealed.',409);
+   const appealId=randomUUID(),reasonText=required(req.body.reason,'Appeal reason');
+   await db.query("INSERT INTO hr_grievance_appeals(id,grievance_id,submitted_by,original_decision_by,reason) VALUES($1,$2,$3,$4,$5)",[appealId,g.id,req.auth.userId,g.last_action_by,reasonText]);
+   await db.query("UPDATE hr_grievances SET status='APPEALED',last_action_by=$2,last_action_note='Appeal submitted for independent review.',updated_at=now() WHERE id=$1",[g.id,req.auth.userId]);
+   await writeAudit(db,req.auth,'hr.grievance.appealed','hr_grievance',g.id,{orgUnitId:g.org_unit_id});return {id:appealId};
+  });res.status(201).json(result);
+ }));
+ get('/api/hr/grievance-appeals',['ETHICS_OFFICER'],async(req,res)=>{
+  const limit=Math.min(100,Math.max(1,Number(req.query.limit)||25)),offset=Math.max(0,Number(req.query.offset)||0),q=String(req.query.q||'').slice(0,200),actor=req.auth.userId;
+  const where=`(assigned_to IS NULL OR assigned_to=$1) AND (status ILIKE $2 OR (assigned_to=$1 AND reason ILIKE $2))`;
+  const params=[actor,`%${q}%`];
+  const total=await pool.query(`SELECT count(*) FROM hr_grievance_appeals WHERE ${where}`,params);
+  const rows=await pool.query(`SELECT a.id,a.grievance_id,
+    CASE WHEN a.assigned_to=$1 THEN a.reason ELSE 'Unassigned appeal' END AS reason,
+    a.status,a.assigned_to,a.due_at,
+    CASE WHEN a.assigned_to=$1 THEN a.decision_note ELSE NULL END AS decision_note,
+    a.submitted_at,g.case_reference,g.acknowledgement_due_at AS grievance_acknowledgement_due_at,
+    g.resolution_due_at AS grievance_resolution_due_at
+    FROM hr_grievance_appeals a JOIN hr_grievances g ON g.id=a.grievance_id
+    WHERE (a.assigned_to IS NULL OR a.assigned_to=$1) AND (a.status ILIKE $2 OR (a.assigned_to=$1 AND a.reason ILIKE $2))
+    ORDER BY a.submitted_at DESC LIMIT $3 OFFSET $4`,[...params,limit,offset]);
+  res.json({rows:rows.rows,total:Number(total.rows[0].count),limit,offset});
+ });
+ post('/api/hr/grievance-appeals/:id/assign',['ETHICS_OFFICER'],async(db,req)=>{
+  const a=await row(db,'hr_grievance_appeals',req.params.id),g=await row(db,'hr_grievances',a.grievance_id);
+  if(a.status!=='SUBMITTED')throw fail('Only a submitted appeal can be assigned.',409);
+  const target=await db.query("SELECT 1 FROM users u JOIN user_roles r ON r.user_id=u.id WHERE u.id=$1 AND r.role='ETHICS_OFFICER' AND r.org_unit_id IS NULL AND u.disabled_at IS NULL",[idValue(req.body.handlerId)]);if(!target.rowCount)throw fail('Select an active organization-wide ethics officer.');
+  if(req.body.handlerId===a.submitted_by||req.body.handlerId===a.original_decision_by||req.body.handlerId===req.auth.userId)throw fail('The appellant, original decision-maker, or assigning officer cannot review this appeal.',403);
+  if(req.body.handlerId===g.case_assignee_id)throw fail('The original grievance handler cannot review its appeal.',403);
+  if((await db.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CONFLICT'",[g.id,req.body.handlerId])).rowCount)throw fail('This reviewer previously disclosed a conflict and cannot be assigned.',409);
+  const due=await db.query("SELECT resolution_days FROM hr_grievance_sla_settings WHERE status='ACTIVE'");
+  await db.query("UPDATE hr_grievance_appeals SET assigned_to=$2,assigned_by=$3,due_at=CASE WHEN $4::int IS NULL THEN NULL ELSE now()+make_interval(days=>$4) END,status='UNDER_REVIEW' WHERE id=$1",[a.id,req.body.handlerId,req.auth.userId,due.rows[0]?.resolution_days??null]);
+  await writeAudit(db,req.auth,'hr.grievance.appeal_assigned','hr_grievance',g.id,{appealId:a.id,assigneeId:req.body.handlerId});
+  return {id:a.id};
+ });
+ post('/api/hr/grievance-appeals/:id/conflict-check',['ETHICS_OFFICER'],async(db,req)=>{
+  const a=await row(db,'hr_grievance_appeals',req.params.id),g=await row(db,'hr_grievances',a.grievance_id);
+  if(a.assigned_to!==req.auth.userId)throw fail('Only the assigned appeal reviewer can declare a conflict.',403);
+  if(!['CLEAR','CONFLICT'].includes(req.body.result))throw fail('Select CLEAR or CONFLICT.');
+  await db.query(`INSERT INTO hr_grievance_conflict_checks(id,grievance_id,handler_id,result,note) VALUES($1,$2,$3,$4,$5)
+   ON CONFLICT(grievance_id,handler_id) DO UPDATE SET result=$4,note=$5,checked_at=now()`,[randomUUID(),g.id,req.auth.userId,req.body.result,required(req.body.reason,'Appeal conflict declaration')]);
+  if(req.body.result==='CONFLICT')await db.query("UPDATE hr_grievance_appeals SET assigned_to=NULL,assigned_by=NULL,status='SUBMITTED' WHERE id=$1",[a.id]);
+  await writeAudit(db,req.auth,`hr.grievance.appeal_conflict_${req.body.result.toLowerCase()}`,'hr_grievance',g.id,{handlerId:req.auth.userId});return {id:a.id,result:req.body.result};
+ });
+ post('/api/hr/grievance-appeals/:id/decide',['ETHICS_OFFICER'],async(db,req)=>{
+  const a=await row(db,'hr_grievance_appeals',req.params.id),g=await row(db,'hr_grievances',a.grievance_id);if(a.status!=='UNDER_REVIEW'||a.assigned_to!==req.auth.userId)throw fail('Only the assigned appeal reviewer may decide this appeal.',403);
+  checker(req,a.submitted_by);if(a.original_decision_by)checker(req,a.original_decision_by);
+  if(!(await db.query("SELECT 1 FROM hr_grievance_conflict_checks WHERE grievance_id=$1 AND handler_id=$2 AND result='CLEAR'",[g.id,req.auth.userId])).rowCount)throw fail('Complete a clear appeal conflict check before deciding.',409);
+  if(!['UPHELD','VARIED','REMANDED'].includes(req.body.status))throw fail('Select an appeal outcome.');
+  const note=required(req.body.reason,'Appeal decision and grounds');
+  await db.query('UPDATE hr_grievance_appeals SET status=$2,decision_note=$3,decided_by=$4,decided_at=now() WHERE id=$1',[a.id,req.body.status,note,req.auth.userId]);
+  const next=req.body.status==='REMANDED'?'APPEALED':'CLOSED';
+  await db.query('UPDATE hr_grievances SET status=$2,last_action_by=$3,last_action_note=$4,updated_at=now() WHERE id=$1',[g.id,next,req.auth.userId,'Independent appeal outcome recorded.']);
+  await db.query('INSERT INTO hr_grievance_events(id,grievance_id,event_type,note,actor_id,visible_to_reporter) VALUES($1,$2,\'APPEAL_DECIDED\',$3,$4,true)',[randomUUID(),g.id,note,req.auth.userId]);
+  await writeAudit(db,req.auth,'hr.grievance.appeal_decided','hr_grievance',g.id,{outcome:req.body.status});return {id:a.id};
+ });
 
  // Succession planning is restricted to leadership and records readiness actions,
  // not a promise or automatic appointment.
@@ -722,11 +1034,12 @@ export function registerDepartments(app,deps){
  });
 
  // Training needs originate in documented performance, supervision, workforce or policy gaps.
- get('/api/hr/training/needs',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_needs_directory',['staff_number','employee_name','competency','assessment_source','priority','status','program_title','office_name']));
+ get('/api/hr/training/needs',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_training_needs_directory',['staff_number','employee_name','competency','competency_code','assessment_source','priority','status','program_title','office_name']));
  post('/api/hr/training/needs',DEPARTMENT_ROLES.hr,async(db,req)=>{
   const b=req.body,e=await row(db,'hr_employees',b.employeeId);await scope(req,e.org_unit_id);if(e.status!=='ACTIVE')throw fail('Training needs can only be created for active employees.');
+  const competency=b.competencyId?await row(db,'hr_competencies',b.competencyId,false):null;if(competency&&competency.status!=='ACTIVE')throw fail('Select an active competency.');
   if(!['PERFORMANCE_REVIEW','SUPERVISOR_ASSESSMENT','WORKFORCE_PLAN','COMPLIANCE_REQUIREMENT','EMPLOYEE_REQUEST','OTHER'].includes(b.assessmentSource)||!['LOW','MEDIUM','HIGH','CRITICAL'].includes(b.priority))throw fail('Select a valid assessment source and priority.');
-  const id=randomUUID();await db.query('INSERT INTO hr_training_needs(id,employee_id,org_unit_id,competency,current_level,required_level,assessment_source,priority,rationale,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,e.id,e.org_unit_id,required(b.competency,'Competency',160),required(b.currentLevel,'Current skill level',300),required(b.requiredLevel,'Required skill level',300),b.assessmentSource,b.priority,required(b.rationale,'Evidence and rationale'),req.auth.userId]);
+  const id=randomUUID();await db.query('INSERT INTO hr_training_needs(id,employee_id,org_unit_id,competency,competency_id,current_level,required_level,assessment_source,priority,rationale,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[id,e.id,e.org_unit_id,competency?.name||required(b.competency,'Competency',160),competency?.id||null,required(b.currentLevel,'Current skill level',300),required(b.requiredLevel,'Required skill level',300),b.assessmentSource,b.priority,required(b.rationale,'Evidence and rationale'),req.auth.userId]);
   await audit(db,req,'hr.training_need.identified','training_need',id,{employeeId:e.id,priority:b.priority,source:b.assessmentSource});return {id};
  });
  post('/api/hr/training/needs/:id/decide',DEPARTMENT_ROLES.hr,async(db,req)=>{
@@ -751,7 +1064,7 @@ export function registerDepartments(app,deps){
  });
 
  // Configurable compliance records only express requirements approved and entered by FDA.
- get('/api/hr/policies',DEPARTMENT_ROLES.hr,async(_req,res)=>res.json((await pool.query('SELECT * FROM hr_employment_policies ORDER BY policy_code,version DESC')).rows));
+ get('/api/hr/policies',DEPARTMENT_ROLES.hr,(req,res)=>list(req,res,'hr_employment_policies',['policy_code','title','category','authority_reference','status'],'',''));
  post('/api/hr/policies',DEPARTMENT_ROLES.hr,async(db,req)=>{
   const b=req.body,version=numeric(b.version,1,100);if(!Number.isInteger(version))throw fail('Policy version must be a whole number.');
   if(!['RECRUITMENT','EMPLOYMENT_TERMS','LEAVE','ATTENDANCE','PAYROLL','SAFEGUARDING','EQUALITY','DATA_PROTECTION','PERFORMANCE','TRAINING','OTHER'].includes(b.category))throw fail('Select a policy category.');
