@@ -97,7 +97,7 @@ export const SecurePortal:React.FC=()=>{
   },[]);
 
   useEffect(()=>{void refresh();},[refresh]);
-  useEffect(()=>{if(!staffSections(roles.map(r=>r.role)).some(s=>s.id===section))setSection('overview');},[roles,section]);
+  useEffect(()=>{if(section!=='support'&&!staffSections(roles.map(r=>r.role)).some(s=>s.id===section))setSection('overview');},[roles,section]);
   useEffect(()=>{if(section==='audit')void api<Record<string,string>[]>('/api/audit-events').then(setAudit).catch(e=>setError(e.message));},[section]);
 
   const submitLogin=async(event:FormEvent)=>{
