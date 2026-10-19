@@ -6,6 +6,16 @@ type AnalyticsSection = { key: string; title: string; description: string; metri
 type Summary = { asOf: string; scope: string; sections: AnalyticsSection[] };
 type Api = <T=unknown>(path: string, options?: RequestInit) => Promise<T>;
 
+function CountChart({ metrics }: { metrics: Measure[] }) {
+  const values=metrics.filter((item):item is Measure & {value:number}=>typeof item.value==='number');
+  if(!values.length)return <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">No count-based measures are available to chart for this area. Financial amounts remain separated by currency in the report.</div>;
+  const max=Math.max(...values.map(item=>item.value),1);
+  return <figure className="rounded-lg border border-slate-200 bg-white p-4" aria-label="Bar chart of current operational counts">
+    <figcaption className="mb-4"><h4 className="font-semibold text-slate-900">Current operational counts</h4><p className="mt-1 text-xs text-slate-500">Live record counts by measure. Bars share a scale within this work area; they do not represent targets or performance ratings.</p></figcaption>
+    <div className="space-y-3">{values.map(item=><div key={item.label} className="grid grid-cols-[minmax(9rem,1fr)_minmax(8rem,2fr)_3rem] items-center gap-3 text-xs"><span className="truncate text-slate-700" title={item.label}>{item.label}</span><span className="h-3 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-emerald-700" style={{width:`${Math.max(item.value===0?0:2,item.value/max*100)}%`}}/></span><strong className="text-right tabular-nums text-slate-900">{item.value.toLocaleString()}</strong></div>)}</div>
+  </figure>;
+}
+
 export function AnalyticsWorkspace({ api }: { api: Api }) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +54,7 @@ export function AnalyticsWorkspace({ api }: { api: Api }) {
     {loading && !summary && <div className="rounded-xl border bg-white p-8 text-center text-sm text-slate-600">Loading current database measures…</div>}
     {summary?.sections.map(group => <section key={group.key} aria-labelledby={`analytics-${group.key}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-100 px-5 py-4"><h3 id={`analytics-${group.key}`} className="font-bold text-slate-900">{group.title}</h3><p className="mt-1 text-sm text-slate-600">{group.description}</p></div>
-      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">{group.metrics.map(measure => <article key={measure.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+      <div className="p-4"><CountChart metrics={group.metrics}/></div>\n      <div className="grid gap-3 p-4 pt-0 sm:grid-cols-2 xl:grid-cols-3">{group.metrics.map(measure => <article key={measure.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{measure.label}</p>
         <p className="mt-2 break-words text-2xl font-bold tabular-nums text-slate-950">{measure.value === null ? 'Not available' : measure.value}</p>
         {measure.note && <p className="mt-2 text-xs leading-relaxed text-slate-500">{measure.note}</p>}
