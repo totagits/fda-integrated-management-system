@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { parseMinorUnits } from './domain.js';
 import { deliverIdentityInvitation, issueIdentityInvitation, makeUnusablePasswordHash } from './identity-invitations.js';
-
 export const DEPARTMENT_PERMISSIONS = {
   financeWrite: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR'],
   procurement: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR', 'PROCUREMENT_OFFICER', 'COUNTY_OFFICER', 'INTERNAL_AUDITOR'],
@@ -10,7 +9,7 @@ export const DEPARTMENT_PERMISSIONS = {
   assets: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR', 'PROCUREMENT_OFFICER', 'ASSET_OFFICER', 'COUNTY_OFFICER', 'INTERNAL_AUDITOR'],
   assetWrite: ['MANAGING_DIRECTOR', 'ASSET_OFFICER', 'COUNTY_OFFICER'],
 };
-
+export const DEPARTMENT_ROLES = DEPARTMENT_PERMISSIONS;
 export const DEPARTMENT_ROLES = DEPARTMENT_PERMISSIONS;
 export const required=(value,label,max=2000)=>{if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw fail(`${label} is required (maximum ${max} characters).`);return value.trim();};
 export const idValue=(v)=>{if(typeof v!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v))throw fail('Select a valid record.');return v;};
