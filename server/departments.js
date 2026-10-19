@@ -10,6 +10,8 @@ export const DEPARTMENT_PERMISSIONS = {
   assets: ['MANAGING_DIRECTOR', 'FINANCE_DIRECTOR', 'PROCUREMENT_OFFICER', 'ASSET_OFFICER', 'COUNTY_OFFICER', 'INTERNAL_AUDITOR'],
   assetWrite: ['MANAGING_DIRECTOR', 'ASSET_OFFICER', 'COUNTY_OFFICER'],
 };
+
+export const DEPARTMENT_ROLES = DEPARTMENT_PERMISSIONS;
 export const required=(value,label,max=2000)=>{if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw fail(`${label} is required (maximum ${max} characters).`);return value.trim();};
 export const idValue=(v)=>{if(typeof v!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v))throw fail('Select a valid record.');return v;};
 export const dateValue=(v)=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw fail('Enter a valid date.');return v;};
