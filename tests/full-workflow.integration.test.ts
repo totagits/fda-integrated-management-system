@@ -23,7 +23,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql','020_asset_governance_extensions.sql','021_finance_budget_revisions.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql','020_asset_governance_extensions.sql','021_finance_budget_revisions.sql','022_finance_operations.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);testPassword=password;
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice],['FIELD_ASSET_OFFICER',otherOffice]]){
@@ -438,3 +438,40 @@ it('requires verified supplier registration, current certificates and FDA approv
  expect((await bidderCall(`/api/bidders/opportunities/${secondTender.id}/submissions`,{submissionKind:'RFP'})).status).toBe(403);
  const audit=await query("SELECT action FROM audit_events WHERE entity_type='bidder_submission' AND entity_id=$1",[draft.data.id]);expect(audit.rows.map((r:any)=>r.action)).toContain('bidder.submission_received');
 });
+
+it('runs grant receivable, advance retirement, finance policy, FX and statement workflows with independent review',async()=>{
+ const finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR',staff='COUNTY_OFFICER';
+ const grant=await ok(finance,'/api/finance/grants',{reference:'GRANT-OPS-1',orgUnitId:office,funder:'Test development partner',projectCode:'TEST-PROJECT',title:'County forestry support',currency:'USD',awardAmount:'2000',startDate:'2026-01-01',endDate:'2026-12-31',restrictedPurpose:'Field conservation support'});
+ await ok(finance,`/api/finance/grants/${grant.id}/submit`,{});
+ await ok(md,`/api/finance/grants/${grant.id}/decide`,{status:'APPROVED',reason:'Award agreement reference GA-TEST-1 reviewed'});
+ const receivable=await ok(finance,'/api/finance/receivables',{reference:'AR-GRANT-1',orgUnitId:office,grantId:grant.id,payer:'Test development partner',description:'First approved project drawdown',currency:'USD',amount:'500',dueDate:'2026-11-01'});
+ await ok(finance,`/api/finance/receivables/${receivable.id}/submit`,{});
+ await ok(md,`/api/finance/receivables/${receivable.id}/decide`,{status:'APPROVED',reason:'Grant drawdown schedule reference DS-1'});
+ const receipt=await ok(finance,`/api/finance/receivables/${receivable.id}/receipts`,{reference:'RCPT-AR-1',amount:'250',receivedDate:'2026-10-19',evidenceReference:'Deposit advice DA-1'});
+ const bank=await ok(finance,'/api/finance/accounts',{code:`10${randomUUID().slice(0,2)}`,name:'Test reconciled bank',accountType:'ASSET'});
+ const statementId=randomUUID(),lineId=randomUUID();await query("INSERT INTO bank_statements(id,reference,org_unit_id,account_id,currency,start_date,end_date,opening_minor,closing_minor,status,created_by,reconciled_by,reconciled_at) VALUES($1,'AR-RECON-1',$2,$3,'USD','2026-10-01','2026-10-19',0,25000,'RECONCILED',$4,$4,now())",[statementId,office,bank.id,accounts[finance].id]);
+ await query("INSERT INTO bank_statement_lines(id,statement_id,entry_date,reference,amount_minor) VALUES($1,$2,'2026-10-19','AR-CREDIT-1',25000)",[lineId,statementId]);
+ const verified=await ok(md,`/api/finance/receivable-receipts/${receipt.id}/verify`,{bankStatementLineId:lineId,reason:'Matched to reconciled bank statement BS-AR-1'});expect(verified.receivableStatus).toBe('PARTIAL');
+ const advanced=await ok(staff,'/api/finance/advances',{reference:'ADV-OPS-1',orgUnitId:office,purpose:'County monitoring visit',currency:'USD',amount:'100',neededBy:'2026-10-25'});
+ const advanceEvidence=new FormData();advanceEvidence.set('file',new Blob(['Advance request supporting authorization'],{type:'text/plain'}),'advance.txt');expect((await call(staff,`/api/records/FINANCE_ADVANCE/${advanced.id}/attachments`,advanceEvidence)).status).toBe(201);
+ expect((await call('HR_DIRECTOR','/api/finance/advances',{reference:'ADV-HR',orgUnitId:office,purpose:'Cannot request outside assigned office',currency:'USD',amount:'1',neededBy:'2026-10-25'})).status).toBe(403);
+ await ok(staff,`/api/finance/advances/${advanced.id}/submit`,{});await ok(finance,`/api/finance/advances/${advanced.id}/decide`,{status:'APPROVED',reason:'Approved field travel authority reference TA-1'});
+ await ok(finance,`/api/finance/advances/${advanced.id}/record-disbursement`,{reference:'Cash voucher CV-1'});
+ await ok(staff,`/api/finance/advances/${advanced.id}/expenses`,{expenseDate:'2026-10-18',category:'Transport',description:'Field travel transport',amount:'90',evidenceReference:'Receipt T-1'});
+ await ok(staff,`/api/finance/advances/${advanced.id}/submit-retirement`,{note:'Travel completed with receipt attached'});
+ expect((await call(finance,`/api/finance/advances/${advanced.id}/retire`,{returnedAmount:'10',returnReference:'Cash receipt CR-1',reason:'Same approver cannot retire'})).status).toBe(403);
+ expect((await call(md,`/api/finance/advances/${advanced.id}/retire`,{returnedAmount:'9',reason:'Incorrect balance'})).status).toBe(422);
+ const retired=await ok(md,`/api/finance/advances/${advanced.id}/retire`,{returnedAmount:'10',returnReference:'Cash receipt CR-1',reason:'Receipts checked; unused balance returned under cash receipt CR-1'});expect(retired.status).toBe('RETIRED');expect(retired.journalPosted).toBe(false);
+ const policy=await ok(finance,'/api/finance/policies',{policyKey:'FDA_BUDGET_TEST',title:'Budget control configuration test',effectiveFrom:'2026-01-01',configuration:{overCommitment:'BLOCK'},evidenceReference:'FDA Finance Committee minute TEST-1'});
+ await ok(finance,`/api/finance/policies/${policy.id}/submit`,{});const policyDecision=await ok(md,`/api/finance/policies/${policy.id}/decide`,{status:'APPROVED',reason:'Approved test fixture authority reference'});expect(policyDecision.enforcement).toContain('not proof of legal compliance');
+ const rateA=await ok(finance,'/api/finance/fx-rates',{effectiveDate:'2026-09-30',lrdPerUsd:'190.000000',sourceName:'Approved test source',sourceReference:'FX publication 09-30'});await ok(md,`/api/finance/fx-rates/${rateA.id}/decide`,{status:'APPROVED',reason:'Rate source checked for integration test'});
+ const rateB=await ok(finance,'/api/finance/fx-rates',{effectiveDate:'2026-10-19',lrdPerUsd:'200.000000',sourceName:'Approved test source',sourceReference:'FX publication 10-19'});await ok(md,`/api/finance/fx-rates/${rateB.id}/decide`,{status:'APPROVED',reason:'Rate source checked for integration test'});
+ const preview=await ok(finance,'/api/finance/fx-revaluation-preview?asOf=2026-10-19');expect(preview.status).toBe('PREVIEW_ONLY');expect(preview.results.some((x:any)=>x.change_minor==='250000')).toBe(true);
+ const period=await ok(finance,'/api/finance/periods',{name:`FIN-OPS-${randomUUID().slice(0,6)}`,startDate:'2027-01-01',endDate:'2027-12-31'});
+ const packageResult=await ok(finance,'/api/finance/statements',{reference:'TB-OPS-1',orgUnitId:office,periodId:period.id,statementType:'TRIAL_BALANCE',currency:'USD',evidenceReference:'Test package; pending FDA format approval'});
+ const packageDecision=await ok(md,`/api/finance/statements/${packageResult.id}/decide`,{status:'APPROVED',reason:'Internal management review complete'});expect(packageDecision.note).toContain('does not certify');
+ const forecast=await ok(finance,'/api/finance/cash-forecast?days=45');expect(forecast.openingBalances.some((x:any)=>x.currency==='USD'&&x.opening_minor==='25000'),JSON.stringify(forecast.openingBalances)).toBe(true);expect(forecast.limitations[0]).toContain('No live bank feed');
+ const integrations=await ok(finance,'/api/finance/integration-readiness');expect(integrations.connections.every((x:any)=>x.status==='NOT_VERIFIED')).toBe(true);
+ expect((await call(staff,'/api/finance/cash-forecast')).status).toBe(403);
+ expect((await ok(finance,`/api/finance/receivables`)).find((x:any)=>x.id===receivable.id).status).toBe('PARTIAL');
+},30000);
