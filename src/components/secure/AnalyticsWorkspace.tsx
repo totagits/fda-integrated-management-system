@@ -54,7 +54,8 @@ export function AnalyticsWorkspace({ api }: { api: Api }) {
     {loading && !summary && <div className="rounded-xl border bg-white p-8 text-center text-sm text-slate-600">Loading current database measures…</div>}
     {summary?.sections.map(group => <section key={group.key} aria-labelledby={`analytics-${group.key}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-100 px-5 py-4"><h3 id={`analytics-${group.key}`} className="font-bold text-slate-900">{group.title}</h3><p className="mt-1 text-sm text-slate-600">{group.description}</p></div>
-      <div className="p-4"><CountChart metrics={group.metrics}/></div>\n      <div className="grid gap-3 p-4 pt-0 sm:grid-cols-2 xl:grid-cols-3">{group.metrics.map(measure => <article key={measure.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+      <div className="p-4"><CountChart metrics={group.metrics}/></div>
+      <div className="grid gap-3 p-4 pt-0 sm:grid-cols-2 xl:grid-cols-3">{group.metrics.map(measure => <article key={measure.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{measure.label}</p>
         <p className="mt-2 break-words text-2xl font-bold tabular-nums text-slate-950">{measure.value === null ? 'Not available' : measure.value}</p>
         {measure.note && <p className="mt-2 text-xs leading-relaxed text-slate-500">{measure.note}</p>}
