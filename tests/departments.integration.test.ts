@@ -17,7 +17,7 @@ async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
  for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
@@ -59,6 +59,15 @@ describe('HR records and employee self-service',()=>{
   expect((await request('/api/hr/analytics/summary',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
   const executive=await request('/api/hr/analytics/summary',undefined,'MANAGING_DIRECTOR');
   expect(executive.data.scope).toBe('FDA-wide');
+ });
+ it('tracks signed employment terms, prevents overlapping contracts, and requires independent closure',async()=>{
+  const contract=await request('/api/hr/contracts',{employeeId,contractReference:'CONTRACT-TEST-1',contractType:'FIXED_TERM',startDate:'2026-01-01',endDate:'2027-01-01',signedDocumentReference:'PERSONNEL-FILE/CONTRACT-1'});
+  expect(contract.status,contract.data.error).toBe(200);
+  expect((await request('/api/hr/contracts',{employeeId,contractReference:'CONTRACT-TEST-2',contractType:'FIXED_TERM',startDate:'2026-06-01',endDate:'2027-06-01',signedDocumentReference:'PERSONNEL-FILE/CONTRACT-2'})).status).toBe(409);
+  expect((await request('/api/hr/contracts',undefined,'COUNTY_OFFICER',employeeUser)).status).toBe(403);
+  expect((await request(`/api/hr/contracts/${contract.data.id}/end`,{reason:'Approved separation record SEP-1'})).status).toBe(403);
+  expect((await request(`/api/hr/contracts/${contract.data.id}/end`,{reason:'Approved separation record SEP-1'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/departments/employment_contract/${contract.data.id}/history`)).data).toHaveLength(2);
  });
  it('reserves entitlement, rejects overlap and self-approval, and preserves decisions',async()=>{
   const leave={employeeId,startDate:'2026-11-02',endDate:'2026-11-06',days:'5',reason:'Annual leave'};
