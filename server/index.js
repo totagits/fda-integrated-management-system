@@ -29,7 +29,23 @@ const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
   req.requestId = crypto.randomUUID();
@@ -789,12 +805,22 @@ app.post('/api/payments/:id/record', loadAuth, csrfRequired, guard('payment.reco
 app.get('/api/audit-events',loadAuth,guard('audit.read.all'),route(async(req,res)=>{
   const limit=Math.min(Math.max(Number(req.query.limit||50),1),200);
   const canReadConfidentialCases=req.auth.roles?.some(item=>['HR_DIRECTOR','MANAGING_DIRECTOR'].includes(item.role))||['HR_DIRECTOR','MANAGING_DIRECTOR'].includes(req.auth.role);
-  const result=await pool.query(`SELECT id,sequence,actor_id,actor_role,org_unit_id,action,entity_type,entity_id,request_id,event_data,previous_hash,event_hash,created_at FROM audit_events WHERE ($2::boolean OR entity_type<>'disciplinary_case') ORDER BY sequence DESC LIMIT $1`,[limit,Boolean(canReadConfidentialCases)]);
+  const result=await pool.query(`SELECT id,sequence,actor_id,actor_role,org_unit_id,action,entity_type,entity_id,request_id,event_data,previous_hash,event_hash,created_at FROM audit_events WHERE ($2::boolean OR entity_type<>'disciplinary_case') AND entity_type<>'hr_grievance' ORDER BY sequence DESC LIMIT $1`,[limit,Boolean(canReadConfidentialCases)]);
   res.json(result.rows);
 }));
 
 const allowedFiles={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.txt':'text/plain'};
 async function assertRecordAttachmentAccess(auth,type,id,capability) {
+  if(type==='GRIEVANCE'){
+    const found=await pool.query('SELECT id,org_unit_id,reporter_user_id,restricted_to_md FROM hr_grievances WHERE id=$1',[requireUuid(id,'Record')]);
+    if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});
+    const g=found.rows[0],reporter=g.reporter_user_id===auth.userId,isMd=auth.roles?.some(item=>item.role==='MANAGING_DIRECTOR')||auth.role==='MANAGING_DIRECTOR';
+    const isHr=auth.roles?.some(item=>item.role==='HR_DIRECTOR')||auth.role==='HR_DIRECTOR';
+    if(!reporter&&!(isMd||(!g.restricted_to_md&&isHr)))throw Object.assign(new Error('You do not have permission to access this confidential grievance.'),{status:403,code:'FORBIDDEN'});
+    if(!reporter)await assertOrgAccess(departmentAuth(auth,['HR_DIRECTOR','MANAGING_DIRECTOR']),g.org_unit_id);
+    if(capability.includes('write')&&!(reporter||isMd||(!g.restricted_to_md&&isHr)))throw Object.assign(new Error('You do not have permission to add grievance evidence.'),{status:403,code:'FORBIDDEN'});
+    return g;
+  }
   const extra={PAYROLL:['payroll_runs',capability.includes('write')?[...DEPARTMENT_ROLES.hr,...DEPARTMENT_ROLES.financeWrite]:[...DEPARTMENT_ROLES.hr,...DEPARTMENT_ROLES.finance]],STOCKTAKE:['stocktakes',capability.includes('write')?DEPARTMENT_ROLES.assetWrite:DEPARTMENT_ROLES.assets],DEPRECIATION:['depreciation_runs',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],BANK_STATEMENT:['bank_statements',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],EVALUATION:['bid_evaluations',capability.includes('write')?['MANAGING_DIRECTOR','PROCUREMENT_OFFICER']:DEPARTMENT_ROLES.procurement],PROCUREMENT_CONTRACT:['procurement_contracts',capability.includes('write')?['MANAGING_DIRECTOR','PROCUREMENT_OFFICER']:DEPARTMENT_ROLES.procurement],EMPLOYEE:['hr_employees',DEPARTMENT_ROLES.hr],LEAVE:['hr_leave_requests',DEPARTMENT_ROLES.hr],DISCIPLINARY:['hr_disciplinary_cases',['HR_DIRECTOR','MANAGING_DIRECTOR']],JOURNAL:['gl_journals',capability.includes('write')?DEPARTMENT_ROLES.financeWrite:DEPARTMENT_ROLES.finance],PROCUREMENT_PLAN:['procurement_plans',capability.includes('write')?DEPARTMENT_ROLES.planWrite:DEPARTMENT_ROLES.procurement]}[type];
   if(extra){const scoped=departmentAuth(auth,extra[1]);const found=await pool.query(`SELECT id,org_unit_id FROM ${extra[0]} WHERE id=$1`,[requireUuid(id,'Record')]);if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});await assertOrgAccess(scoped,found.rows[0].org_unit_id);return found.rows[0];}
   const table={REQUISITION:'requisitions',PURCHASE_ORDER:'purchase_orders',RECEIPT:'goods_receipts',INVOICE:'invoices',ASSET:'assets'}[type];

@@ -17,7 +17,7 @@ async function request(path:string,body?:unknown,role='HR_DIRECTOR',actor=maker,
  return {status:r.status,data:await r.json()};
 }
 beforeAll(async()=>{
- for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
+ for(const file of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql'])await db.exec(await readFile(new URL(`../server/migrations/${file}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'TEST','Test','COUNTY'),($2,'OTHER','Other','COUNTY')",[office,otherOffice]);
  for(const [id,email] of [[maker,'maker'],[checker,'checker'],[employeeUser,'employee']])await query('INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,\'unused\')',[id,`${email}@example.test`,email]);
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
@@ -152,6 +152,63 @@ describe('HR records and employee self-service',()=>{
   expect((await request(`/api/hr/disciplinary-cases/${c.data.id}/advance`,{status:'OPEN',reason:'Independent case intake check'},'HR_DIRECTOR',checker)).status).toBe(200);
   expect((await request(`/api/hr/disciplinary-cases/${c.data.id}/advance`,{status:'UNDER_REVIEW',reason:'Begin review'},'HR_DIRECTOR',checker)).status).toBe(403);
   expect((await request(`/api/departments/disciplinary_case/${c.data.id}/history`,undefined,'COUNTY_OFFICER',employeeUser)).status).toBe(403);
+ });
+ it('keeps employee grievances private and requires independent case actions',async()=>{
+  const restricted=await request('/api/hr/grievances',{category:'WORKPLACE_CONFLICT',subject:'Concern about a workplace matter',details:'Confidential report details',restrictedToMd:true},'COUNTY_OFFICER',employeeUser);
+  expect(restricted.status,restricted.data.error).toBe(201);
+  expect((await request('/api/hr/grievances',undefined,'HR_DIRECTOR')).data.total).toBe(0);
+  expect((await request('/api/hr/grievances',undefined,'MANAGING_DIRECTOR',checker)).data.total).toBe(1);
+  expect((await request(`/api/departments/grievance/${restricted.data.id}/history`,undefined,'HR_DIRECTOR')).status).toBe(403);
+  expect((await request(`/api/departments/grievance/${restricted.data.id}/history`,undefined,'MANAGING_DIRECTOR',checker)).status).toBe(200);
+  const regular=await request('/api/hr/grievances',{category:'OTHER',subject:'Team process concern',details:'Evidence and dates are recorded in the case file.',restrictedToMd:false},'COUNTY_OFFICER',employeeUser);
+  expect(regular.status,regular.data.error).toBe(201);
+  expect((await request('/api/hr/grievances',undefined,'HR_DIRECTOR')).data.total).toBe(1);
+  const id=regular.data.id;
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'ACKNOWLEDGED',reason:'Receipt confirmed'},'HR_DIRECTOR',employeeUser)).status).toBe(403);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'ACKNOWLEDGED',reason:'Receipt confirmed'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'UNDER_REVIEW',reason:'Assigned independent reviewer'},'HR_DIRECTOR',checker)).status).toBe(403);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'UNDER_REVIEW',reason:'Assigned independent reviewer'})).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/advance`,{status:'RESOLVED',reason:'Resolution record GRV-RES-1'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/grievances/${id}/appeal`,{reason:'I request a review of the resolution'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request('/api/hr/grievances',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
+ });
+ it('records succession plans and evidenced training needs with independently assessed impact',async()=>{
+  const pos=await request('/api/hr/positions',{orgUnitId:office,code:'POS-SUCCESSOR',title:'Critical continuity role',grade:'EX',capacity:1});
+  expect(pos.status,pos.data.error).toBe(200);
+  const plan=await request('/api/hr/succession/plans',{positionId:pos.data.id,reference:'SUCCESSION-1',criticality:'HIGH',continuityRisk:'Documented service continuity risk',requiredCompetencies:'Leadership, finance, and operational planning'});
+  expect(plan.status,plan.data.error).toBe(200);
+  expect((await request(`/api/hr/succession/plans/${plan.data.id}/decide`,{status:'ACTIVE',reason:'Approved continuity plan'})).status).toBe(403);
+  expect((await request(`/api/hr/succession/plans/${plan.data.id}/decide`,{status:'ACTIVE',reason:'Approved continuity plan'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const candidate=await request('/api/hr/succession/candidates',{planId:plan.data.id,employeeId,readiness:'WITHIN_1_2_YEARS',competencyGap:'Needs supervised leadership experience',developmentActions:'Assign documented acting responsibility and review in six months'});
+  expect(candidate.status,candidate.data.error).toBe(200);
+  expect((await request('/api/hr/succession/plans',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
+  const need=await request('/api/hr/training/needs',{employeeId,competency:'Data quality',currentLevel:'Completes routine updates with review',requiredLevel:'Independently validates monthly returns',assessmentSource:'SUPERVISOR_ASSESSMENT',priority:'HIGH',rationale:'Quarterly supervision identified repeat validation corrections.'});
+  expect(need.status,need.data.error).toBe(200);
+  expect((await request(`/api/hr/training/needs/${need.data.id}/decide`,{status:'APPROVED',reason:'Approved against competency evidence'})).status).toBe(403);
+  expect((await request(`/api/hr/training/needs/${need.data.id}/decide`,{status:'APPROVED',reason:'Approved against competency evidence'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const program=await request('/api/hr/training/programs',{code:'DATA-QUALITY',title:'Data quality practice',category:'Data',provider:'FDA',description:'Monthly return validation methods',startsOn:'2026-01-01',endsOn:'2027-12-31',capacity:5});
+  expect((await request(`/api/hr/training/programs/${program.data.id}/decide`,{status:'PUBLISHED',reason:'Approved course plan'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const enrollment=await request('/api/hr/training/enrollments',{programId:program.data.id,employeeId,learningObjective:'Independently validate monthly returns'});
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide`,{status:'APPROVED',reason:'Approved learning plan'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/training/needs/${need.data.id}/decide`,{status:'SCHEDULED',enrollmentId:enrollment.data.id,reason:'Linked to approved course'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/start`,{},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/complete`,{reason:'Course and practical assessment completed',certificateReference:'CERT-DATA-1'},'COUNTY_OFFICER',employeeUser)).status).toBe(200);
+  expect((await request(`/api/hr/training/enrollments/${enrollment.data.id}/decide-completion`,{status:'COMPLETED',reason:'Certificate checked'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const impactBody={enrollmentId:enrollment.data.id,measure:'Monthly report validation correction rate',baseline:'4 corrections per reporting cycle',observedResult:'1 correction per reporting cycle over two cycles',outcome:'IMPROVED',evaluationMethod:'Compare two pre-course and two post-course reviewed returns',evidenceReference:'QA-REVIEW-2027-01'};
+  const impact=await request('/api/hr/training/impact',impactBody);
+  expect(impact.status,impact.data.error).toBe(200);
+  expect((await request('/api/hr/training/impact',impactBody)).status).toBe(409);
+ });
+ it('versions configurable employment policies and independently reviews employee evidence',async()=>{
+  const policy=await request('/api/hr/policies',{policyCode:'FDA-LEAVE',version:1,title:'Leave evidence standard',category:'LEAVE',authorityReference:'FDA-approved leave policy, section 4',requirementsSummary:'Record leave evidence and supervisor approval in the employee file.',effectiveFrom:'2026-01-01',reviewDate:'2027-12-31'});
+  expect(policy.status,policy.data.error).toBe(200);
+  expect((await request(`/api/hr/policies/${policy.data.id}/decide`,{status:'ACTIVE',reason:'Approved policy instrument'})).status).toBe(403);
+  expect((await request(`/api/hr/policies/${policy.data.id}/decide`,{status:'ACTIVE',reason:'Approved policy instrument'},'HR_DIRECTOR',checker)).status).toBe(200);
+  const check=await request('/api/hr/policy-compliance',{policyId:policy.data.id,employeeId,dueDate:'2027-12-01'});
+  expect(check.status,check.data.error).toBe(200);
+  expect((await request(`/api/hr/policy-compliance/${check.data.id}/decide`,{status:'COMPLIANT',evidenceReference:'PERSONNEL-FILE/LEAVE-1',reason:'Evidence reviewed'})).status).toBe(403);
+  expect((await request(`/api/hr/policy-compliance/${check.data.id}/decide`,{status:'COMPLIANT',evidenceReference:'PERSONNEL-FILE/LEAVE-1',reason:'Evidence reviewed'},'HR_DIRECTOR',checker)).status).toBe(200);
+  expect((await request('/api/hr/policies',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
  });
 });
 describe('double-entry ledger controls',()=>{
