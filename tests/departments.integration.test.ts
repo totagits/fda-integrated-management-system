@@ -50,6 +50,16 @@ describe('HR records and employee self-service',()=>{
   const self=await request('/api/hr/self',undefined,'COUNTY_OFFICER',employeeUser);expect(self.data.employee.staff_number).toBe('TEST-EMP');
   const another=await request('/api/hr/self',undefined,'COUNTY_OFFICER',checker);expect(another.data.employee).toBeNull();
  });
+ it('provides scoped, database-derived workforce analytics only to HR leadership',async()=>{
+  const result=await request('/api/hr/analytics/summary');
+  expect(result.status,result.data.error).toBe(200);
+  expect(result.data.scope).toBe('assigned offices');
+  expect(result.data.workforce).toMatchObject({active:1,exited:0,authorizedPositions:1,filledPositions:1,fillRatePct:100});
+  expect(result.data.offices).toHaveLength(1);
+  expect((await request('/api/hr/analytics/summary',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
+  const executive=await request('/api/hr/analytics/summary',undefined,'MANAGING_DIRECTOR');
+  expect(executive.data.scope).toBe('FDA-wide');
+ });
  it('reserves entitlement, rejects overlap and self-approval, and preserves decisions',async()=>{
   const leave={employeeId,startDate:'2026-11-02',endDate:'2026-11-06',days:'5',reason:'Annual leave'};
   expect((await request('/api/hr/leave',leave,'COUNTY_OFFICER',employeeUser)).status).toBe(409);
