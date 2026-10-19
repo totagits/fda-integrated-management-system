@@ -8,7 +8,11 @@ The SMTP sender is implemented, but live email delivery is not verified until FD
 
 ## Latest enterprise increment
 
-See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for effective-dated payroll rules, sealed e-bidding, bid evaluation, bank reconciliation, stocktaking, depreciation, integration diagnostics, inventory replenishment and HR workflows. The current frontend build and 59 automated tests pass, including staged goods settlement and replenishment into the procurement requisition process. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Automated bank payment initiation and settlement verification remain unavailable. Payroll rules require formal FDA approval and year-to-date, eligibility and filing controls remain incomplete. Full production readiness is not claimed.
+See [ENTERPRISE_WORKFLOWS.md](ENTERPRISE_WORKFLOWS.md) for effective-dated payroll rules, sealed e-bidding, bid evaluation, bank reconciliation, stocktaking, depreciation, integration diagnostics, inventory replenishment and HR workflows. The current frontend build and 76 automated tests pass. External business integrations are not verified; the concrete prerequisites are in [INTEGRATION_ACCEPTANCE.md](INTEGRATION_ACCEPTANCE.md). Automated bank payment initiation and settlement verification remain unavailable. Payroll rules require formal FDA approval and year-to-date, eligibility and filing controls remain incomplete. Full production readiness is not claimed.
+
+## Asset governance increment — 19 October 2026
+
+Migration `020_asset_governance_extensions.sql` adds fleet and facilities records, service and inspection logs, linked insurance records with expiry queries, restricted asset loss investigations, versioned accounting-policy review, protected evidence permissions, field-device acceptance records, and disposal proceeds/gain-loss journal preparation. Disposal is finalized only after a separate finance officer confirms the journal has posted. The local build and isolated tests cover the implementation, including a gain calculation and ledger closeout. No live device has been tested, no real proceeds have been received/verified, no insurer or accounting-system integration has been confirmed, and no FDA accounting policy text has been supplied or approved here. The policy engine currently supports straight-line depreciation only; revaluation and impairment remain descriptive policy fields, not implemented postings.
 
 ## Earlier departmental release — 18 October 2026
 

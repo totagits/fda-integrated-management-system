@@ -41,7 +41,7 @@ HR transfers change the personnel establishment record. They do not silently alt
 ## Verification performed
 
 - Production frontend build passes.
-- 74 automated tests pass across 10 test files.
+- 76 automated tests pass across 10 test files.
 - PostgreSQL-compatible PGlite tests exercise the database migrations in isolated databases.
 - A full application-route test uses scrypt login, session cookies and CSRF, seven separate staff identities, the purchasing sequence through ledger posting, and private evidence upload/download.
 - Negative tests include anonymous/wrong-role access, office scope, CSRF, position capacity, leave overuse/overlap, self-approval, stale edits, unbalanced entries, closed periods, duplicate conversion/posting, pending transfers, and audit immutability.
@@ -59,7 +59,21 @@ Migration `019_asset_lifecycle_controls.sql` adds the following database-backed 
 - Stocktakes can record unregistered items found in the field. An independent asset officer or Managing Director must review each finding; unresolved findings block stocktake certification. A finding can be registered with valuation evidence or closed with an investigation reason.
 - Field users can scan supported QR/barcodes with a device camera, print Code 39 asset labels, and capture counts offline. Offline counts are stored on that browser/device and are clearly marked pending until they sync to the server; they are not official count records while offline.
 
-These workflows are covered by isolated route tests. The offline queue and camera scanning still require device/browser acceptance testing with FDA field hardware, and label printing requires a trial with FDA-selected label stock and scanners.
+These workflows are covered by isolated route tests. The offline queue and camera scanning still require device/browser acceptance testing with FDA field hardware, and label printing requires a trial with FDA-selected label stock and scanners. The new field-device acceptance screen is ready to record that work, but no live device acceptance has been performed by this code change.
+
+## Fleet, facilities and asset governance increment — 19 October 2026
+
+Migration `020_asset_governance_extensions.sql` adds:
+
+- Office-scoped fleet and facilities registers, optionally linked to the fixed-asset register. Fleet records track registration/VIN, driver or custodian, odometer, fuel type, roadworthiness date, and service history. Service work must be independently closed. Facility records track tenure, lease/title reference, condition, inspections and next review date.
+- Insurance policies for a fixed asset, vehicle or facility, with date-based expiry/overdue queries. The register stores evidence references; it does not verify coverage with insurers or an external authority.
+- Linked insurance-claim workflow records submission, independent internal review, insurer settlement advice/evidence and case closure. It verifies policy/item/incident links and the covered date range. It does not contact the insurer or verify that claimed funds reached a bank account.
+- Restricted loss/theft/damage cases with one affected record, office scope, independent investigator assignment, conflict declaration, due date, findings, resolution, claim reference and separate management closure. Case evidence can be uploaded to protected storage with role and office checks. The narrative is limited to management, asset investigators and internal audit.
+- Disposal proceeds recording and a balanced general-ledger draft that removes asset cost and posted accumulated depreciation, debits proceeds/receivable, and recognizes gain or loss against carrying value. The asset remains active until the journal is posted and a separate finance completion step closes it. This records accounting; it does not initiate or verify a bank payment or sale proceeds receipt.
+- Versioned accounting-policy proposals with effective dates, capitalization threshold, useful-life default and written residual, impairment, revaluation and disposal treatments. Finance or the Managing Director must independently approve. Straight-line depreciation is the only executable method today; the text fields do not implement revaluation or impairment accounting. A workflow decision does not prove that FDA has supplied or approved the underlying policy.
+- A field-device acceptance register for identified phones, tablets and scanners. Testers record OS/browser/application build, network profile, evidence and eight checks (QR, barcode, offline capture, reconnection sync, office permissions, protected evidence, session control and audit event); a different authorized officer accepts or rejects the result. This is a supervised test-recording workflow, not a device certification. The tests below use simulated records, not FDA field hardware.
+
+Assets, fleet, facilities, insurance, claim, case, policy and device records retain audit history. Protected evidence type access is enforced by server route and office scope. Automated tests include office-scope denial for a confidential case attachment, incident investigation and insurance-claim stages, fleet service closeout, insurance expiry alert query, independent policy decision, device acceptance review, and disposal gain calculation and posting.
 
 ## Requirements still open
 
@@ -70,7 +84,7 @@ The requested full enterprise scope is **not complete**. Remaining work is track
 | HR | Recruitment/applicant lifecycle, onboarding task plans, attendance and biometric interfaces, performance cycles, training, confidential disciplinary cases, payroll calculations and reconciliation, payslips and approved payroll-to-ledger posting; other leave types and FDA calendar/policy configuration |
 | Finance | AP/AR subledgers, external bank settlement, advances/retirement, full financial statements, payroll filing/payments, budget revisions and delegated approval thresholds; accountant-approved chart and reporting structure |
 | Procurement | FDA/PPCC-approved sourcing rules, externally verified e-GP workflow, formal award publication, contract amendments and supplier performance |
-| Assets | Fleet and facilities registers; insurance coverage; formal loss/damage incidents; approved disposal sale/auction/donation/recycling execution, proceeds and gain/loss accounting; FDA-approved capitalization and depreciation policies including revaluation/impairment; replacement planning and inventory valuation policy |
+| Assets | Live validation using FDA fleet/property/insurance registers; external insurer verification; verified proceeds receipts and bank settlement; FDA-approved accounting-policy content; impairment/revaluation methods and journals; write-off/disposal committee rules; fleet fuel/driver operations; replacement planning and inventory valuation policy |
 | Operations | Full role-specific work queues, reporting across all modules, controlled offline synchronization, concurrency and load assurance |
 | Production assurance | External independent audit storage, offsite backup/restore drill, alert delivery, recovery rehearsal, MFA/identity-provider and account recovery, security/accessibility assessment, verified FDA integrations |
 

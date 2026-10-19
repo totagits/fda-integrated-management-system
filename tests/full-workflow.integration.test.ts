@@ -23,7 +23,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql','020_asset_governance_extensions.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);testPassword=password;
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice],['FIELD_ASSET_OFFICER',otherOffice]]){
@@ -269,6 +269,50 @@ it('lets the MD appoint HR and IT Directors, limits other account provisioning t
  const accepted=await call('anonymous','/api/auth/accept-invitation',{token:latestToken,password:'A-different-private-password-2026!'},false);expect(accepted.status).toBe(200);
  const staffHash=await query('SELECT password_hash FROM users WHERE email=$1',['new.employee@example.test']);expect(await verifyPassword('A-different-private-password-2026!',staffHash.rows[0].password_hash)).toBe(true);
  const loginState=await ok('HR_DIRECTOR','/api/hr/employees?limit=25&offset=0&q=ONBOARD-EMP-1');expect(loginState.rows[0].login_status).toBe('ACTIVE');
+});
+
+it('records fleet, facilities, insurance, restricted loss investigations, policy approval and field-device acceptance',async()=>{
+ const md='MANAGING_DIRECTOR',asset='ASSET_OFFICER',county='COUNTY_OFFICER';
+ const vehicle=await ok(asset,'/api/fleet/vehicles',{orgUnitId:office,vehicleCode:'FLEET-ACCEPT-01',registrationNumber:'GOV-TEST-01',vin:'VIN-TEST-01',make:'Test Motors',model:'Field 4x4',modelYear:2024,location:'HQ motor pool',odometerKm:12000,fuelType:'Diesel',roadworthinessExpiresOn:'2027-10-01'});
+ const service=await ok(asset,`/api/fleet/vehicles/${vehicle.id}/service`,{serviceType:'PREVENTIVE',description:'Scheduled service and roadworthiness inspection',provider:'Test Garage',odometerKm:12000,nextServiceOn:'2027-01-19',evidenceReference:'GARAGE-WORK-01'});
+ await ok(md,`/api/fleet/service/${service.id}/complete`,{cost:'125',currency:'USD',completedOn:'2026-10-19',nextServiceOn:'2027-01-19',evidenceReference:'GARAGE-INV-01'});
+ const facility=await ok(asset,'/api/facilities',{orgUnitId:office,facilityCode:'FAC-TEST-01',facilityType:'WAREHOUSE',name:'HQ test store',address:'Monrovia test site',tenure:'OWNED',referenceNumber:'TITLE-TEST-1',condition:'GOOD',nextInspectionOn:'2027-04-01',evidenceReference:'TITLE-REF-1'});
+ await ok(asset,`/api/facilities/${facility.id}/inspection`,{inspectionDate:'2026-10-19',condition:'FAIR',findings:'Roof inspection recorded',actionsRequired:'Repair gutter',nextInspectionOn:'2027-01-01',evidenceReference:'FAC-INSP-1'});
+ const policy=await ok(asset,'/api/assets/insurance',{orgUnitId:office,vehicleId:vehicle.id,insurer:'Test Mutual',policyNumber:'POL-FLEET-1',coverageType:'Comprehensive motor',insuredValue:'25000',currency:'USD',startsOn:'2026-01-01',expiresOn:'2026-11-01',evidenceReference:'POLICY-DOC-1'});
+ expect((await ok(asset,'/api/assets/insurance/alerts?days=45')).some((r:any)=>r.id===policy.id)).toBe(true);
+ const incident=await ok(county,'/api/assets/incidents',{orgUnitId:office,vehicleId:vehicle.id,caseReference:'LOSS-TEST-01',incidentType:'DAMAGE',occurredOn:'2026-10-18',severity:'MEDIUM',narrative:'Restricted test damage report'});
+ expect((await call(county,'/api/assets/incidents')).status).toBe(403);
+ await ok(md,`/api/assets/incidents/${incident.id}/assign`,{investigatorId:accounts.ASSET_OFFICER.id,dueOn:'2026-11-01'});
+ await ok(asset,`/api/assets/incidents/${incident.id}/conflict-check`,{result:'CLEAR',reason:'No personal or financial interest identified'});
+ await ok(asset,`/api/assets/incidents/${incident.id}/findings`,{status:'RESOLVED',findings:'Repair quote and scene review recorded',resolution:'Repair under approved maintenance plan',claimReference:'CLAIM-TEST-1'});
+ const incidentEvidence=new FormData();incidentEvidence.set('file',new Blob(['Restricted asset investigation evidence'],{type:'text/plain'}),'incident.txt');
+ const evidence=await ok(asset,`/api/records/ASSET_INCIDENT/${incident.id}/attachments`,incidentEvidence);expect((await call('FIELD_ASSET_OFFICER',`/api/attachments/${evidence.id}`)).status).toBe(403);
+ await ok(md,`/api/assets/incidents/${incident.id}/close`,{reason:'Independent review completed'});
+ const claim=await ok(asset,'/api/assets/insurance-claims',{policyId:policy.id,incidentId:incident.id,claimReference:'CLAIM-SUBMISSION-01',amount:'200',summary:'Repair costs supported by inspection quote',evidenceReference:'CLAIM-FILE-01'});
+ await ok(md,`/api/assets/insurance-claims/${claim.id}/decide`,{status:'APPROVED',reason:'Internal authorization to submit claim to insurer'});
+ await ok('FINANCE_DIRECTOR',`/api/assets/insurance-claims/${claim.id}/record-settlement`,{amount:'150',settlementReference:'INSURER-ADVICE-01',evidenceReference:'SETTLEMENT-LETTER-01'});
+ await ok(md,`/api/assets/insurance-claims/${claim.id}/close`,{reason:'Settlement advice recorded; bank receipt to be reconciled separately'});
+ const accounting=await ok('FINANCE_DIRECTOR','/api/assets/accounting-policies',{policyCode:'FDA-ASSET-TEST',version:1,title:'Test fixed asset accounting policy',effectiveFrom:'2026-01-01',effectiveTo:'2026-12-31',depreciationMethod:'STRAIGHT_LINE',capitalizationThreshold:'100',defaultUsefulMonths:60,residualValueBasis:'Documented estimate at acquisition',impairmentTreatment:'Review indicators quarterly',revaluationTreatment:'No revaluation unless authorized policy is approved',disposalTreatment:'Recognize proceeds less carrying value as gain or loss',authorityReference:'FDA policy review minute TEST-1',evidenceReference:'SIGNED-POLICY-TEST-1'});
+ expect((await call('FINANCE_DIRECTOR',`/api/assets/accounting-policies/${accounting.id}/decide`,{status:'APPROVED',reason:'Self-approval prohibited'})).status).toBe(403);
+ await ok(md,`/api/assets/accounting-policies/${accounting.id}/decide`,{status:'APPROVED',reason:'Second-person policy review recorded'});
+ const checks={qr_scan:true,barcode_scan:true,offline_capture:true,sync_after_reconnect:true,office_scope:true,protected_evidence:true,login_timeout:true,audit_event:true};
+ const device=await ok(asset,'/api/field-device-acceptance',{orgUnitId:office,reference:'DEVICE-UAT-TEST-1',deviceType:'ANDROID_TABLET',deviceMakeModel:'Rugged test tablet',deviceIdentifier:'FDA-TEST-DEVICE-01',osVersion:'Android test build',browserVersion:'Chrome test build',applicationVersion:'release-test-commit',networkProfile:'County 3G intermittent',checks,evidenceReference:'FIELD-TEST-REPORT-1'});
+ await ok(md,`/api/field-device-acceptance/${device.id}/decide`,{outcome:'ACCEPTED',reason:'Independent reviewer verified attached field report'});
+});
+
+it('posts disposal proceeds and gain/loss through the general ledger before retiring the asset',async()=>{
+ const asset='ASSET_OFFICER',finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR';
+ const record=await ok(asset,'/api/assets/register',{orgUnitId:office,assetTag:'DISPOSE-TEST-01',description:'Test disposal generator',category:'Generator',cost:'1000',currency:'USD',sourceReference:'Opening register test reference',location:'HQ stores',acquisitionType:'OPENING_BALANCE'});
+ const disposal=await ok(asset,`/api/assets/register/${record.id}/dispose`,{reason:'Retired after approved sale'});
+ await ok(md,`/api/assets/disposals/${disposal.id}/decide`,{status:'APPROVED',reason:'Sale authorized by independent reviewer'});
+ const cost=await ok(finance,'/api/finance/accounts',{code:'1531',name:'Test fixed asset cost',accountType:'ASSET'}),bank=await ok(finance,'/api/finance/accounts',{code:'1021',name:'Test disposal receivable',accountType:'ASSET'}),gain=await ok(finance,'/api/finance/accounts',{code:'4911',name:'Test asset disposal gain',accountType:'INCOME'});
+ const period=(await ok(finance,'/api/finance/periods')).find((p:any)=>p.status==='OPEN'&&p.start_date<='2026-10-20'&&p.end_date>='2026-10-20');
+ const prepared=await ok(finance,`/api/assets/disposals/${disposal.id}/settle`,{method:'SALE',proceeds:'1200',disposalDate:'2026-10-20',counterparty:'Test buyer',evidenceReference:'SALE-RECEIPT-TEST-1',periodId:period.id,entryDate:'2026-10-20',reference:'DISPOSAL-J-TEST-1',assetCostAccountId:cost.id,proceedsAccountId:bank.id,gainAccountId:gain.id});
+ expect(prepared.carryingMinor).toBe('100000');expect(prepared.gainLossMinor).toBe('20000');
+ expect((await ok(asset,'/api/assets/register')).rows.find((r:any)=>r.id===record.id).lifecycle_status).toBe('ACTIVE');
+ await ok(md,`/api/finance/journals/${prepared.journalId}/post`,{});
+ await ok(finance,`/api/assets/disposals/${disposal.id}/complete`,{reason:'Posted disposal accounting verified'});
+ expect((await ok(asset,'/api/assets/register')).rows.find((r:any)=>r.id===record.id).lifecycle_status).toBe('DISPOSED');
 });
 
 it('provides a searchable HR document vault with protected files and office-scoped access',async()=>{
