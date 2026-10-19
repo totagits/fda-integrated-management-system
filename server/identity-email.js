@@ -69,6 +69,32 @@ export async function sendIdentityInvitation({ email, fullName, role, token, exp
   return { sent: true };
 }
 
+export async function sendPasswordReset({ email, fullName, token, expiresAt }) {
+  if (!configured()) return { sent: false, reason: 'email_not_configured' };
+  const link = `${appBaseUrl()}/secure/reset-password?token=${encodeURIComponent(token)}`;
+  const safeName = escapeHtml(fullName);
+  const expiry = escapeHtml(new Date(expiresAt).toUTCString());
+  await deliverEmail({
+    to: email,
+    subject: 'Reset your FDA staff workspace password',
+    text: `Hello ${fullName},\n\nA password reset was requested for your FDA staff workspace account. Use this one-time link to choose a new password: ${link}\n\nThe link expires ${new Date(expiresAt).toUTCString()}. If you did not request this, ignore this email; your password has not changed.\n`,
+    html: `<p>Hello ${safeName},</p><p>A password reset was requested for your FDA staff workspace account.</p><p><a href="${escapeHtml(link)}">Choose a new password</a></p><p>This one-time link expires ${expiry}. If you did not request this, ignore this email; your password has not changed.</p>`,
+  });
+  return { sent: true };
+}
+
+export async function sendPasswordResetConfirmation({ email, fullName }) {
+  if (!configured()) return { sent: false, reason: 'email_not_configured' };
+  const safeName = escapeHtml(fullName);
+  await deliverEmail({
+    to: email,
+    subject: 'Your FDA staff workspace password was changed',
+    text: `Hello ${fullName},\n\nThe password for your FDA staff workspace account was changed. If you did not make this change, contact the FDA IT Director immediately.\n`,
+    html: `<p>Hello ${safeName},</p><p>The password for your FDA staff workspace account was changed.</p><p>If you did not make this change, contact the FDA IT Director immediately.</p>`,
+  });
+  return { sent: true };
+}
+
 export async function sendBidderVerification({ email, companyName, token, expiresAt }) {
   if (!configured()) return { sent: false, reason: 'email_not_configured' };
   const link = `${appBaseUrl()}/bidder/verify?token=${encodeURIComponent(token)}`;

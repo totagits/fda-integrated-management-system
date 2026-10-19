@@ -20,7 +20,7 @@ import { ROLE_CAPABILITIES, parseMinorUnits, requireCapability, canTransition } 
 import { hashPassword, verifyPassword } from './security.js';
 import { registerPublicPortal } from './public-portal.js';
 import { deliverIdentityInvitation, issueIdentityInvitation, makeUnusablePasswordHash } from './identity-invitations.js';
-import { identityEmailConfigured, invitationLinkIsConfigured } from './identity-email.js';
+import { identityEmailConfigured, invitationLinkIsConfigured, sendPasswordReset, sendPasswordResetConfirmation } from './identity-email.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
@@ -60,6 +60,8 @@ app.use((req, res, next) => {
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: process.env.NODE_ENV === 'test' ? 100 : 8, standardHeaders: 'draft-8', legacyHeaders: false });
 const invitationLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
+const passwordResetRequestLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: process.env.NODE_ENV === 'test' ? 100 : 5, standardHeaders: 'draft-8', legacyHeaders: false });
+const passwordResetCompleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: process.env.NODE_ENV === 'test' ? 100 : 8, standardHeaders: 'draft-8', legacyHeaders: false });
 
 async function deliverOutboxBatch() {
   const target=String(process.env.INTEGRATION_WEBHOOK_URL||'').trim();
@@ -303,6 +305,69 @@ app.post('/api/auth/login', loginLimiter, route(async (req, res) => {
   });
   setSessionCookies(res, session.token, csrf);
   res.json({ user: { id: user.id, email: user.email, fullName: user.full_name, mustChangePassword: user.must_change_password }, roles: assignments.rows.map((row) => ({ role: row.role, orgUnitId: row.org_unit_id })) });
+}));
+
+app.post('/api/auth/password-reset/request', passwordResetRequestLimiter, route(async (req, res) => {
+  ensureDb();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const generic = { message: 'If an active account uses that email address, a password reset link will be sent.' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(202).json(generic);
+  const issued = await transaction(async (client) => {
+    const found = await client.query(`SELECT id,email,full_name FROM users
+      WHERE email=$1 AND disabled_at IS NULL AND must_change_password=false FOR UPDATE`, [email]);
+    const user = found.rows[0];
+    if (!user) return null;
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = sha256(token);
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await client.query(`UPDATE password_reset_tokens SET revoked_at=now()
+      WHERE user_id=$1 AND used_at IS NULL AND revoked_at IS NULL`, [user.id]);
+    await client.query(`INSERT INTO password_reset_tokens(id,user_id,token_hash,expires_at)
+      VALUES($1,$2,$3,$4)`, [uuid(), user.id, tokenHash, expiresAt]);
+    await writeAudit(client, { userId: user.id, role: 'ACCOUNT_HOLDER', requestId: req.requestId }, 'identity.password_reset_requested', 'user', user.id);
+    return { user, token, tokenHash, expiresAt };
+  });
+  if (issued) {
+    try {
+      const delivery = await sendPasswordReset({ email: issued.user.email, fullName: issued.user.full_name, token: issued.token, expiresAt: issued.expiresAt });
+      if (delivery.sent) await pool.query('UPDATE password_reset_tokens SET sent_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [issued.tokenHash]);
+      else await pool.query('UPDATE password_reset_tokens SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [issued.tokenHash]);
+    } catch (error) {
+      await pool.query('UPDATE password_reset_tokens SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [issued.tokenHash]);
+      console.error(JSON.stringify({ level: 'error', event: 'password_reset_delivery_failed', requestId: req.requestId, code: String(error?.code || error?.name || 'DELIVERY_FAILED').slice(0, 80) }));
+    }
+  }
+  res.status(202).json(generic);
+}));
+
+app.post('/api/auth/password-reset/complete', passwordResetCompleteLimiter, route(async (req, res) => {
+  ensureDb();
+  const token = String(req.body?.token || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (!/^[A-Za-z0-9_-]{40,60}$/.test(token) || newPassword.length < 12 || newPassword.length > 1024) {
+    throw Object.assign(new Error('The reset link is invalid or expired, or the password does not meet the minimum length of 12 characters.'), { status: 422, code: 'INVALID_PASSWORD_RESET' });
+  }
+  const passwordHash = await hashPassword(newPassword);
+  const changed = await transaction(async (client) => {
+    const found = await client.query(`SELECT t.id AS token_id,t.user_id,t.expires_at,t.used_at,t.revoked_at,
+        u.email,u.full_name,u.disabled_at,r.role,r.org_unit_id
+      FROM password_reset_tokens t JOIN users u ON u.id=t.user_id
+      JOIN LATERAL (SELECT role,org_unit_id FROM user_roles WHERE user_id=u.id ORDER BY created_at LIMIT 1) r ON true
+      WHERE t.token_hash=$1 FOR UPDATE OF t,u`, [sha256(token)]);
+    const record = found.rows[0];
+    if (!record || record.disabled_at || record.used_at || record.revoked_at || new Date(record.expires_at) <= new Date()) {
+      throw Object.assign(new Error('This password reset link is invalid or expired. Request a new link.'), { status: 410, code: 'PASSWORD_RESET_EXPIRED' });
+    }
+    await client.query('UPDATE users SET password_hash=$2,must_change_password=false WHERE id=$1 AND disabled_at IS NULL', [record.user_id, passwordHash]);
+    await client.query('UPDATE password_reset_tokens SET used_at=now() WHERE id=$1', [record.token_id]);
+    await client.query('UPDATE password_reset_tokens SET revoked_at=now() WHERE user_id=$1 AND id<>$2 AND used_at IS NULL AND revoked_at IS NULL', [record.user_id, record.token_id]);
+    await client.query('DELETE FROM sessions WHERE user_id=$1', [record.user_id]);
+    await writeAudit(client, { userId: record.user_id, role: record.role, orgUnitId: record.org_unit_id, requestId: req.requestId }, 'identity.password_reset_completed', 'user', record.user_id);
+    return { email: record.email, fullName: record.full_name };
+  });
+  try { await sendPasswordResetConfirmation(changed); }
+  catch (error) { console.error(JSON.stringify({ level: 'error', event: 'password_reset_confirmation_delivery_failed', requestId: req.requestId, code: String(error?.code || error?.name || 'DELIVERY_FAILED').slice(0, 80) })); }
+  res.json({ status: 'password_reset' });
 }));
 
 app.post('/api/auth/accept-invitation', invitationLimiter, route(async (req, res) => {

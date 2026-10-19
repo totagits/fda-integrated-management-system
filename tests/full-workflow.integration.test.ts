@@ -10,12 +10,12 @@ import { hashPassword, verifyPassword } from '../server/security.js';
 import { deliverBidderExpiryAlerts } from '../server/bidders.js';
 const database=new PGlite();
 const transactionContext=new AsyncLocalStorage<any>();
-const {sentInvitations,sentBidderVerifications}=vi.hoisted(()=>({sentInvitations:[] as any[],sentBidderVerifications:[] as any[]}));
+const {sentInvitations,sentBidderVerifications,sentPasswordResets,passwordResetConfirmations}=vi.hoisted(()=>({sentInvitations:[] as any[],sentBidderVerifications:[] as any[],sentPasswordResets:[] as any[],passwordResetConfirmations:[] as any[]}));
 const query=async(sql:string,p?:unknown[])=>{const r=await (transactionContext.getStore()||database).query(sql,p);return {...r,rowCount:r.rows.length||r.affectedRows};};
 vi.mock('../server/db.js',async importOriginal=>{
  const original=await importOriginal<Record<string,unknown>>();return {...original,pool:{query:(s:string,p?:unknown[])=>query(s,p)},transaction:(fn:Function)=>database.transaction(async tx=>transactionContext.run(tx,()=>fn({query:async(s:string,p?:unknown[])=>{const r=await tx.query(s,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})))};
 });
-vi.mock('../server/identity-email.js',()=>({identityEmailConfigured:()=>true,invitationLinkIsConfigured:()=>true,sendIdentityInvitation:vi.fn(async(message:any)=>{sentInvitations.push(message);return {sent:true};}),sendBidderVerification:vi.fn(async(message:any)=>{sentBidderVerifications.push(message);return {sent:true};}),sendBidderExpiryReminder:vi.fn(async()=>({sent:true}))}));
+vi.mock('../server/identity-email.js',()=>({identityEmailConfigured:()=>true,invitationLinkIsConfigured:()=>true,sendIdentityInvitation:vi.fn(async(message:any)=>{sentInvitations.push(message);return {sent:true};}),sendPasswordReset:vi.fn(async(message:any)=>{sentPasswordResets.push(message);return {sent:true};}),sendPasswordResetConfirmation:vi.fn(async(message:any)=>{passwordResetConfirmations.push(message);return {sent:true};}),sendBidderVerification:vi.fn(async(message:any)=>{sentBidderVerifications.push(message);return {sent:true};}),sendBidderExpiryReminder:vi.fn(async()=>({sent:true}))}));
 const office=randomUUID(),otherOffice=randomUUID(),accounts:Record<string,{id:string;cookie:string;csrf:string}>={};let testPassword='';
 let server:Server,origin:string,uploads:string;
 const oldUrl=process.env.DATABASE_URL,oldUploads=process.env.UPLOADS_DIR;
@@ -23,7 +23,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql','020_asset_governance_extensions.sql','021_finance_budget_revisions.sql','022_finance_operations.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql','019_asset_lifecycle_controls.sql','020_asset_governance_extensions.sql','021_finance_budget_revisions.sql','022_finance_operations.sql','023_password_recovery.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);testPassword=password;
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice],['FIELD_ASSET_OFFICER',otherOffice]]){
@@ -178,6 +178,7 @@ it('calculates exact depreciation with independent approval and prevents duplica
  const j=await ok(finance,`/api/depreciation/runs/${run.id}/journal`,{reference:'DEP-J',periodId:period.id,entryDate:'2026-10-31',expenseAccountId:expense.id,accumulatedAccountId:contra.id});await ok(md,`/api/finance/journals/${j.id}/post`,{});
  expect((await call(finance,'/api/depreciation/runs',{reference:'DEP-DUP',orgUnitId:office,month:'2026-10-01',currency:'USD'})).status).toBe(409);
 },30000);
+
 it('reconciles the bank against posted ledger lines and blocks later backdated postings',async()=>{
  const finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR',accountsList=await ok(finance,'/api/finance/accounts'),bank=accountsList.find((a:any)=>a.code==='1100'),expense=accountsList.find((a:any)=>a.code==='5100');
  const input={reference:'BANK-ST-1',orgUnitId:office,accountId:bank.id,currency:'USD',startDate:'2026-01-01',endDate:'2026-12-31',opening:'0',closing:'-1200',lines:'2026-10-18, BANK-E2E, -1200'};
@@ -475,3 +476,20 @@ it('runs grant receivable, advance retirement, finance policy, FX and statement 
  expect((await call(staff,'/api/finance/cash-forecast')).status).toBe(403);
  expect((await ok(finance,`/api/finance/receivables`)).find((x:any)=>x.id===receivable.id).status).toBe('PARTIAL');
 },30000);
+
+it('recovers an active staff account with a generic request, single-use link, and session revocation',async()=>{
+ const target='FINANCE_DIRECTOR',email='finance_director@example.test';
+ const request=await fetch(origin+'/api/auth/password-reset/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
+ expect(request.status).toBe(202);const requestBody=await request.json();expect(requestBody.message).toContain('If an active account uses that email address');
+ const issued=sentPasswordResets.at(-1);expect(issued.email).toBe(email);expect(issued.token).toMatch(/^[A-Za-z0-9_-]{40,60}$/);expect(issued.expiresAt.getTime()).toBeGreaterThan(Date.now());
+ const newPassword=randomBytes(24).toString('base64url');
+ const complete=await fetch(origin+'/api/auth/password-reset/complete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:issued.token,newPassword})});
+ expect(complete.status).toBe(200);expect(await complete.json()).toEqual({status:'password_reset'});expect(passwordResetConfirmations.at(-1).email).toBe(email);
+ const replay=await fetch(origin+'/api/auth/password-reset/complete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:issued.token,newPassword:randomBytes(24).toString('base64url')})});expect(replay.status).toBe(410);
+ const oldLogin=await fetch(origin+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password:testPassword})});expect(oldLogin.status).toBe(401);
+ const newLogin=await fetch(origin+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password:newPassword})});expect(newLogin.status).toBe(200);
+ const priorSession=await fetch(origin+'/api/auth/me',{headers:{cookie:accounts[target].cookie}});expect(priorSession.status).toBe(401);
+ const sentCount=sentPasswordResets.length;
+ const unknown=await fetch(origin+'/api/auth/password-reset/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'unknown@example.test'})});
+ expect(unknown.status).toBe(202);expect(await unknown.json()).toEqual(requestBody);expect(sentPasswordResets).toHaveLength(sentCount);
+});
