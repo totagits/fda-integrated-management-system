@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { usePublicPortal, publicApi } from './usePublicPortal';
+import { usePublicPortal } from './usePublicPortal';
 import { FDA_LOGO_URL } from '../../assets/logo';
 import { LIBERIA_SEAL_URL } from '../../assets/liberiaSeal';
 import { FdaPhotoCarousel } from './FdaPhotoCarousel';
@@ -12,7 +12,6 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
-  Send,
   Building,
   Users,
   Compass,
@@ -25,15 +24,11 @@ import {
 
 export const LandingPage: React.FC = () => {
   const { publicTenders, bidderQueries, loading, error, reload } = usePublicPortal();
-  const [submitError, setSubmitError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [receiptId, setReceiptId] = useState('');
   const readSection = () => {
     const section = window.location.hash.slice(1).toUpperCase();
     return ['OVERVIEW','TENDERS','BIDDER_PORTAL','ARCHITECTURE'].includes(section) ? section as 'OVERVIEW' | 'TENDERS' | 'BIDDER_PORTAL' | 'ARCHITECTURE' : 'OVERVIEW';
   };
   const [activeSection, updateSection] = useState<'OVERVIEW' | 'TENDERS' | 'BIDDER_PORTAL' | 'ARCHITECTURE'>(readSection);
-  const [selectedTenderRef, setSelectedTenderRef] = useState<string>(publicTenders[0]?.tenderRef || '');
 
 
   const setActiveSection = (section: typeof activeSection) => {
@@ -46,32 +41,7 @@ export const LandingPage: React.FC = () => {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
-  const openTenders = publicTenders.filter(t => t.status === 'OPEN_FOR_EXPRESSIONS');
   const formatDate = (value: string) => new Date(value).toLocaleString('en-GB', { timeZone: 'Africa/Monrovia', dateStyle: 'medium', timeStyle: 'short' }) + ' Liberia Time';
-  // Bidder query submission form
-  const [bidderForm, setBidderForm] = useState({
-    companyName: '',
-    contactPerson: '',
-    email: '',
-    phone: '',
-    question: ''
-  });
-  const [submittedQuerySuccess, setSubmittedQuerySuccess] = useState(false);
-
-  const handleBidderSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setSubmitError(''); setSubmittedQuerySuccess(false);
-    const tender = openTenders.find(t => t.tenderRef === selectedTenderRef);
-    if (!tender) { setSubmitError('Select an open tender before submitting a question.'); return; }
-    setSubmitting(true);
-    try {
-      const saved = await publicApi<{id:string}>('/api/public/clarifications', {
-        method: 'POST', body: JSON.stringify({ ...bidderForm, tenderId: tender.id }),
-      });
-      setReceiptId(saved.id); setSubmittedQuerySuccess(true);
-      setBidderForm({ companyName: '', contactPerson: '', email: '', phone: '', question: '' });
-    } catch (err) { setSubmitError(err instanceof Error ? err.message : 'Your question was not saved. Please try again.'); }
-    finally { setSubmitting(false); }
-  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -136,6 +106,7 @@ export const LandingPage: React.FC = () => {
             >
               Bidder Clarification Portal {(!loading && !error) && `(${bidderQueries.length})`}
             </button>
+            <a href="/bidder" className="rounded bg-gold-400 px-3 py-1.5 text-forest-950 hover:bg-gold-300">Supplier registration / sign in</a>
             <button
               onClick={() => setActiveSection('ARCHITECTURE')}
               className={`hover:text-forest-800 transition ${activeSection === 'ARCHITECTURE' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
@@ -363,10 +334,7 @@ export const LandingPage: React.FC = () => {
 
                     <div className="flex items-center space-x-2.5">
                       <button
-                        onClick={() => {
-                          setSelectedTenderRef(tender.tenderRef);
-                          setActiveSection('BIDDER_PORTAL');
-                        }}
+                        onClick={() => window.location.assign('/bidder')}
                         className="bg-forest-800 hover:bg-forest-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-bold transition flex items-center space-x-1"
                       >
                         <MessageSquare className="w-3.5 h-3.5 text-gold-400" />
@@ -409,16 +377,6 @@ export const LandingPage: React.FC = () => {
               </button>
             </div>
 
-            {submittedQuerySuccess && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs text-emerald-900 flex items-center space-x-3 shadow-sm">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                <div>
-                  <p className="font-bold">Clarification query received</p>
-                  <p className="text-emerald-800 mt-0.5">Your inquiry has been saved for procurement review. Reference: {receiptId}. This is an acknowledgement of receipt, not a bid submission.</p>
-                </div>
-              </div>
-            )}
-
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               
               {/* Left Column: Submit New Query Form (5 Cols) */}
@@ -428,97 +386,10 @@ export const LandingPage: React.FC = () => {
                   <p className="text-xs text-slate-500 mt-0.5">Direct channel to FDA Procurement Specialists</p>
                 </div>
 
-                {submitError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-800">{submitError}</p>}
-                {!loading && !error && openTenders.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-600">Questions can be submitted once an open procurement notice has been published.</p>}
-                <form onSubmit={handleBidderSubmit} className="space-y-3.5 text-xs">
-                <fieldset disabled={submitting || loading || Boolean(error) || openTenders.length === 0} className="space-y-3.5 disabled:opacity-60">
-                  <div>
-                    <label htmlFor="public-tender" className="block text-slate-700 font-semibold mb-1">Target Procurement Tender</label>
-                    <select
-                      required
-                      id="public-tender"
-                      value={selectedTenderRef}
-                      onChange={e => setSelectedTenderRef(e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
-                    >
-                      <option value="">Select an open procurement notice</option>
-                      {openTenders.map(t => (
-                        <option key={t.id} value={t.tenderRef}>{t.tenderRef} — {t.title}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label htmlFor="bidder-companyName" className="block text-slate-700 font-semibold mb-1">Bidder / Consulting Firm Name</label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={240} placeholder="Enter registered company name"
-                      id="bidder-companyName" value={bidderForm.companyName}
-                      onChange={e => setBidderForm({ ...bidderForm, companyName: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label htmlFor="bidder-contactPerson" className="block text-slate-700 font-semibold mb-1">Contact Person</label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={240} placeholder="Enter contact person name"
-                        id="bidder-contactPerson" value={bidderForm.contactPerson}
-                        onChange={e => setBidderForm({ ...bidderForm, contactPerson: e.target.value })}
-                        className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="bidder-phone" className="block text-slate-700 font-semibold mb-1">Contact Phone</label>
-                      <input
-                        type="tel"
-                        required
-                        maxLength={80} placeholder="Enter bidder phone number"
-                        id="bidder-phone" value={bidderForm.phone}
-                        onChange={e => setBidderForm({ ...bidderForm, phone: e.target.value })}
-                        className="w-full p-2 border border-slate-300 rounded-md font-mono focus:ring-forest-600 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="bidder-email" className="block text-slate-700 font-semibold mb-1">Official Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      maxLength={254} placeholder="Enter official business email"
-                      id="bidder-email" value={bidderForm.email}
-                      onChange={e => setBidderForm({ ...bidderForm, email: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="bidder-question" className="block text-slate-700 font-semibold mb-1">Specific Query / Clarification Needed</label>
-                    <textarea
-                      required
-                      rows={4}
-                      maxLength={6000} placeholder="Describe your question about this procurement notice"
-                      id="bidder-question" value={bidderForm.question}
-                      onChange={e => setBidderForm({ ...bidderForm, question: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-md focus:ring-forest-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-2.5 bg-forest-800 hover:bg-forest-700 text-white rounded-lg font-bold transition shadow-sm flex items-center justify-center space-x-1.5"
-                  >
-                    <Send className="w-3.5 h-3.5 text-gold-400" />
-                    <span>{submitting ? 'Submitting…' : 'Submit Query for Official Reply'}</span>
-                  </button>
-                  <p className="text-xs text-slate-500">Contact details are used for procurement review. Only a reviewed question and response are published.</p>
-                </fieldset>
-                </form>
+                <div className="rounded-xl border border-forest-200 bg-forest-50 p-5">
+                  <p className="text-sm text-slate-700">Clarification requests are accepted from verified supplier accounts so FDA can link each question to the registered business. Sign in or register, then select an open opportunity in the supplier portal.</p>
+                  <a href="/bidder" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-forest-800 px-4 py-3 text-sm font-bold text-white"><LogIn size={16}/> Register or sign in to ask a question</a>
+                </div>
               </div>
 
               {/* Right Column: Published Official Clarifications (7 Cols) */}

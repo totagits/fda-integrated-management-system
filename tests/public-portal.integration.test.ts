@@ -68,8 +68,10 @@ describe('public portal publication and privacy', () => {
     expect(published.data[0].estimatedBudgetUSD).toBeNull();
   });
   it('persists inquiries without publicly exposing private data', async () => {
-    const result = await request('/api/public/clarifications',{tenderId:noticeId,companyName:'Private test firm',contactPerson:'Private person',email:'private@example.test',phone:'123',question:'Original confidential question'});
-    expect(result.status).toBe(201); queryId=result.data.id;
+    const anonymous = await request('/api/public/clarifications',{tenderId:noticeId,companyName:'Private test firm',contactPerson:'Private person',email:'private@example.test',phone:'123',question:'Original confidential question'});
+    expect(anonymous.status).toBe(401);
+    queryId=randomUUID();
+    await pool.query(`INSERT INTO bidder_clarifications(id,tender_id,company_name,contact_person,email,phone,question) VALUES($1,$2,$3,$4,$5,$6,$7)`,[queryId,noticeId,'Private test firm','Private person','private@example.test','123','Original confidential question']);
     expect((await request('/api/public/clarifications')).data).toEqual([]);
     const queue = await request('/api/procurement/clarifications',undefined,'PROCUREMENT_OFFICER');
     expect(queue.data[0].email).toBe('private@example.test');
@@ -79,14 +81,14 @@ describe('public portal publication and privacy', () => {
     expect(visible.data[0].question).toBe('Reviewed question');
     expect(JSON.stringify(visible.data)).not.toMatch(/private@example|Private person|Private test firm|confidential question/);
     const audit = await pool.query("SELECT action FROM audit_events WHERE entity_id=$1",[queryId]);
-    expect(audit.rows.map((r:any)=>r.action)).toEqual(['BIDDER_QUERY_RECEIVED','CLARIFICATION_PUBLISHED']);
+    expect(audit.rows.map((r:any)=>r.action)).toEqual(['CLARIFICATION_PUBLISHED']);
   });
   it('withdraws notices and related clarifications without deleting their records', async () => {
     expect((await request(`/api/procurement/notices/${noticeId}/withdraw`,{},'PROCUREMENT_OFFICER')).status).toBe(200);
     expect((await request('/api/public/tenders')).data).toEqual([]);
     expect((await request('/api/public/clarifications')).data).toEqual([]);
     expect((await request('/api/procurement/clarifications',undefined,'PROCUREMENT_OFFICER')).data).toHaveLength(1);
-    expect((await request('/api/public/clarifications',{tenderId:noticeId,companyName:'Test',contactPerson:'Test',email:'a@example.test',phone:'123',question:'Question'})).status).toBe(409);
+    expect((await request('/api/public/clarifications',{tenderId:noticeId,companyName:'Test',contactPerson:'Test',email:'a@example.test',phone:'123',question:'Question'})).status).toBe(401);
   });
   it('rejects unsafe document links, invalid budgets and past deadlines', () => {
     expect(()=>validateNotice({...input,documentsDownloadUrl:'javascript:alert(1)'})).toThrow();

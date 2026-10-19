@@ -245,6 +245,11 @@ export function registerEnterprise(app,deps){
  post('/api/evaluations/:id/bid',['MANAGING_DIRECTOR','PROCUREMENT_OFFICER'],async(db,req)=>{
   const e=await parent(db,req,'bid_evaluations');editable(e);const scored=await db.query('SELECT 1 FROM bid_scores s JOIN evaluated_bids b ON b.id=s.bid_id WHERE b.evaluation_id=$1',[e.id]);if(scored.rowCount)throw fail('The bid register is frozen once scoring starts.',409);
   const v=await row(db,'vendors',req.body.vendorId,false);if(v.status!=='ACTIVE')throw fail('Select a qualified supplier.');
+  const bidder=await db.query(`SELECT b.id FROM bidder_accounts b WHERE b.vendor_id=$1 AND b.status='ACTIVE' AND b.email_verified_at IS NOT NULL
+    AND EXISTS(SELECT 1 FROM bidder_business_lines l WHERE l.bidder_id=b.id)
+    AND EXISTS(SELECT 1 FROM bidder_documents d WHERE d.bidder_id=b.id AND d.document_type='BUSINESS_REGISTRATION' AND d.verification_status='VERIFIED' AND d.expires_on>=CURRENT_DATE)
+    AND EXISTS(SELECT 1 FROM bidder_documents d WHERE d.bidder_id=b.id AND d.document_type='TAX_CLEARANCE' AND d.verification_status='VERIFIED' AND d.expires_on>=CURRENT_DATE)`,[v.id]);
+  if(!bidder.rowCount)throw fail('Only an FDA-approved bidder account with verified current business registration and tax clearance may enter the evaluation.',403,'BIDDER_NOT_ELIGIBLE');
   const currencies=await db.query('SELECT currency FROM evaluated_bids WHERE evaluation_id=$1 LIMIT 1',[e.id]);const c=currency(req.body.currency);if(currencies.rowCount&&currencies.rows[0].currency!==c)throw fail('Use one evaluation currency with documented conversion before entry.');
   const id=randomUUID();await db.query('INSERT INTO evaluated_bids(id,evaluation_id,vendor_id,reference,amount_minor,currency,evidence_reference) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,e.id,v.id,required(req.body.reference,'Opened bid reference',100),positive(req.body.amount).toString(),c,required(req.body.evidenceReference,'Signed opening minutes and bid document reference')]);await audit(db,req,'evaluation.bid_registered','evaluation',e.id,{bidId:id});return {id};
  });

@@ -1,5 +1,3 @@
-import rateLimit from 'express-rate-limit';
-
 const fail = (message, status = 422) => Object.assign(new Error(message), { status, code: 'PUBLIC_PORTAL_ERROR' });
 const required = (value, label, max = 240) => {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw fail(`${label} is required (maximum ${max} characters).`);
@@ -38,7 +36,6 @@ export function validateNotice(body) {
 
 export function registerPublicPortal(app, deps) {
   const { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor } = deps;
-  const publicLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
   const serialize = row => ({ ...row.details, id: row.id, publishedDate: row.published_at,
     status: new Date(row.deadline) > new Date() ? 'OPEN_FOR_EXPRESSIONS' : 'CLOSED',
     publicationStatus: row.publication_status });
@@ -65,26 +62,21 @@ export function registerPublicPortal(app, deps) {
       WHERE t.publication_status='PUBLISHED' AND q.response_date IS NOT NULL ORDER BY q.response_date DESC`);
     res.json(rows.rows);
   }));
-  app.post('/api/public/clarifications', publicLimiter, route(async (req, res) => {
-    ensureDb();
-    const body = req.body || {};
-    const details = { company: required(body.companyName, 'Company'), contact: required(body.contactPerson, 'Contact person'),
-      email: emailAddress(body.email), phone: required(body.phone, 'Telephone', 80), question: required(body.question, 'Question', 6000) };
-    const id = uuid();
-    await transaction(async client => {
-      const notice = await getNotice(client, body.tenderId);
-      if (notice.publication_status !== 'PUBLISHED' || new Date(notice.deadline) <= new Date()) throw fail('This notice is not open for questions.', 409);
-      await client.query(`INSERT INTO bidder_clarifications(id,tender_id,company_name,contact_person,email,phone,question) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-        [id,notice.id,details.company,details.contact,details.email,details.phone,details.question]);
-      await writeAudit(client, null, 'BIDDER_QUERY_RECEIVED', 'bidder_clarification', id, { tenderId: notice.id });
-    });
-    res.status(201).json({ id, status: 'PENDING_RESPONSE' });
+  app.post('/api/public/clarifications', route(async (_req, res) => {
+    res.status(401).json({ error: 'Sign in to the registered supplier portal to submit a clarification.', code: 'BIDDER_LOGIN_REQUIRED' });
   }));
 
   app.get('/api/procurement/notices', loadAuth, guard('notice.manage'), route(async (req, res) => {
     const scope = await scoped(req);
     const rows = await pool.query('SELECT * FROM public_tender_notices WHERE ($1::uuid[] IS NULL OR org_unit_id=ANY($1::uuid[])) ORDER BY created_at DESC', [scope]);
     res.json(rows.rows.map(serialize));
+  }));
+  app.get('/api/procurement/notices/:id/documents', loadAuth, guard('notice.manage'), route(async (req, res) => {
+    const notice = await pool.query('SELECT id,org_unit_id FROM public_tender_notices WHERE id=$1', [req.params.id]);
+    if (!notice.rowCount) throw fail('Notice not found.', 404);
+    await assertOrgAccess(req.auth, notice.rows[0].org_unit_id);
+    const rows = await pool.query('SELECT id,original_name,media_type,byte_size,created_at FROM public_notice_documents WHERE notice_id=$1 ORDER BY created_at', [req.params.id]);
+    res.json(rows.rows);
   }));
   app.post('/api/procurement/notices', loadAuth, csrfRequired, guard('notice.manage'), route(async (req, res) => {
     const details = validateNotice(req.body || {});

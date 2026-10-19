@@ -7,14 +7,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { hashPassword, verifyPassword } from '../server/security.js';
+import { deliverBidderExpiryAlerts } from '../server/bidders.js';
 const database=new PGlite();
 const transactionContext=new AsyncLocalStorage<any>();
-const sentInvitations=vi.hoisted(()=>[] as any[]);
+const {sentInvitations,sentBidderVerifications}=vi.hoisted(()=>({sentInvitations:[] as any[],sentBidderVerifications:[] as any[]}));
 const query=async(sql:string,p?:unknown[])=>{const r=await (transactionContext.getStore()||database).query(sql,p);return {...r,rowCount:r.rows.length||r.affectedRows};};
 vi.mock('../server/db.js',async importOriginal=>{
  const original=await importOriginal<Record<string,unknown>>();return {...original,pool:{query:(s:string,p?:unknown[])=>query(s,p)},transaction:(fn:Function)=>database.transaction(async tx=>transactionContext.run(tx,()=>fn({query:async(s:string,p?:unknown[])=>{const r=await tx.query(s,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})))};
 });
-vi.mock('../server/identity-email.js',()=>({identityEmailConfigured:()=>true,invitationLinkIsConfigured:()=>true,sendIdentityInvitation:vi.fn(async(message:any)=>{sentInvitations.push(message);return {sent:true};})}));
+vi.mock('../server/identity-email.js',()=>({identityEmailConfigured:()=>true,invitationLinkIsConfigured:()=>true,sendIdentityInvitation:vi.fn(async(message:any)=>{sentInvitations.push(message);return {sent:true};}),sendBidderVerification:vi.fn(async(message:any)=>{sentBidderVerifications.push(message);return {sent:true};}),sendBidderExpiryReminder:vi.fn(async()=>({sent:true}))}));
 const office=randomUUID(),otherOffice=randomUUID(),accounts:Record<string,{id:string;cookie:string;csrf:string}>={};let testPassword='';
 let server:Server,origin:string,uploads:string;
 const oldUrl=process.env.DATABASE_URL,oldUploads=process.env.UPLOADS_DIR;
@@ -22,7 +23,7 @@ async function call(role:string,path:string,body?:unknown,csrf=true){const a=acc
 async function ok(role:string,path:string,body?:unknown){const r=await call(role,path,body);expect(r.status,`${path}: ${JSON.stringify(r.data)}`).toBeLessThan(300);return r.data;}
 beforeAll(async()=>{
  process.env.DATABASE_URL='postgresql://isolated-test-only';uploads=await mkdtemp(join(tmpdir(),'fda-workflow-'));process.env.UPLOADS_DIR=uploads;
- for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
+ for(const f of ['001_initial.sql','002_public_portal.sql','003_department_workflows.sql','004_enterprise_workflows.sql','005_statutory_and_sealed.sql','006_hr_recruitment_onboarding.sql','007_hr_training_performance.sql','008_attendance_disciplinary.sql','009_partial_settlement_inventory.sql','010_identity_invitations.sql','011_it_director_administration.sql','012_support_desk.sql','013_hr_contracts.sql','014_hr_governance.sql','015_hr_governance_controls.sql','016_hr_employee_document_vault.sql','017_internal_distribution.sql','018_bidder_portal.sql'])await database.exec(await readFile(new URL(`../server/migrations/${f}`,import.meta.url),'utf8'));
  await query("INSERT INTO org_units(id,code,name,level) VALUES($1,'HQ-TEST','Isolated headquarters','HEADQUARTERS'),($2,'OTHER-TEST','Other office','COUNTY')",[office,otherOffice]);
  const password=randomBytes(24).toString('base64url'),hash=await hashPassword(password);testPassword=password;
  for(const [role,unit] of [['MANAGING_DIRECTOR',office],['IT_DIRECTOR',null],['FINANCE_DIRECTOR',office],['FINANCE_RECORDER',office],['PROCUREMENT_OFFICER',office],['COUNTY_OFFICER',office],['ASSET_OFFICER',office],['HR_DIRECTOR',otherOffice]]){
@@ -168,7 +169,9 @@ it('requires conflict declarations and complete independent bid scores before re
  await query("INSERT INTO public_tender_notices(id,tender_ref,org_unit_id,details,deadline,publication_status,created_by) VALUES($1,'CLOSED-TEST',$2,'{}','2020-01-01','PUBLISHED',$3)",[notice,office,accounts[proc].id]);
  const e=await ok(proc,'/api/evaluations',{reference:'EVAL-1',tenderId:notice,technicalWeight:70,passMark:60,criteria:'Published technical and price criteria; signed opening minutes reference'});
  await ok(proc,`/api/evaluations/${e.id}/panel`,{userId:accounts[proc].id});await ok(proc,`/api/evaluations/${e.id}/panel`,{userId:accounts[finance].id});
- const vendor=(await ok(proc,'/api/vendors'))[0];const bid=await ok(proc,`/api/evaluations/${e.id}/bid`,{vendorId:vendor.id,reference:'OPENED-BID',amount:'1200',currency:'USD',evidenceReference:'Signed bid and opening minutes'});
+ const vendor=(await ok(proc,'/api/vendors'))[0],bidderId=randomUUID();await query("INSERT INTO bidder_accounts(id,vendor_id,email,contact_name,phone,password_hash,email_verified_at,status) VALUES($1,$2,$3,'Evaluation bidder','123',$4,now(),'ACTIVE')",[bidderId,vendor.id,`evaluation-${randomUUID()}@example.test`,await hashPassword(testPassword)]);await query("INSERT INTO bidder_business_lines(id,bidder_id,business_line) VALUES($1,$2,'Test supply')",[randomUUID(),bidderId]);
+ for(const type of ['BUSINESS_REGISTRATION','TAX_CLEARANCE'])await query("INSERT INTO bidder_documents(id,bidder_id,document_type,original_name,storage_name,media_type,byte_size,sha256,expires_on,verification_status) VALUES($1,$2,$3,$4,$5,'application/pdf',10,$6,'2099-12-31','VERIFIED')",[randomUUID(),bidderId,type,`${type}.pdf`,randomUUID(),randomBytes(32).toString('hex')]);
+ const bid=await ok(proc,`/api/evaluations/${e.id}/bid`,{vendorId:vendor.id,reference:'OPENED-BID',amount:'1200',currency:'USD',evidenceReference:'Signed bid and opening minutes'});
  expect((await call(proc,`/api/evaluations/${e.id}/score`,{bidId:bid.id,technicalScore:80,responsive:'YES',rationale:'Criteria checked'})).status).toBe(403);
  for(const role of [proc,finance]){
   await ok(role,`/api/evaluations/${e.id}/declare`,{conflict:'NONE',declaration:'No conflict; signed declaration reference'});
@@ -183,6 +186,7 @@ it('requires conflict declarations and complete independent bid scores before re
 
 it('keeps supplier bid packets encrypted until a deadline and two assigned openers, then records sealed evidence',async()=>{
  const proc='PROCUREMENT_OFFICER',finance='FINANCE_DIRECTOR',md='MANAGING_DIRECTOR',vendor=(await ok(proc,'/api/vendors'))[0],tender=randomUUID();
+ expect((await query('SELECT id FROM bidder_accounts WHERE vendor_id=$1 AND status=\'ACTIVE\'',[vendor.id])).rows).toHaveLength(1);
  const deadline=new Date(Date.now()+86400000).toISOString();
  await query("INSERT INTO public_tender_notices(id,tender_ref,org_unit_id,details,deadline,publication_status,created_by) VALUES($1,'SEALED-E2E',$2,$3,$4,'PUBLISHED',$5)",[tender,office,JSON.stringify({title:'Encrypted bid test'}),deadline,accounts[proc].id]);
  const pair=generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
@@ -324,4 +328,40 @@ it('completes an office distribution with reservations, separate dispatch/receip
  const movements=await ok('MANAGING_DIRECTOR','/api/inventory/movements?q=WAYBILL-DIST-001');expect(movements.rows.map((r:any)=>r.movement).sort()).toEqual(['TRANSFER_IN','TRANSFER_OUT']);
  expect((await call('HR_DIRECTOR','/api/supply-chain/distribution')).status).toBe(403);
  const auditEvents=await query("SELECT action FROM audit_events WHERE entity_type='distribution_request' AND entity_id=$1 ORDER BY created_at",[request.id]);expect(auditEvents.rows.map((r:any)=>r.action)).toEqual(expect.arrayContaining(['supply_chain.distribution_requested','supply_chain.stock_reserved','supply_chain.distribution_dispatched','supply_chain.distribution_received_with_variance']));
+});
+
+it('requires verified supplier registration, current certificates and FDA approval for clarifications and RFQ/RFP/EOI participation',async()=>{
+ const email=`bidder-${randomUUID()}@example.test`;
+ const registration=await fetch(origin+'/api/bidders/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({legalName:'Verified bidder test company',registrationNo:`REG-${randomUUID()}`,contactName:'Supplier Contact',email,phone:'+231-555-0100',password:'a-secure-test-passphrase',businessLines:['Forestry equipment','Office supplies']})});
+ expect(registration.status).toBe(201);expect((await registration.json()).status).toBe('EMAIL_VERIFICATION_REQUIRED');
+ const verification=sentBidderVerifications.find((item:any)=>item.email===email);expect(verification?.token).toBeTruthy();
+ const verified=await fetch(origin+'/api/bidders/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:verification.token})});expect(verified.status).toBe(200);
+ const login=await fetch(origin+'/api/bidders/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password:'a-secure-test-passphrase'})});expect(login.status).toBe(200);
+ const bidderCookie=login.headers.getSetCookie().map(v=>v.split(';')[0]).join('; '),csrfCookie=login.headers.getSetCookie().find(v=>v.startsWith('fda_bidder_csrf='))!;
+ const bidderCsrf=decodeURIComponent(csrfCookie.split(';')[0].split('=').slice(1).join('='));
+ const bidderCall=async(path:string,body?:unknown)=>{const isForm=body instanceof FormData;const response=await fetch(origin+path,{method:body===undefined?'GET':'POST',headers:{cookie:bidderCookie,...(body===undefined?{}:{'x-csrf-token':bidderCsrf}),...(body===undefined||isForm?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:isForm?body:JSON.stringify(body)})});return {status:response.status,data:await response.json()};};
+ const tender=await ok('PROCUREMENT_OFFICER','/api/procurement/notices',{...{tenderRef:`BID-${randomUUID().slice(0,8)}`,title:'Test RFQ opportunity',procurementCategory:'GOODS',orgUnitId:office,submissionDeadline:new Date(Date.now()+86400000).toISOString(),managingDirector:'FDA Procurement',submissionAddress:'Whein Town',primaryEmail:'procurement@example.test',clarificationEmail:'procurement@example.test',telephones:'123',estimatedBudgetUSD:'',requirements:'Signed technical and financial offer'}});
+ await ok('PROCUREMENT_OFFICER',`/api/procurement/notices/${tender.id}/publish`,{});
+ expect((await bidderCall(`/api/bidders/opportunities/${tender.id}/submissions`,{submissionKind:'RFQ'})).status).toBe(403);
+ expect((await fetch(origin+'/api/public/clarifications',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tenderId:tender.id,companyName:'Anonymous',contactPerson:'Anonymous',email:'x@example.test',phone:'123',question:'Anonymous question'})})).status).toBe(401);
+ const upload=async(documentType:string)=>{const form=new FormData();form.set('documentType',documentType);form.set('expiresOn','2099-12-31');form.set('file',new Blob(['%PDF-1.7\nvalid test pdf'],{type:'application/pdf'}),`${documentType}.pdf`);return bidderCall('/api/bidders/documents',form);};
+ const business=await upload('BUSINESS_REGISTRATION'),tax=await upload('TAX_CLEARANCE');expect(business.status).toBe(201);expect(tax.status).toBe(201);
+ const profile=(await bidderCall('/api/bidders/me')).data;
+ for(const doc of [business.data,tax.data]){const decision=await call('MANAGING_DIRECTOR',`/api/procurement/bidders/${profile.id}/documents/${doc.id}/review`,{status:'VERIFIED',note:'Checked test certificate'});expect(decision.status).toBe(200);}
+ expect((await call('MANAGING_DIRECTOR',`/api/procurement/bidders/${profile.id}/decision`,{status:'ACTIVE',note:'Eligibility reviewed'})).status).toBe(200);
+ const draft=await bidderCall(`/api/bidders/opportunities/${tender.id}/submissions`,{submissionKind:'RFQ'});expect(draft.status).toBe(201);
+ const offer=new FormData();offer.set('file',new Blob(['%PDF-1.7\nSigned RFQ offer'],{type:'application/pdf'}),'offer.pdf');expect((await bidderCall(`/api/bidders/submissions/${draft.data.id}/documents`,offer)).status).toBe(201);
+ expect((await bidderCall(`/api/bidders/submissions/${draft.data.id}/submit`,{})).status).toBe(200);
+ expect((await bidderCall('/api/bidder/clarifications',{tenderId:tender.id,question:'May we submit a separate technical annex?'})).status).toBe(201);
+ const alertCount=await query('SELECT count(*)::int AS n FROM bidder_expiry_alerts WHERE bidder_id=$1',[profile.id]);expect(alertCount.rows[0].n).toBe(8);
+ await query("UPDATE bidder_expiry_alerts SET due_at=now()-interval '1 minute' WHERE bidder_id=$1",[profile.id]);
+ const tx=async(callback:Function)=>database.transaction(async transaction=>transactionContext.run(transaction,()=>callback({query:async(sql:string,params?:unknown[])=>{const r=await transaction.query(sql,params);return {...r,rowCount:r.rows.length||r.affectedRows};}})));
+ await deliverBidderExpiryAlerts({query},tx);
+ const delivered=await query("SELECT count(*)::int AS n FROM bidder_expiry_alerts WHERE bidder_id=$1 AND status='SENT'",[profile.id]);expect(delivered.rows[0].n).toBe(8);
+ expect((await bidderCall(`/api/procurement/bidders/${profile.id}/documents/${business.data.id}/download`)).status).toBe(401);
+ await query('UPDATE bidder_documents SET expires_on=CURRENT_DATE-1 WHERE id=$1',[tax.data.id]);
+ const secondTender=await ok('PROCUREMENT_OFFICER','/api/procurement/notices',{tenderRef:`BID-EXPIRED-${randomUUID().slice(0,8)}`,title:'Expired certificate block test',procurementCategory:'GOODS',orgUnitId:office,submissionDeadline:new Date(Date.now()+86400000).toISOString(),managingDirector:'FDA Procurement',submissionAddress:'Whein Town',primaryEmail:'procurement@example.test',clarificationEmail:'procurement@example.test',telephones:'123',requirements:'Submitted bid document'});
+ await ok('PROCUREMENT_OFFICER',`/api/procurement/notices/${secondTender.id}/publish`,{});
+ expect((await bidderCall(`/api/bidders/opportunities/${secondTender.id}/submissions`,{submissionKind:'RFP'})).status).toBe(403);
+ const audit=await query("SELECT action FROM audit_events WHERE entity_type='bidder_submission' AND entity_id=$1",[draft.data.id]);expect(audit.rows.map((r:any)=>r.action)).toContain('bidder.submission_received');
 });

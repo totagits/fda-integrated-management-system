@@ -2,6 +2,7 @@ import { sendSignedWebhook, validateWebhookConfiguration } from './integration-t
 import { registerEnterprise } from './enterprise.js';
 import { registerSealedBidding } from './sealed-bidding.js';
 import { registerSupport } from './support.js';
+import { registerBidders, deliverBidderExpiryAlerts } from './bidders.js';
 import { registerAnalytics } from './analytics.js';
 import { registerSupplyChain } from './supply-chain.js';
 import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
@@ -939,7 +940,8 @@ registerSupplyChain(app, { pool, transaction, writeAudit, route, loadAuth, csrfR
 registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess});
 registerSupport(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,uuid});
 
-registerPublicPortal(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor });
+const bidderServices = registerBidders(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess });
+registerPublicPortal(app, { pool, transaction, writeAudit, uuid, route, ensureDb, loadAuth, csrfRequired, guard, assertOrgAccess, scopedUnits, actorFor, ...bidderServices });
 
 app.use('/api',(_req,res)=>res.status(404).json({error:'API route not found.',code:'API_NOT_FOUND'}));
 app.use(express.static(distDir,{index:false,etag:true,maxAge:'1h',setHeaders(res,file){if(file.includes(`${path.sep}assets${path.sep}`))res.setHeader('Cache-Control','public,max-age=31536000,immutable');}}));
@@ -970,6 +972,9 @@ async function start() {
     const timer=setInterval(()=>deliverOutboxBatch().catch(error=>console.error(JSON.stringify({level:'error',event:'outbox_worker_error',message:error.message}))),5000);
     timer.unref();
   }
+  const bidderReminderTimer = setInterval(() => deliverBidderExpiryAlerts(pool, transaction, writeAudit).catch(error => console.error(JSON.stringify({ level: 'error', event: 'bidder_expiry_worker_error', code: String(error?.code || error?.name || 'WORKER_FAILED').slice(0, 80) }))), 60 * 60 * 1000);
+  bidderReminderTimer.unref();
+  deliverBidderExpiryAlerts(pool, transaction, writeAudit).catch(error => console.error(JSON.stringify({ level: 'error', event: 'bidder_expiry_worker_error', code: String(error?.code || error?.name || 'WORKER_FAILED').slice(0, 80) })));
   app.listen(port,'0.0.0.0',()=>console.log(JSON.stringify({level:'info',event:'server_started',port,dbConfigured:Boolean(process.env.DATABASE_URL)})));
 }
 
