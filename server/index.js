@@ -4,6 +4,7 @@ import { registerSealedBidding } from './sealed-bidding.js';
 import { registerSupport } from './support.js';
 import { registerBidders, deliverBidderExpiryAlerts } from './bidders.js';
 import { registerAnalytics } from './analytics.js';
+import { registerFinanceOperations } from './finance-operations.js';
 import { registerSupplyChain } from './supply-chain.js';
 import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
 import crypto from 'node:crypto';
@@ -815,6 +816,17 @@ app.get('/api/audit-events',loadAuth,guard('audit.read.all'),route(async(req,res
 
 const allowedFiles={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.txt':'text/plain'};
 async function assertRecordAttachmentAccess(auth,type,id,capability) {
+  if(['FINANCE_GRANT','FINANCE_RECEIVABLE','FINANCE_ADVANCE'].includes(type)){
+    const table={FINANCE_GRANT:'finance_grants',FINANCE_RECEIVABLE:'finance_receivables',FINANCE_ADVANCE:'finance_staff_advances'}[type];
+    const allowed=type==='FINANCE_ADVANCE'?['MANAGING_DIRECTOR','FINANCE_DIRECTOR','HR_DIRECTOR','PROCUREMENT_OFFICER','ASSET_OFFICER','COUNTY_OFFICER','IT_DIRECTOR','INTERNAL_AUDITOR']:DEPARTMENT_ROLES.finance;
+    const scoped=departmentAuth(auth,allowed),found=await pool.query(`SELECT id,org_unit_id${type==='FINANCE_ADVANCE'?',requester_id':''} FROM ${table} WHERE id=$1`,[requireUuid(id,'Record')]);
+    if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});
+    const record=found.rows[0];await assertOrgAccess(scoped,record.org_unit_id);
+    if(type==='FINANCE_ADVANCE'&&record.requester_id!==auth.userId&&!auth.roles.some(x=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR'].includes(x.role)))throw Object.assign(new Error('You do not have permission to access this staff advance.'),{status:403,code:'FORBIDDEN'});
+    if(capability.includes('write')&&type!=='FINANCE_ADVANCE'&&!auth.roles.some(x=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR'].includes(x.role)))throw Object.assign(new Error('You do not have permission to add finance evidence.'),{status:403,code:'FORBIDDEN'});
+    if(capability.includes('write')&&type==='FINANCE_ADVANCE'&&record.requester_id!==auth.userId&&!auth.roles.some(x=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR'].includes(x.role)))throw Object.assign(new Error('You do not have permission to add finance evidence.'),{status:403,code:'FORBIDDEN'});
+    return record;
+  }
   if(type==='GRIEVANCE'){
     const found=await pool.query('SELECT id,org_unit_id,reporter_user_id,restricted_to_md,escalation_route,case_assignee_id FROM hr_grievances WHERE id=$1',[requireUuid(id,'Record')]);
     if(!found.rowCount)throw Object.assign(new Error('Record not found.'),{status:404});
@@ -938,6 +950,7 @@ app.get('/api/hr/document-vault',loadAuth,route(async(req,res)=>{
 
 const departmentServices=registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
 registerAnalytics(app, { pool, route, loadAuth, scopedUnits });
+registerFinanceOperations(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
 registerEnterprise(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess, ...departmentServices });
 registerSupplyChain(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
 registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess});
