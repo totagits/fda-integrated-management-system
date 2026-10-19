@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { registerDepartments } from '../server/departments.js';
+import { registerAnalytics } from '../server/analytics.js';
 import { writeAudit } from '../server/db.js';
 const db=new PGlite();
 const office=randomUUID(),otherOffice=randomUUID(),maker=randomUUID(),checker=randomUUID(),employeeUser=randomUUID(),ethicsUser=randomUUID(),appealUser=randomUUID();
@@ -25,12 +26,14 @@ beforeAll(async()=>{
  await query("INSERT INTO user_roles(id,user_id,role,org_unit_id) VALUES($1,$2,'COUNTY_OFFICER',$3)",[randomUUID(),employeeUser,office]);
  await query("INSERT INTO budget_accounts(id,fiscal_year,vote_code,title,org_unit_id,currency,allocated_minor) VALUES($1,2026,'TEST','Test budget',$2,'USD',10000000)",[budgetId,office]);
  const app=express();app.use(express.json());
- registerDepartments(app,{pool:{query},transaction:(fn:Function)=>db.transaction(async tx=>fn({query:async(sql:string,p?:unknown[])=>{const r=await tx.query(sql,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})),writeAudit,route,
+ const shared={pool:{query},transaction:(fn:Function)=>db.transaction(async tx=>fn({query:async(sql:string,p?:unknown[])=>{const r=await tx.query(sql,p);return {...r,rowCount:r.rows.length||r.affectedRows};}})),writeAudit,route,
  loadAuth:(req:any,res:any,next:any)=>{if(!req.get('x-role'))return res.status(401).json({error:'Sign in'});const role=req.get('x-role'),unit=req.get('x-unit');req.auth={userId:req.get('x-actor'),role,orgUnitId:unit,fullName:'Test staff',roles:[{role,orgUnitId:unit}]};next();},
  csrfRequired:(req:any,res:any,next:any)=>req.get('x-csrf')==='yes'?next():res.status(403).json({error:'CSRF'}),
  scopedUnits:async(auth:any)=>auth.roles.some((r:any)=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(r.role)||r.role==='ETHICS_OFFICER'&&!r.orgUnitId)?null:auth.roles.map((r:any)=>r.orgUnitId),
  assertOrgAccess:async(auth:any,unit:string)=>{if(!auth.roles.some((r:any)=>['MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR'].includes(r.role)||r.role==='ETHICS_OFFICER'&&!r.orgUnitId||r.orgUnitId===unit))throw Object.assign(new Error('Outside assigned office'),{status:403});},
- });
+ };
+ registerDepartments(app,shared);
+ registerAnalytics(app,{pool:{query},route,loadAuth:shared.loadAuth,scopedUnits:shared.scopedUnits});
  app.use((e:any,_req:any,res:any,_next:any)=>res.status(e.status||500).json({error:e.message}));
  await new Promise<void>(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});origin=`http://127.0.0.1:${(server.address() as any).port}`;
 },30000);
@@ -61,6 +64,20 @@ describe('HR records and employee self-service',()=>{
   expect((await request('/api/hr/analytics/summary',undefined,'FINANCE_DIRECTOR')).status).toBe(403);
   const executive=await request('/api/hr/analytics/summary',undefined,'MANAGING_DIRECTOR');
   expect(executive.data.scope).toBe('FDA-wide');
+ });
+ it('returns role-specific live analytics without exposing confidential payroll details',async()=>{
+  const hr=await request('/api/analytics/summary',undefined,'HR_DIRECTOR');
+  expect(hr.status,hr.data.error).toBe(200);
+  expect(hr.data.scope).toBe('Assigned offices');
+  expect(hr.data.sections.map((s:any)=>s.key)).toEqual(['hr']);
+  expect(hr.data.sections[0].metrics.find((m:any)=>m.label==='Active employees').value).toBeGreaterThan(0);
+  expect(JSON.stringify(hr.data)).not.toMatch(/gross_minor|net_minor|payroll_lines|grievance narrative/i);
+  const county=await request('/api/analytics/summary',undefined,'COUNTY_OFFICER',employeeUser,office);
+  expect(county.data.sections.map((s:any)=>s.key)).toEqual(['procurement','assets']);
+  expect((await request('/api/analytics/summary',undefined,'',maker,office)).status).toBe(401);
+  const md=await request('/api/analytics/summary',undefined,'MANAGING_DIRECTOR');
+  expect(md.data.sections.map((s:any)=>s.key)).toEqual(['hr','finance','procurement','assets','it','audit']);
+  expect(md.data.asOf).toBeTruthy();
  });
  it('tracks signed employment terms, prevents overlapping contracts, and requires independent closure',async()=>{
   const contract=await request('/api/hr/contracts',{employeeId,contractReference:'CONTRACT-TEST-1',contractType:'FIXED_TERM',startDate:'2026-01-01',endDate:'2027-01-01',signedDocumentReference:'PERSONNEL-FILE/CONTRACT-1'});

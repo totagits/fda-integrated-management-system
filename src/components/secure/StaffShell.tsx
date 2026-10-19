@@ -1,10 +1,11 @@
 import React from 'react';
-import { Box, Coins, History, LayoutDashboard, LifeBuoy, Settings, ShoppingCart, User, Users, LogOut } from 'lucide-react';
+import { BarChart3, Box, Coins, History, LayoutDashboard, LifeBuoy, Settings, ShoppingCart, User, Users, LogOut } from 'lucide-react';
 import { FDA_LOGO_URL } from '../../assets/logo';
 export const staffSections = (roles: string[]) => {
   const has = (...allowed: string[]) => roles.some(role => allowed.includes(role));
   return [
     {id:'overview',label:'My Role Dashboard',icon:LayoutDashboard,show:true},
+    {id:'analytics',label:'Analytics & Reports',icon:BarChart3,show:true},
     {id:'hr',label:'HRMIS & Personnel',icon:Users,show:has('MANAGING_DIRECTOR','HR_DIRECTOR')},
     {id:'ethics',label:'Independent Grievance Review',icon:LifeBuoy,show:has('ETHICS_OFFICER')},
     {id:'accounting',label:'Accounts & Periods',icon:Coins,show:has('MANAGING_DIRECTOR','FINANCE_DIRECTOR','INTERNAL_AUDITOR')},

@@ -3,6 +3,7 @@ import { registerEnterprise } from './enterprise.js';
 import { registerSealedBidding } from './sealed-bidding.js';
 import { registerSupport } from './support.js';
 import { registerDepartments, departmentAuth, DEPARTMENT_ROLES } from './departments.js';
+import { registerAnalytics } from './analytics.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -900,6 +901,7 @@ app.get('/api/records/:type/:id/attachments',loadAuth,route(async(req,res)=>{
 }));
 
 const departmentServices=registerDepartments(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess });
+registerAnalytics(app, { pool, route, loadAuth, scopedUnits });
 registerEnterprise(app, { pool, transaction, writeAudit, route, loadAuth, csrfRequired, scopedUnits, assertOrgAccess, ...departmentServices });
 registerSealedBidding(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,scopedUnits,assertOrgAccess});
 registerSupport(app,{pool,transaction,writeAudit,route,loadAuth,csrfRequired,uuid});
