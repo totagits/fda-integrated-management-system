@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { usePublicPortal } from './usePublicPortal';
 import { FDA_LOGO_URL } from '../../assets/logo';
-import { LIBERIA_SEAL_URL } from '../../assets/liberiaSeal';
-import { FdaPhotoCarousel } from './FdaPhotoCarousel';
 import { PublicArchitecture } from './PublicArchitecture';
 import {
   FileText,
@@ -10,8 +8,21 @@ import {
   CheckCircle2,
   ExternalLink,
   LogIn,
-  Layers
+  Layers,
+  UsersRound,
+  WalletCards,
+  ClipboardList,
+  Boxes,
+  ShieldCheck,
+  ArrowUpRight
 } from 'lucide-react';
+
+const workspaces = [
+  { title: 'Human resources', detail: 'Workforce, employee services and development', icon: UsersRound },
+  { title: 'Financial management', detail: 'Budgets, accounting and financial controls', icon: WalletCards },
+  { title: 'Procurement & supply chain', detail: 'Sourcing, contracts, inventory and distribution', icon: ClipboardList },
+  { title: 'Assets & fleet', detail: 'Custody, maintenance and lifecycle records', icon: Boxes },
+];
 
 export const LandingPage: React.FC = () => {
   const { publicTenders, bidderQueries, loading, error, reload } = usePublicPortal();
@@ -35,105 +46,54 @@ export const LandingPage: React.FC = () => {
   const formatDate = (value: string) => new Date(value).toLocaleString('en-GB', { timeZone: 'Africa/Monrovia', dateStyle: 'medium', timeStyle: 'short' }) + ' Liberia Time';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      
-      {/* Top Governmental Bar */}
-      <div className="bg-forest-950 text-forest-200 text-xs py-1.5 px-4 sm:px-6 lg:px-8 border-b border-forest-900 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Forestry Development Authority (FDA) • Republic of Liberia</span>
-        </div>
-        <div className="hidden md:flex items-center space-x-4 text-[11px] text-forest-300">
-          <span>Whein Town, Bernard Farm, Montserrado County</span>
-          <span>•</span>
-          <span>Act of 1976 & Reform Law of 2006</span>
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+          <a href="/" className="flex min-w-0 items-center gap-3" aria-label="FDA Enterprise Management System home">
+            <img src={FDA_LOGO_URL} alt="Forestry Development Authority" className="h-11 w-14 shrink-0 object-contain" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-extrabold tracking-tight text-slate-950 sm:text-base">FDA Enterprise Management System</span>
+              <span className="block text-[11px] font-medium text-slate-500">Forestry Development Authority • Republic of Liberia</span>
+            </span>
+          </a>
 
-      {/* Main Header / Navigation */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 min-h-20 py-4 flex flex-wrap items-center justify-between gap-4">
-          
-          {/* Logo & Agency Identity */}
-          <div className="flex items-center space-x-3.5 shrink-0">
-            <div className="flex items-center justify-center shrink-0">
-              <img
-                src={FDA_LOGO_URL}
-                alt="Forestry Development Authority Logo"
-                className="h-12 w-auto object-contain drop-shadow-sm"
-                onError={(e) => {
-                  // Fallback if image fails to load
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            </div>
-            <div>
-              <h1 className="font-extrabold text-slate-900 text-sm sm:text-lg tracking-wide uppercase leading-tight">
-                Forestry Development Authority
-              </h1>
-              <p className="text-[10px] sm:text-xs text-forest-800 font-semibold tracking-wide">
-                Republic of Liberia • Integrated Information Platform
-              </p>
-            </div>
-          </div>
-
-          {/* Navigation Links */}
-          <nav className="flex order-3 2xl:order-none w-full 2xl:w-auto flex-wrap items-center justify-center gap-4 text-xs font-bold text-slate-700">
+          <nav aria-label="Public services" className="order-3 flex w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-semibold text-slate-600 sm:order-none sm:w-auto sm:justify-end">
             <button
               onClick={() => setActiveSection('OVERVIEW')}
-              className={`hover:text-forest-800 transition ${activeSection === 'OVERVIEW' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
+              className={`transition hover:text-forest-800 ${activeSection === 'OVERVIEW' ? 'text-forest-800' : ''}`}
             >
-              Home & Mandate
+              Platform
             </button>
             <button
               onClick={() => setActiveSection('TENDERS')}
-              className={`hover:text-forest-800 transition ${activeSection === 'TENDERS' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
+              className={`transition hover:text-forest-800 ${activeSection === 'TENDERS' ? 'text-forest-800' : ''}`}
             >
-              Public Procurement Tenders {(!loading && !error && publicTenders.length > 0) && `(${publicTenders.length})`}
+              Public tenders {(!loading && !error && publicTenders.length > 0) && <span className="ml-1 rounded-full bg-forest-100 px-1.5 py-0.5 text-[10px]">{publicTenders.length}</span>}
             </button>
             <button
               onClick={() => setActiveSection('BIDDER_PORTAL')}
-              className={`hover:text-forest-800 transition ${activeSection === 'BIDDER_PORTAL' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
+              className={`transition hover:text-forest-800 ${activeSection === 'BIDDER_PORTAL' ? 'text-forest-800' : ''}`}
             >
-              Bidder Clarification Portal {(!loading && !error && bidderQueries.length > 0) && `(${bidderQueries.length})`}
+              Clarifications {(!loading && !error && bidderQueries.length > 0) && <span className="ml-1 rounded-full bg-forest-100 px-1.5 py-0.5 text-[10px]">{bidderQueries.length}</span>}
             </button>
-            <a href="/bidder" className="rounded bg-gold-400 px-3 py-1.5 text-forest-950 hover:bg-gold-300">Supplier registration / sign in</a>
             <button
               onClick={() => setActiveSection('ARCHITECTURE')}
-              className={`hover:text-forest-800 transition ${activeSection === 'ARCHITECTURE' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
+              className={`transition hover:text-forest-800 ${activeSection === 'ARCHITECTURE' ? 'text-forest-800' : ''}`}
             >
               Platform overview
             </button>
           </nav>
 
-          {/* Intranet ERP Login Button & Republic of Liberia Seal */}
-          <div className="flex items-center space-x-3 shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
+            <a href="/bidder" className="hidden rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 sm:inline-flex">Supplier portal</a>
             <button
               onClick={() => window.location.assign('/secure')}
-              className="inline-flex items-center space-x-2 bg-forest-800 hover:bg-forest-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold shadow-md hover:shadow-lg transition shrink-0 whitespace-nowrap"
+              className="inline-flex items-center gap-2 rounded-lg bg-forest-800 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-forest-700"
             >
-              <LogIn className="w-4 h-4 text-gold-400" />
-              <span>Access Staff Intranet / ERP</span>
+              <LogIn className="h-4 w-4 text-gold-400" />
+              <span>Staff sign in</span>
             </button>
-
-            {/* Republic of Liberia National Seal */}
-            <div className="hidden sm:flex items-center pl-3 border-l border-slate-200 shrink-0">
-              <div
-                className="flex items-center justify-center shrink-0"
-                title="Republic of Liberia • The Love of Liberty Brought Us Here"
-              >
-                <img
-                  src={LIBERIA_SEAL_URL}
-                  alt="Republic of Liberia National Seal"
-                  className="h-11 w-11 object-contain drop-shadow-sm"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
-                  }}
-                />
-              </div>
-            </div>
           </div>
-
         </div>
       </header>
 
@@ -142,92 +102,75 @@ export const LandingPage: React.FC = () => {
         {error && <div role="alert" className="mx-auto max-w-7xl px-5 pt-5"><div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">Public records could not be loaded. {error} <button onClick={() => void reload()} className="ml-2 font-bold underline">Retry</button></div></div>}
 
 
-        {/* 1. HERO SECTION */}
+        {/* Product landing */}
         {activeSection === 'OVERVIEW' && (
-          <section className="relative overflow-hidden bg-gradient-to-b from-forest-900 via-forest-900 to-forest-950 text-white py-12 lg:py-16">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-                
-                {/* Left Column: Hero Title, Subtitle, CTAs */}
-                <div className="lg:col-span-6 space-y-6">
-                  
-                  <div className="inline-flex items-center space-x-2 bg-gold-500/20 text-gold-300 border border-gold-400/30 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider">
-                    <span>Liberia Forest Sector Governance</span>
-                    <span>•</span>
-                    <span>Headquarters • Regions • Counties</span>
-                  </div>
-
-                  <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight">
-                    Integrated Forest Management & Enterprise Information System
-                  </h1>
-
-                  <p className="text-sm sm:text-base text-forest-100 font-normal leading-relaxed max-w-xl">
-                    The Forestry Development Authority (FDA) manages, protects, conserves, and sustainably develops Liberia’s forest resources under the Act of 1976 and the National Forestry Reform Law of 2006.
-                  </p>
-
-                  <p className="text-xs text-forest-200 leading-relaxed max-w-xl border-l-2 border-gold-500 pl-3">
-                    This portal provides public procurement and supplier services, alongside a separate authenticated workspace for FDA staff. Internal workflows and connections to external government or forestry systems are subject to FDA approval, operational verification, and acceptance.
-                  </p>
-
-                  {/* Hero CTAs */}
-                  <div className="flex flex-wrap gap-3 pt-2">
-                    <button
-                      onClick={() => window.location.assign('/secure')}
-                      className="inline-flex items-center space-x-2 bg-gold-600 hover:bg-gold-500 text-slate-950 text-xs sm:text-sm font-bold px-5 py-3 rounded-lg shadow-lg hover:shadow-xl transition"
-                    >
-                      <LogIn className="w-4 h-4" />
-                      <span>Access FDA Staff Intranet (ERP)</span>
-                    </button>
-
-                    <button
-                      onClick={() => setActiveSection('TENDERS')}
-                      className="inline-flex items-center space-x-2 bg-forest-800 hover:bg-forest-700 text-white border border-forest-600 text-xs sm:text-sm font-semibold px-4 py-3 rounded-lg transition"
-                    >
-                      <FileText className="w-4 h-4 text-emerald-400" />
-                      <span>View Public Procurement Tenders</span>
-                    </button>
-                    <a href="/sealed-bid" className="inline-flex items-center space-x-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-semibold px-4 py-3 rounded-lg transition"><span>Invited Sealed Bid Submission</span><ExternalLink className="w-4 h-4"/></a>
-
-                    <button
-                      onClick={() => setActiveSection('BIDDER_PORTAL')}
-                      className="inline-flex items-center space-x-2 bg-forest-950/80 hover:bg-forest-950 text-forest-200 border border-forest-700 text-xs sm:text-sm font-medium px-4 py-3 rounded-lg transition"
-                    >
-                      <MessageSquare className="w-4 h-4 text-amber-400" />
-                      <span>Bidder Clarification Portal</span>
-                    </button>
-
-                    <button
-                      onClick={() => setActiveSection('ARCHITECTURE')}
-                      className="inline-flex items-center space-x-2 bg-forest-950/80 hover:bg-forest-950 text-emerald-300 border border-emerald-600/50 text-xs sm:text-sm font-medium px-4 py-3 rounded-lg transition"
-                    >
-                      <Layers className="w-4 h-4 text-emerald-400" />
-                      <span>Platform overview</span>
-                    </button>
-                  </div>
-
-                  {/* Trust Badges */}
-                  <div className="pt-4 border-t border-forest-800/80 grid grid-cols-3 gap-3 text-xs text-forest-200">
-                    <div>
-                      <span className="block font-bold text-white text-base">Public services</span>
-                      <span className="text-[11px] text-forest-300">Notices • Suppliers • Clarifications</span>
-                    </div>
-                    <div>
-                      <span className="block font-bold text-white text-base">Staff workspace</span>
-                      <span className="text-[11px] text-forest-300">Authenticated access</span>
-                    </div>
-                    <div>
-                      <span className="block font-bold text-white text-base">Multi-office</span>
-                      <span className="text-[11px] text-forest-300">HQ • Regions • Counties</span>
-                    </div>
-                  </div>
-
+          <section className="relative overflow-hidden border-b border-slate-200 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-forest-100 via-white to-slate-50">
+            <div className="mx-auto grid max-w-[1440px] gap-10 px-4 py-12 sm:px-6 lg:grid-cols-12 lg:items-center lg:gap-14 lg:px-8 lg:py-16">
+              <div className="lg:col-span-6">
+                <div className="inline-flex items-center gap-2 rounded-full border border-forest-200 bg-white/80 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-forest-800 shadow-sm">
+                  <Layers className="h-3.5 w-3.5" />
+                  Enterprise management platform
                 </div>
-
-                {/* Right Column: Dynamic Interactive Carousel of Authentic FDA Photos from fda.gov.lr */}
-                <div className="lg:col-span-6">
-                  <FdaPhotoCarousel />
+                <h1 className="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.08] tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+                  One operating platform for FDA.
+                </h1>
+                <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
+                  A role-based digital workspace designed to connect people, finance, procurement, supply chain, and asset operations across FDA offices.
+                </p>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
+                  Internal workflows are available to authorized staff as they are approved and brought into operational use. Public notices and supplier services are available separately.
+                </p>
+                <div className="mt-7 flex flex-wrap gap-3">
+                  <button onClick={() => window.location.assign('/secure')} className="inline-flex items-center gap-2 rounded-lg bg-forest-800 px-5 py-3 text-sm font-bold text-white shadow-md transition hover:bg-forest-700">
+                    <LogIn className="h-4 w-4 text-gold-400" /> Staff sign in
+                  </button>
+                  <button onClick={() => setActiveSection('TENDERS')} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-forest-300 hover:text-forest-800">
+                    <FileText className="h-4 w-4" /> Public procurement
+                  </button>
+                  <a href="/bidder" className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-bold text-forest-800 transition hover:bg-forest-50">
+                    Supplier portal <ArrowUpRight className="h-4 w-4" />
+                  </a>
+                  <a href="/sealed-bid" className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900">
+                    Invited sealed bid <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
                 </div>
+                <div className="mt-8 flex items-start gap-3 border-t border-slate-200 pt-5 text-xs leading-5 text-slate-500">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-forest-700" />
+                  <p>Separate public and staff access. Staff data and tools require an authenticated account and assigned permissions.</p>
+                </div>
+              </div>
 
+              <div className="lg:col-span-6">
+                <section aria-labelledby="workspace-overview" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_-35px_rgba(15,23,42,0.45)]">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-forest-700">FDA | ERP</p>
+                      <h2 id="workspace-overview" className="mt-1 text-base font-bold text-slate-900">Role-based workspaces</h2>
+                    </div>
+                    <div className="rounded-xl bg-forest-800 p-2.5 text-white"><Layers className="h-5 w-5" /></div>
+                  </div>
+                  <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+                    {workspaces.map(({ title, detail, icon: Icon }, index) => (
+                      <article key={title} className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-forest-300 hover:bg-forest-50/50">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className={`grid h-10 w-10 place-items-center rounded-lg ${index % 2 === 0 ? 'bg-forest-100 text-forest-800' : 'bg-amber-100 text-amber-900'}`}>
+                            <Icon aria-hidden="true" className="h-5 w-5" />
+                          </span>
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Workspace 0{index + 1}</span>
+                        </div>
+                        <h3 className="mt-4 text-sm font-bold text-slate-900">{title}</h3>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                    <span>Access is controlled by assigned role and office scope.</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-forest-800"><ShieldCheck className="h-3.5 w-3.5" /> Secure staff access</span>
+                  </div>
+                </section>
+                <div className="mt-4 flex items-center justify-between px-1 text-[11px] font-medium text-slate-500">
+                  <span>Headquarters</span><span className="h-px flex-1 mx-3 bg-slate-300" /><span>Regional offices</span><span className="h-px flex-1 mx-3 bg-slate-300" /><span>Counties</span>
+                </div>
               </div>
             </div>
           </section>
