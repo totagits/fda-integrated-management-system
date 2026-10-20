@@ -5,18 +5,9 @@ import { LIBERIA_SEAL_URL } from '../../assets/liberiaSeal';
 import { FdaPhotoCarousel } from './FdaPhotoCarousel';
 import { PublicArchitecture } from './PublicArchitecture';
 import {
-  TreePine,
-  Shield,
   FileText,
   MessageSquare,
-  ArrowRight,
   CheckCircle2,
-  Clock,
-  Building,
-  Users,
-  Compass,
-  Download,
-  AlertCircle,
   ExternalLink,
   LogIn,
   Layers
@@ -98,20 +89,20 @@ export const LandingPage: React.FC = () => {
               onClick={() => setActiveSection('TENDERS')}
               className={`hover:text-forest-800 transition ${activeSection === 'TENDERS' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
             >
-              Public Procurement Tenders {(!loading && !error) && `(${publicTenders.length})`}
+              Public Procurement Tenders {(!loading && !error && publicTenders.length > 0) && `(${publicTenders.length})`}
             </button>
             <button
               onClick={() => setActiveSection('BIDDER_PORTAL')}
               className={`hover:text-forest-800 transition ${activeSection === 'BIDDER_PORTAL' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
             >
-              Bidder Clarification Portal {(!loading && !error) && `(${bidderQueries.length})`}
+              Bidder Clarification Portal {(!loading && !error && bidderQueries.length > 0) && `(${bidderQueries.length})`}
             </button>
             <a href="/bidder" className="rounded bg-gold-400 px-3 py-1.5 text-forest-950 hover:bg-gold-300">Supplier registration / sign in</a>
             <button
               onClick={() => setActiveSection('ARCHITECTURE')}
               className={`hover:text-forest-800 transition ${activeSection === 'ARCHITECTURE' ? 'text-forest-800 border-b-2 border-forest-800 pb-1' : ''}`}
             >
-              Enterprise Architecture & Specs
+              Platform overview
             </button>
           </nav>
 
@@ -175,7 +166,7 @@ export const LandingPage: React.FC = () => {
                   </p>
 
                   <p className="text-xs text-forest-200 leading-relaxed max-w-xl border-l-2 border-gold-500 pl-3">
-                    Replacing fragmented manual operations with controlled digital workflows across Human Resources, Financial Vote Books, PPCC Public Procurement, and Fixed Asset Registers from Bernard Farm HQ to remote county outposts.
+                    This portal provides public procurement and supplier services, alongside a separate authenticated workspace for FDA staff. Internal workflows and connections to external government or forestry systems are subject to FDA approval, operational verification, and acceptance.
                   </p>
 
                   {/* Hero CTAs */}
@@ -210,23 +201,23 @@ export const LandingPage: React.FC = () => {
                       className="inline-flex items-center space-x-2 bg-forest-950/80 hover:bg-forest-950 text-emerald-300 border border-emerald-600/50 text-xs sm:text-sm font-medium px-4 py-3 rounded-lg transition"
                     >
                       <Layers className="w-4 h-4 text-emerald-400" />
-                      <span>Architecture & API Gateways</span>
+                      <span>Platform overview</span>
                     </button>
                   </div>
 
                   {/* Trust Badges */}
                   <div className="pt-4 border-t border-forest-800/80 grid grid-cols-3 gap-3 text-xs text-forest-200">
                     <div>
-                      <span className="block font-bold text-white text-base">15 Counties</span>
-                      <span className="text-[11px] text-forest-300">County Operations</span>
+                      <span className="block font-bold text-white text-base">Public services</span>
+                      <span className="text-[11px] text-forest-300">Notices • Suppliers • Clarifications</span>
                     </div>
                     <div>
-                      <span className="block font-bold text-white text-base">GoL IFMIS</span>
-                      <span className="text-[11px] text-forest-300">Integration Boundary</span>
+                      <span className="block font-bold text-white text-base">Staff workspace</span>
+                      <span className="text-[11px] text-forest-300">Authenticated access</span>
                     </div>
                     <div>
-                      <span className="block font-bold text-white text-base">SGS LiberTrace</span>
-                      <span className="text-[11px] text-forest-300">Integration Boundary</span>
+                      <span className="block font-bold text-white text-base">Multi-office</span>
+                      <span className="text-[11px] text-forest-300">HQ • Regions • Counties</span>
                     </div>
                   </div>
 
@@ -274,7 +265,7 @@ export const LandingPage: React.FC = () => {
             {/* Tender Cards */}
             <div className="space-y-4">
               {loading && <p role="status" className="rounded-xl border bg-white p-6 text-sm text-slate-600">Loading published procurement notices…</p>}
-              {!loading && !error && publicTenders.length === 0 && <div className="rounded-xl border border-slate-200 bg-white p-8 text-center"><FileText className="mx-auto mb-3 h-8 w-8 text-forest-700"/><h3 className="font-bold text-slate-900">No procurement notices published</h3><p className="mt-2 text-sm text-slate-600">Approved notices will appear here when the procurement team publishes them.</p></div>}
+              {!loading && !error && publicTenders.length === 0 && <div className="rounded-xl border border-slate-200 bg-white p-8 text-center"><FileText className="mx-auto mb-3 h-8 w-8 text-forest-700"/><h3 className="font-bold text-slate-900">No notices currently published</h3><p className="mt-2 text-sm text-slate-600">Approved notices will appear here when the procurement team publishes them.</p></div>}
               {publicTenders.map(tender => (
                 <div
                   key={tender.id}
@@ -399,9 +390,9 @@ export const LandingPage: React.FC = () => {
                     <h3 className="text-sm font-bold text-slate-900">Official Tender Clarifications & Addenda</h3>
                     <p className="text-xs text-slate-500">Public record of responses issued by FDA Procurement Evaluation Team</p>
                   </div>
-                  <span className="text-xs font-mono font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded border border-forest-200">
+                  {(loading || error || bidderQueries.length > 0) && <span className="text-xs font-mono font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded border border-forest-200">
                     {loading ? 'Loading…' : error ? 'Unavailable' : `${bidderQueries.length} Published replies`}
-                  </span>
+                  </span>}
                 </div>
 
                 <div className="space-y-3">
@@ -506,16 +497,10 @@ export const LandingPage: React.FC = () => {
             </div>
 
             <div>
-              <h4 className="font-bold text-white uppercase text-xs mb-3">Executive Intranet</h4>
-              <p className="text-[11px] text-forest-300 mb-3">
-                Authorized staff, finance officers, rangers, and management may log into the internal ERP.
+              <h4 className="font-bold text-white uppercase text-xs mb-3">Staff workspace</h4>
+              <p className="text-[11px] text-forest-300">
+                FDA staff use the authenticated workspace. Access is available from the sign-in button at the top of this page.
               </p>
-              <button
-                onClick={() => window.location.assign('/secure')}
-                className="w-full bg-forest-800 hover:bg-forest-700 text-white text-xs px-3 py-2 rounded-lg font-bold transition shadow border border-forest-700"
-              >
-                Access Staff ERP Portal
-              </button>
             </div>
 
           </div>

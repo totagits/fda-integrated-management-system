@@ -105,7 +105,7 @@ export const SecurePortal:React.FC=()=>{
 
   const submitLogin=async(event:FormEvent)=>{
     event.preventDefault();setBusy(true);setError('');
-    try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})});setPassword('');await refresh();}
+    try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})});setPassword('');setSection('overview');await refresh();}
     catch(err){setError(err instanceof Error?err.message:'Sign in failed.');}
     finally{setBusy(false);}
   };
