@@ -115,7 +115,7 @@ export const LandingPage: React.FC = () => {
                   One operating platform for FDA.
                 </h1>
                 <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
-                  A role-based digital workspace designed to connect people, finance, procurement, supply chain, and asset operations across FDA offices.
+                  A role-based digital workspace designed to connect FDA staff and employees with finance, procurement, supply chain, and asset operations across FDA offices.
                 </p>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
                   Internal workflows are available to authorized staff as they are approved and brought into operational use. Public notices and supplier services are available separately.
@@ -128,7 +128,7 @@ export const LandingPage: React.FC = () => {
                     Supplier portal <ArrowUpRight className="h-4 w-4" />
                   </a>
                   <a href="/sealed-bid" className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900">
-                    Invited sealed bid <ExternalLink className="h-3.5 w-3.5" />
+                    Invited sealed-bid upload <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 </div>
                 <div className="mt-8 flex items-start gap-3 border-t border-slate-200 pt-5 text-xs leading-5 text-slate-500">
