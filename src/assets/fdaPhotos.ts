@@ -15,12 +15,14 @@ export interface FDAPhotoSlide {
   badge: string;
   caption: string;
   sourceUrl: string;
+  imagePosition?: string;
 }
 
 export const FDA_CAROUSEL_SLIDES: FDAPhotoSlide[] = [
   {
     id: 'slide-1',
     image: carbonPolicyImg,
+    imagePosition: 'right center',
     category: 'National Policy',
     badge: 'Executive Briefing',
     title: 'National Carbon Market Policy Presented to President Boakai',

@@ -41,6 +41,7 @@ export const FdaPhotoCarousel: React.FC = () => {
         src={currentSlide.image}
         alt={currentSlide.title}
         className="absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-in-out transform group-hover:scale-102"
+        style={{ objectPosition: currentSlide.imagePosition ?? 'center center' }}
       />
 
       {/* Subtle Bottom Gradient for Minimal Caption Legibility */}
