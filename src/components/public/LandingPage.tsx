@@ -18,10 +18,10 @@ import {
 } from 'lucide-react';
 
 const workspaces = [
-  { title: 'Human resources', detail: 'Workforce, employee services and development', icon: UsersRound },
-  { title: 'Financial management', detail: 'Budgets, accounting and financial controls', icon: WalletCards },
-  { title: 'Procurement & supply chain', detail: 'Sourcing, contracts, inventory and distribution', icon: ClipboardList },
-  { title: 'Assets & fleet', detail: 'Custody, maintenance and lifecycle records', icon: Boxes },
+  { title: 'Human resources', detail: 'Workforce, employee services and development', section: 'hr', icon: UsersRound },
+  { title: 'Financial management', detail: 'Budgets, accounting and financial controls', section: 'finance', icon: WalletCards },
+  { title: 'Procurement & supply chain', detail: 'Sourcing, contracts, inventory and distribution', section: 'workflow', icon: ClipboardList },
+  { title: 'Assets & fleet', detail: 'Custody, maintenance and lifecycle records', section: 'assets', icon: Boxes },
 ];
 
 export const LandingPage: React.FC = () => {
@@ -111,7 +111,7 @@ export const LandingPage: React.FC = () => {
                   <Layers className="h-3.5 w-3.5" />
                   Enterprise management platform
                 </div>
-                <h1 className="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.08] tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+                <h1 className="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.08] tracking-tight text-forest-800 sm:text-5xl lg:text-6xl">
                   One operating platform for FDA.
                 </h1>
                 <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
@@ -121,9 +121,6 @@ export const LandingPage: React.FC = () => {
                   Internal workflows are available to authorized staff as they are approved and brought into operational use. Public notices and supplier services are available separately.
                 </p>
                 <div className="mt-7 flex flex-wrap gap-3">
-                  <button onClick={() => window.location.assign('/secure')} className="inline-flex items-center gap-2 rounded-lg bg-forest-800 px-5 py-3 text-sm font-bold text-white shadow-md transition hover:bg-forest-700">
-                    <LogIn className="h-4 w-4 text-gold-400" /> Staff sign in
-                  </button>
                   <button onClick={() => setActiveSection('TENDERS')} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-forest-300 hover:text-forest-800">
                     <FileText className="h-4 w-4" /> Public procurement
                   </button>
@@ -150,17 +147,17 @@ export const LandingPage: React.FC = () => {
                     <div className="rounded-xl bg-forest-800 p-2.5 text-white"><Layers className="h-5 w-5" /></div>
                   </div>
                   <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
-                    {workspaces.map(({ title, detail, icon: Icon }, index) => (
-                      <article key={title} className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-forest-300 hover:bg-forest-50/50">
+                    {workspaces.map(({ title, detail, section, icon: Icon }, index) => (
+                      <a key={title} href={`/secure?section=${section}`} aria-label={`Open ${title} workspace; sign in required`} className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-forest-400 hover:bg-forest-50/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-700 focus-visible:ring-offset-2">
                         <div className="flex items-start justify-between gap-3">
                           <span className={`grid h-10 w-10 place-items-center rounded-lg ${index % 2 === 0 ? 'bg-forest-100 text-forest-800' : 'bg-amber-100 text-amber-900'}`}>
                             <Icon aria-hidden="true" className="h-5 w-5" />
                           </span>
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Workspace 0{index + 1}</span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 group-hover:text-forest-800">Workspace 0{index + 1}<ArrowUpRight className="h-3 w-3" aria-hidden="true" /></span>
                         </div>
                         <h3 className="mt-4 text-sm font-bold text-slate-900">{title}</h3>
                         <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
-                      </article>
+                      </a>
                     ))}
                   </div>
                   <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
